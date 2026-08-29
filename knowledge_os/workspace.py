@@ -17,6 +17,7 @@ MANAGED_DIRS = {
     "projects": "project",
     "memory": "memory",
     "syntheses": "synthesis",
+    "discoveries": "discovery",
 }
 
 
@@ -83,11 +84,75 @@ def validate_workspace(workspace: Workspace) -> tuple[list[Document], list[Issue
             ids[record_id] = path
         documents.append(document)
 
+    documents_by_id = {document.metadata["id"]: document for document in documents}
     for document in documents:
         for field in ("related", "sources", "supersedes"):
             for target in document.metadata.get(field, []):
                 if target not in ids:
                     issues.append(Issue(document.path, f"unresolved relationship id {target!r} in {field}"))
+        if document.metadata["type"] == "discovery":
+            for index, evidence in enumerate(document.metadata["evidence"]):
+                if evidence["kind"] == "record" and evidence["reference"] not in ids:
+                    issues.append(
+                        Issue(
+                            document.path,
+                            f"unresolved evidence record id {evidence['reference']!r} in evidence[{index}]",
+                        )
+                    )
+        if document.metadata["type"] == "discovery" and document.metadata["status"] == "promoted":
+            metadata = document.metadata
+            discovery_id = metadata["id"]
+            target_id = metadata["reviews"][-1]["target"]
+            if target_id == discovery_id:
+                issues.append(Issue(document.path, "promoted discovery target must not reference itself"))
+                continue
+            target = documents_by_id.get(target_id)
+            if target is None:
+                issues.append(Issue(document.path, f"promoted discovery target {target_id!r} does not exist"))
+                continue
+
+            target_metadata = target.metadata
+            target_scope = target_metadata["scope"]
+            expected_type = "knowledge" if target_scope == "general" else "project"
+            if target_metadata["type"] != expected_type:
+                issues.append(
+                    Issue(
+                        document.path,
+                        f"promoted discovery target {target_id!r} with scope {target_scope!r} "
+                        f"must have type {expected_type!r}",
+                    )
+                )
+            discovery_scope = metadata["scope"]
+            if (
+                discovery_scope.startswith("project:")
+                and target_scope.startswith("project:")
+                and target_scope != discovery_scope
+            ):
+                issues.append(
+                    Issue(
+                        document.path,
+                        f"project-scoped promoted discovery cannot target different project scope {target_scope!r}",
+                    )
+                )
+            if target_id not in metadata.get("related", []):
+                issues.append(Issue(document.path, f"promoted discovery related must contain target {target_id!r}"))
+            if discovery_id not in target_metadata.get("sources", []):
+                issues.append(
+                    Issue(
+                        document.path,
+                        f"promotion target {target_id!r} sources must contain discovery id {discovery_id!r}",
+                    )
+                )
+            if not any(
+                item.get("kind") == "discovery" and item.get("reference") == discovery_id
+                for item in target_metadata["provenance"]
+            ):
+                issues.append(
+                    Issue(
+                        document.path,
+                        f"promotion target {target_id!r} provenance must include discovery reference {discovery_id!r}",
+                    )
+                )
     return sorted(documents, key=lambda item: item.metadata["id"]), sorted(issues, key=lambda item: (str(item.path), item.message))
 
 

@@ -127,6 +127,7 @@ def search_index_terms(
     terms: Iterable[str],
     scopes: Iterable[str],
     statuses: Iterable[str],
+    types: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return eligible FTS matches ranked by distinct matched request terms.
 
@@ -147,8 +148,14 @@ def search_index_terms(
     allowed_statuses = tuple(dict.fromkeys(status for status in statuses if status.strip()))
     if not allowed_statuses:
         raise ValueError("context search requires at least one status")
+    allowed_types = tuple(dict.fromkeys(record_type for record_type in (types or ()) if record_type.strip()))
     scope_placeholders = ", ".join("?" for _ in allowed_scopes)
     status_placeholders = ", ".join("?" for _ in allowed_statuses)
+    type_clause = ""
+    if types is not None:
+        if not allowed_types:
+            raise ValueError("context search requires at least one type")
+        type_clause = f" AND type IN ({', '.join('?' for _ in allowed_types)})"
     connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
@@ -162,9 +169,10 @@ def search_index_terms(
                 WHERE documents_fts MATCH ?
                   AND scope IN ({scope_placeholders})
                   AND status IN ({status_placeholders})
+                  {type_clause}
                 ORDER BY id
                 """,
-                (_fts_query((term,)), *allowed_scopes, *allowed_statuses),
+                (_fts_query((term,)), *allowed_scopes, *allowed_statuses, *allowed_types),
             ).fetchall()
             for row in rows:
                 record_id = row["id"]

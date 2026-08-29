@@ -18,8 +18,10 @@ from .workspace import Workspace, validate_workspace
 
 
 USABLE_STATUSES = {"draft", "active", "verified"}
-STATUS_WEIGHTS = {"verified": 25, "active": 15, "draft": 5}
-TYPE_WEIGHTS = {"project": 30, "knowledge": 20, "synthesis": 15, "memory": 10, "source": 5}
+STATUS_WEIGHTS = {"verified": 25, "active": 15, "draft": 5, "retained": 15}
+TYPE_WEIGHTS = {"project": 30, "knowledge": 20, "synthesis": 15, "memory": 10, "source": 5, "discovery": 10}
+DISCOVERY_CONTEXT_STATUS = "retained"
+DISCOVERY_TRUST_LABEL = "reviewed observation; not established knowledge"
 SKILL_STATUSES = "operational"
 TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
 MAX_OMITTED_IDS = 10
@@ -54,6 +56,7 @@ class Candidate:
     fts_rank: int | None = None
     relationship_to: str | None = None
     score: int = 0
+    trust_label: str | None = None
 
 
 def estimate_tokens(text: str) -> int:
@@ -112,6 +115,7 @@ def _document_candidate(
         fts_rank=fts_rank,
         relationship_to=relationship_to,
         score=_document_score(metadata, project_scope, len(terms), fts_rank, relationship_to is not None),
+        trust_label=(DISCOVERY_TRUST_LABEL if metadata["type"] == "discovery" and metadata["status"] == DISCOVERY_CONTEXT_STATUS else None),
     )
 
 
@@ -250,8 +254,15 @@ def _with_relationship(candidate: Candidate, related_id: str, reason: str) -> Ca
     )
 
 
+def _context_eligible(document: Document, project_scope: str) -> bool:
+    metadata = document.metadata
+    if metadata["type"] == "discovery":
+        return metadata["status"] == DISCOVERY_CONTEXT_STATUS and metadata["scope"] == project_scope
+    return metadata["status"] in USABLE_STATUSES
+
+
 def _manifest_item(candidate: Candidate) -> dict[str, Any]:
-    return {
+    item = {
         "id": candidate.id,
         "title": candidate.title,
         "selection_mode": "mandatory" if candidate.discovery.startswith("mandatory-project") else "ranked",
@@ -267,6 +278,9 @@ def _manifest_item(candidate: Candidate) -> dict[str, Any]:
         "path": candidate.path,
         "provenance": candidate.provenance,
     }
+    if candidate.trust_label is not None:
+        item["trust"] = candidate.trust_label
+    return item
 
 
 def _render(
@@ -318,6 +332,7 @@ def _render(
                 f"**Type:** {candidate.type} | **Scope:** {candidate.scope} | **Status:** {candidate.status}",
                 f"**Path:** {candidate.path}",
                 f"**Selection:** {candidate.selection_reason}",
+                *([f"**Trust:** {candidate.trust_label}"] if candidate.trust_label is not None else []),
                 "**Content:**",
                 candidate.body,
                 f"--- END ITEM {candidate.id} ---",
@@ -368,6 +383,14 @@ def _collect_ranked_candidates(
         ("general", project_scope),
         sorted(USABLE_STATUSES),
     )
+    retained_discovery_rows = search_index_terms(
+        workspace,
+        request_terms,
+        (project_scope,),
+        (DISCOVERY_CONTEXT_STATUS,),
+        types=("discovery",),
+    )
+    fts_rows.extend(retained_discovery_rows)
     direct_ids: set[str] = set()
     candidates: dict[str, Candidate] = {}
     for row in fts_rows:
@@ -389,12 +412,12 @@ def _collect_ranked_candidates(
     relationship_sources.add(overview.metadata["id"])
     for source_id in sorted(relationship_sources):
         source = document_by_id.get(source_id)
-        if source is None or source.metadata["status"] not in USABLE_STATUSES:
+        if source is None or not _context_eligible(source, project_scope):
             continue
         for field in ("related", "sources", "supersedes"):
             for target_id in source.metadata.get(field, []):
                 target = document_by_id[target_id]
-                if target.metadata["status"] not in USABLE_STATUSES or target_id == overview.metadata["id"]:
+                if not _context_eligible(target, project_scope) or target_id == overview.metadata["id"]:
                     continue
                 if target_id in candidates:
                     candidates[target_id] = _with_relationship(
@@ -413,7 +436,7 @@ def _collect_ranked_candidates(
                     )
 
     for source in documents:
-        if source.metadata["status"] not in USABLE_STATUSES:
+        if not _context_eligible(source, project_scope):
             continue
         source_id = source.metadata["id"]
         for field in ("related", "sources", "supersedes"):
