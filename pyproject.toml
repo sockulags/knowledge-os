@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knowledge-os"
+version = "0.1.0"
+description = "Local-first filesystem-native durable knowledge tools"
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6,<7"]
+
+[project.scripts]
+kos = "knowledge_os.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["knowledge_os*"]
