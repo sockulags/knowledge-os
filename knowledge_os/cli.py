@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 from .context import ContextRequest, build_context
+from .context_policy import trust_label
 from .discovery import (
     add_discovery,
     inspect_discovery,
@@ -139,10 +140,16 @@ def _inspect(workspace: Workspace, record_id: str, full: bool) -> int:
         "path": workspace.relative(document.path),
         "provenance": document.metadata["provenance"],
         "excerpt": " ".join(document.body.strip().split())[:600],
+        "trust": trust_label(document),
     }
+    if document.metadata["type"] in {"knowledge", "project"}:
+        result["record_kind"] = document.metadata.get("record_kind", "ordinary")
+    if "verified" in document.metadata:
+        verified = document.metadata["verified"]
+        result["verified"] = verified.isoformat() if hasattr(verified, "isoformat") else verified
     if full:
         result["content"] = document.body
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=lambda value: value.isoformat()))
     return 0
 
 
@@ -172,7 +179,8 @@ def main(argv: list[str] | None = None) -> int:
                 for result in results:
                     print(
                         f"{result['id']}\t{result['title']}\t{result['type']}\t"
-                        f"{result['status']}\t{result['scope']}\t{result['path']}\t{result['snippet']}"
+                        f"{result['record_kind']}\t{result['status']}\t{result['scope']}\t"
+                        f"{result['path']}\t{result['snippet']}"
                     )
             return 0
         if args.command == "inspect":

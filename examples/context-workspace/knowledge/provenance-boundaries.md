@@ -2,7 +2,7 @@
 id: provenance-boundaries
 title: Provenance and verification boundaries
 type: knowledge
-status: verified
+status: active
 scope: general
 created: '2026-08-29'
 updated: '2026-08-29'

@@ -13,7 +13,7 @@ tags:
 
 ## Purpose and triggers
 
-Use when a local `.md`, `.markdown`, or `.txt` file should become a raw, provenance-bearing Knowledge OS source. Do not use this as a claim-verification or synthesis step.
+Use when a local `.md`, `.markdown`, or `.txt` file should become a raw, provenance-bearing Knowledge OS source. Do not use this as a claim-verification or synthesis step; sources remain searchable for audit but are excluded from default context.
 
 ## Inputs
 
@@ -23,7 +23,7 @@ Use when a local `.md`, `.markdown`, or `.txt` file should become a raw, provena
 ## Workflow
 
 1. Inspect `SYSTEM.md`, `README.md`, and `indexes/`.
-2. Run `kos ingest PATH`; it creates `sources/<stable-id>.md` only after validation and refreshes indexes.
+2. Run `kos ingest PATH`; it creates `sources/<stable-id>.md` only after current and intended-state validation, then refreshes disposable indexes under the workspace mutation lock.
 3. Run `kos lint` to validate all durable records.
 4. Use `kos inspect <id>` for the compact metadata and excerpt.
 5. Use `kos index` to explicitly rebuild the catalog when other durable mutations occurred.
@@ -35,7 +35,7 @@ Only `kos ingest` may create the generated source and refresh generated indexes 
 
 ## Expected outputs
 
-The command reports the stable source ID and an explicit index refresh. Re-ingesting identical bytes is a no-op. Search returns compact `id`, `title`, `type`, `status`, `scope`, `path`, and `snippet` fields.
+The command reports the stable source ID and an explicit index refresh. Re-ingesting identical bytes is a no-op. Search returns compact `id`, `title`, `type`, `record_kind`, `status`, `scope`, `path`, and `snippet` fields.
 
 ## Verification
 

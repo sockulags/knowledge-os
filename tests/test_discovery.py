@@ -12,6 +12,7 @@ from unittest.mock import patch
 import yaml
 
 import knowledge_os.discovery as discovery_module
+import knowledge_os.index as index_module
 from knowledge_os.workspace import Workspace
 
 
@@ -362,14 +363,14 @@ class DiscoveryWorkflowTests(unittest.TestCase):
             target_metadata = yaml.safe_load(target.read_text(encoding="utf-8").split("---", 2)[1])
             self.assertEqual(target_metadata["status"], "draft")
             self.assertEqual(target_metadata["type"], "project")
-            self.assertEqual(target_metadata["sources"], ["promotable-signal"])
+            self.assertNotIn("sources", target_metadata)
             self.assertEqual(target_metadata["provenance"], [{"kind": "discovery", "reference": "promotable-signal"}])
             self.assertEqual(target.read_text(encoding="utf-8").split("---", 2)[2].lstrip("\n"), "A unique promotable signal.\n")
 
             discovery = json.loads(run_kos(root, "discovery", "inspect", "promotable-signal").stdout)
             self.assertEqual(discovery["status"], "promoted")
             self.assertEqual(discovery["reviews"][-1]["target"], "promoted-project-fact")
-            self.assertIn("promoted-project-fact", discovery["relationships"]["related"])
+            self.assertNotIn("promoted-project-fact", discovery["relationships"]["related"])
 
             context = run_kos(
                 root,
@@ -541,23 +542,13 @@ class DiscoveryWorkflowTests(unittest.TestCase):
             ),
             (
                 "target type",
-                lambda discovery, target: target.update(type="knowledge"),
+                lambda discovery, target: target.update(type="memory"),
                 "must have type 'project'",
             ),
             (
                 "project scope",
                 lambda discovery, target: target.update(scope="project:other"),
                 "different project scope",
-            ),
-            (
-                "reciprocal related",
-                lambda discovery, target: discovery.update(related=[]),
-                "related must contain target",
-            ),
-            (
-                "target sources",
-                lambda discovery, target: target.pop("sources"),
-                "sources must contain discovery id",
             ),
             (
                 "target provenance",
@@ -586,7 +577,7 @@ class DiscoveryWorkflowTests(unittest.TestCase):
                     self.assertNotEqual(lint.returncode, 0)
                     self.assertIn(message, lint.stderr)
 
-    def test_promotion_fault_rolls_back_exact_canonical_and_index_snapshot(self) -> None:
+    def test_promotion_keeps_canonical_truth_when_index_refresh_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             create_workspace(root)
@@ -596,18 +587,7 @@ class DiscoveryWorkflowTests(unittest.TestCase):
                 "A unique fault-injected promotion.\n",
             )
             self.assertEqual(run_kos(root, "discovery", "add", input_path.name).returncode, 0)
-            before = snapshot_files(root)
-            original_atomic_write = discovery_module.atomic_write
-            failure_injected = False
-
-            def fail_after_discovery_write(path: Path, content: bytes) -> None:
-                nonlocal failure_injected
-                original_atomic_write(path, content)
-                if path == root / "discoveries" / "faulted-promotion.md" and not failure_injected:
-                    failure_injected = True
-                    raise OSError("injected live commit failure")
-
-            with patch.object(discovery_module, "atomic_write", side_effect=fail_after_discovery_write):
+            with patch.object(index_module, "_rebuild_indexes_locked", side_effect=OSError("injected index failure")):
                 with self.assertRaises(discovery_module.DiscoveryError) as failure:
                     discovery_module.promote_discovery(
                         Workspace(root),
@@ -616,81 +596,17 @@ class DiscoveryWorkflowTests(unittest.TestCase):
                         title="Faulted target",
                         scope="project:demo",
                     )
-            self.assertIn("canonical corpus and indexes were restored", str(failure.exception))
-            self.assertEqual(before, snapshot_files(root))
+            self.assertIn("canonical corpus is authoritative", str(failure.exception))
+            self.assertIn("kos lint", str(failure.exception))
+            self.assertTrue((root / "projects" / "faulted-target.md").is_file())
+            promoted = run_kos(root, "discovery", "inspect", "faulted-promotion")
+            self.assertEqual(promoted.returncode, 0, promoted.stderr)
+            self.assertEqual(json.loads(promoted.stdout)["status"], "promoted")
 
-    def test_exclusive_create_fsync_failure_removes_partial_target(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            create_workspace(root)
-            input_path = write_input(
-                root,
-                discovery_metadata("exclusive-create-failure"),
-                "A unique exclusive-create failure.\n",
-            )
-            self.assertEqual(run_kos(root, "discovery", "add", input_path.name).returncode, 0)
-            before = snapshot_files(root)
-            original_stage_and_verify = discovery_module._stage_and_verify
-            original_fsync = discovery_module.os.fsync
-            stage_complete = False
-
-            def mark_stage_complete(stage: Workspace) -> tuple[list[object], int]:
-                nonlocal stage_complete
-                result = original_stage_and_verify(stage)
-                stage_complete = True
-                return result
-
-            def fail_live_fsync(file_descriptor: int) -> None:
-                if stage_complete:
-                    raise OSError("injected exclusive-create fsync failure")
-                original_fsync(file_descriptor)
-
-            with (
-                patch.object(discovery_module, "_stage_and_verify", side_effect=mark_stage_complete),
-                patch.object(discovery_module.os, "fsync", side_effect=fail_live_fsync),
-            ):
-                with self.assertRaises(discovery_module.DiscoveryError) as failure:
-                    discovery_module.promote_discovery(
-                        Workspace(root),
-                        "exclusive-create-failure",
-                        target_id="exclusive-create-target",
-                        title="Exclusive create target",
-                        scope="project:demo",
-                    )
-            self.assertIn("canonical corpus and indexes were restored", str(failure.exception))
-            self.assertEqual(before, snapshot_files(root))
-
-    def test_newly_appeared_promotion_target_is_not_overwritten_or_deleted(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            create_workspace(root)
-            input_path = write_input(
-                root,
-                discovery_metadata("appeared-target"),
-                "A unique newly appeared target.\n",
-            )
-            self.assertEqual(run_kos(root, "discovery", "add", input_path.name).returncode, 0)
-            before = snapshot_files(root)
-            target_path = root / "projects" / "appeared-target-record.md"
-            appeared_bytes = b"external writer bytes\n"
-            original_stage_and_verify = discovery_module._stage_and_verify
-
-            def appear_after_stage(stage: Workspace) -> tuple[list[object], int]:
-                result = original_stage_and_verify(stage)
-                target_path.write_bytes(appeared_bytes)
-                return result
-
-            with patch.object(discovery_module, "_stage_and_verify", side_effect=appear_after_stage):
-                with self.assertRaises(discovery_module.DiscoveryError) as failure:
-                    discovery_module.promote_discovery(
-                        Workspace(root),
-                        "appeared-target",
-                        target_id="appeared-target-record",
-                        title="Appeared target",
-                        scope="project:demo",
-                    )
-            self.assertIn("expected projects/appeared-target-record.md to remain absent", str(failure.exception))
-            self.assertEqual(snapshot_files(root), {**before, Path("projects/appeared-target-record.md"): appeared_bytes})
+            lint = run_kos(root, "lint")
+            self.assertEqual(lint.returncode, 0, lint.stderr)
+            indexed = run_kos(root, "index")
+            self.assertEqual(indexed.returncode, 0, indexed.stderr)
 
 
 if __name__ == "__main__":

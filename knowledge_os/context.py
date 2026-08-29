@@ -6,23 +6,30 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime
 import json
 import math
-from pathlib import Path
 import re
 from typing import Any, Iterable
 
-import yaml
-
+from .context_policy import (
+    CONTEXT_DURABLE_STATUSES,
+    CONTEXT_DURABLE_TYPES,
+    DISCOVERY_CONTEXT_STATUS,
+    DISCOVERY_TRUST_LABEL,
+    OPERATIONAL_SKILL_TRUST_LABEL,
+    classify_context_document,
+    context_scopes,
+    context_search_statuses,
+    context_search_types,
+    is_context_eligible,
+)
 from .index import search_index_terms, validate_index
-from .model import ID_PATTERN, Document
+from .model import ID_PATTERN, Document, RELATION_FIELDS
+from .skills import Skill, load_skills, skill_search_terms
 from .workspace import Workspace, validate_workspace
 
 
-USABLE_STATUSES = {"draft", "active", "verified"}
-STATUS_WEIGHTS = {"verified": 25, "active": 15, "draft": 5, "retained": 15}
-TYPE_WEIGHTS = {"project": 30, "knowledge": 20, "synthesis": 15, "memory": 10, "source": 5, "discovery": 10}
-DISCOVERY_CONTEXT_STATUS = "retained"
-DISCOVERY_TRUST_LABEL = "reviewed observation; not established knowledge"
-SKILL_STATUSES = "operational"
+STATUS_WEIGHTS = {"active": 15, "draft": 5, "retained": 15}
+TYPE_WEIGHTS = {"project": 30, "knowledge": 20, "synthesis": 15, "memory": 10, "discovery": 10}
+SKILL_STATUS = "operational"
 TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
 MAX_OMITTED_IDS = 10
 
@@ -56,7 +63,9 @@ class Candidate:
     fts_rank: int | None = None
     relationship_to: str | None = None
     score: int = 0
-    trust_label: str | None = None
+    trust_label: str = ""
+    verified: str | None = None
+    record_kind: str | None = None
 
 
 def estimate_tokens(text: str) -> int:
@@ -98,7 +107,13 @@ def _document_candidate(
     relationship_to: str | None = None,
 ) -> Candidate:
     metadata = document.metadata
+    eligibility = classify_context_document(document, project_scope)
+    if eligibility is None:
+        raise ContextError(f"record {metadata['id']!r} is not eligible for context")
     terms = tuple(matched_terms)
+    record_kind = metadata.get("record_kind") if metadata["type"] in {"knowledge", "project"} else None
+    if metadata["type"] in {"knowledge", "project"} and record_kind is None:
+        record_kind = "ordinary"
     return Candidate(
         key=metadata["id"],
         id=metadata["id"],
@@ -115,7 +130,9 @@ def _document_candidate(
         fts_rank=fts_rank,
         relationship_to=relationship_to,
         score=_document_score(metadata, project_scope, len(terms), fts_rank, relationship_to is not None),
-        trust_label=(DISCOVERY_TRUST_LABEL if metadata["type"] == "discovery" and metadata["status"] == DISCOVERY_CONTEXT_STATUS else None),
+        trust_label=eligibility.trust_label,
+        verified=eligibility.verified,
+        record_kind=record_kind,
     )
 
 
@@ -135,107 +152,64 @@ def _document_score(
     return scope_bonus + match_bonus + fts_bonus + type_bonus + status_bonus + relationship_bonus
 
 
-def _parse_skill(workspace: Workspace, path: Path) -> Candidate:
-    try:
-        raw = path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
-    except UnicodeDecodeError as exc:
-        raise ContextError(f"skill file must be UTF-8 text: {workspace.relative(path)}") from exc
-    lines = raw.splitlines(keepends=True)
-    if not lines or lines[0].rstrip("\n") != "---":
-        raise ContextError(f"skill {workspace.relative(path)} is missing YAML frontmatter")
-    closing = next((index for index, line in enumerate(lines[1:], start=1) if line.rstrip("\n") == "---"), None)
-    if closing is None:
-        raise ContextError(f"skill {workspace.relative(path)} is missing YAML frontmatter closing delimiter")
-    try:
-        metadata = yaml.safe_load("".join(lines[1:closing]))
-    except yaml.YAMLError as exc:
-        raise ContextError(f"skill {workspace.relative(path)} has invalid YAML frontmatter: {exc}") from exc
-    if not isinstance(metadata, dict):
-        raise ContextError(f"skill {workspace.relative(path)} frontmatter must be an object")
-    unknown = sorted(set(metadata) - {"name", "description", "tags"})
-    if unknown:
-        raise ContextError(f"skill {workspace.relative(path)} has unknown frontmatter field(s): {', '.join(unknown)}")
-    name = metadata.get("name")
-    description = metadata.get("description")
-    if not isinstance(name, str) or not name.strip():
-        raise ContextError(f"skill {workspace.relative(path)} requires a non-empty name")
-    name = name.strip()
-    if not ID_PATTERN.fullmatch(name):
-        raise ContextError(f"skill {workspace.relative(path)} name must be lowercase kebab-case")
-    if not isinstance(description, str) or not description.strip():
-        raise ContextError(f"skill {workspace.relative(path)} requires a non-empty description")
-    tags = metadata.get("tags", [])
-    if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
-        raise ContextError(f"skill {workspace.relative(path)} tags must be a list of strings")
-    body = "".join(lines[closing + 1 :])
-    if body.startswith("\n"):
-        body = body[1:]
-    searchable = _terms(name, description, *tags)
+def _skill_candidate(workspace: Workspace, skill: Skill, request_terms: list[str]) -> Candidate | None:
+    searchable_terms = set(_terms(*skill_search_terms(skill)))
+    matched = tuple(term for term in request_terms if term in searchable_terms)
+    if len(matched) < 2:
+        return None
     return Candidate(
-        key=f"skill:{name}",
-        id=name,
-        title=description.strip(),
+        key=f"skill:{skill.name}",
+        id=skill.name,
+        title=skill.description,
         type="skill",
-        status=SKILL_STATUSES,
+        status=SKILL_STATUS,
         scope="operational",
-        path=workspace.relative(path),
-        provenance=[{"kind": "skill-file", "reference": workspace.relative(path)}],
-        body=body,
+        path=workspace.relative(skill.path),
+        provenance=[{"kind": "skill-file", "reference": workspace.relative(skill.path)}],
+        body=skill.body,
         discovery="relevant-skill",
-        selection_reason="",
-        matched_terms=tuple(searchable),
+        selection_reason=f"skill matches distinct request terms: {', '.join(matched)}",
+        matched_terms=matched,
+        score=len(matched) * 25 + 18,
+        trust_label=OPERATIONAL_SKILL_TRUST_LABEL,
     )
 
 
 def _skill_candidates(workspace: Workspace, request_terms: list[str]) -> list[Candidate]:
-    skills_root = workspace.root / "skills"
-    if not skills_root.is_dir():
-        return []
-    candidates: list[Candidate] = []
-    seen_names: set[str] = set()
-    for path in sorted(skills_root.glob("*/SKILL.md"), key=lambda item: workspace.relative(item)):
-        candidate = _parse_skill(workspace, path)
-        if candidate.id in seen_names:
-            raise ContextError(f"duplicate skill name {candidate.id!r}")
-        seen_names.add(candidate.id)
-        matched = tuple(term for term in request_terms if term in set(candidate.matched_terms))
-        if len(matched) < 2:
-            continue
-        candidates.append(
-            replace(
-                candidate,
-                matched_terms=matched,
-                selection_reason=f"skill matches distinct request terms: {', '.join(matched)}",
-                score=len(matched) * 25 + 18,
-            )
-        )
-    return candidates
+    skills, issues = load_skills(workspace.root)
+    if issues:
+        details = "\n".join(f"{path}: {message}" for path, message in issues)
+        raise ContextError(f"cannot use invalid skills:\n{details}")
+    return [candidate for skill in skills if (candidate := _skill_candidate(workspace, skill, request_terms)) is not None]
 
 
-def _resolve_project(documents: list[Document], project: str) -> tuple[Document, str]:
+def _resolve_project(documents: list[Document], project: str) -> Document:
     scope = f"project:{project}"
     scoped = [document for document in documents if document.metadata["scope"] == scope]
     if not scoped:
         raise ContextError(f"project {project!r} was not found (expected scope {scope!r})")
-    usable = [
-        document
-        for document in scoped
-        if document.metadata["status"] in USABLE_STATUSES
-    ]
-    if not usable:
-        raise ContextError(
-            f"project {project!r} has no usable context; all records in scope {scope!r} "
-            "are deprecated, superseded, or archived"
-        )
+
     exact = [
         document
-        for document in usable
+        for document in scoped
         if document.metadata["type"] == "project" and document.metadata["id"] == project
     ]
-    if exact:
-        return sorted(exact, key=lambda item: item.metadata["id"])[0], "mandatory-project-overview"
-    fallback = sorted(usable, key=lambda item: (item.metadata["id"], str(item.path)))[0]
-    return fallback, "mandatory-project-context-fallback"
+    if len(exact) != 1:
+        if len(exact) > 1:
+            raise ContextError(
+                f"project {project!r} has an ambiguous project overview; expected exactly one "
+                f"type 'project' record with id {project!r} and scope {scope!r}"
+            )
+        raise ContextError(
+            f"project {project!r} has no valid project overview; expected exactly one usable "
+            f"type 'project' record with id {project!r} and scope {scope!r}"
+        )
+    if not is_context_eligible(exact[0], scope):
+        raise ContextError(
+            f"project {project!r} has no usable project overview; the exact overview must have "
+            "draft or active status"
+        )
+    return exact[0]
 
 
 def _rank_key(candidate: Candidate) -> tuple[int, int, str, str]:
@@ -255,14 +229,11 @@ def _with_relationship(candidate: Candidate, related_id: str, reason: str) -> Ca
 
 
 def _context_eligible(document: Document, project_scope: str) -> bool:
-    metadata = document.metadata
-    if metadata["type"] == "discovery":
-        return metadata["status"] == DISCOVERY_CONTEXT_STATUS and metadata["scope"] == project_scope
-    return metadata["status"] in USABLE_STATUSES
+    return is_context_eligible(document, project_scope)
 
 
 def _manifest_item(candidate: Candidate) -> dict[str, Any]:
-    item = {
+    item: dict[str, Any] = {
         "id": candidate.id,
         "title": candidate.title,
         "selection_mode": "mandatory" if candidate.discovery.startswith("mandatory-project") else "ranked",
@@ -275,11 +246,14 @@ def _manifest_item(candidate: Candidate) -> dict[str, Any]:
         "type": candidate.type,
         "scope": candidate.scope,
         "status": candidate.status,
+        "trust": candidate.trust_label,
         "path": candidate.path,
         "provenance": candidate.provenance,
     }
-    if candidate.trust_label is not None:
-        item["trust"] = candidate.trust_label
+    if candidate.record_kind is not None:
+        item["record_kind"] = candidate.record_kind
+    if candidate.verified is not None:
+        item["verified"] = candidate.verified
     return item
 
 
@@ -290,12 +264,24 @@ def _render(
     excluded: list[Candidate],
     used_tokens: int,
 ) -> str:
+    project_scope = f"project:{request.project}"
     manifest = {
         "contract": "kos-context/v1",
         "request": {
             "project": request.project,
             "task": request.task,
             "work_item": request.work_item,
+        },
+        "eligibility": {
+            "included_scopes": list(context_scopes(request.project)),
+            "durable_types": list(CONTEXT_DURABLE_TYPES),
+            "durable_statuses": list(CONTEXT_DURABLE_STATUSES),
+            "retained_discovery": {
+                "scope": project_scope,
+                "status": DISCOVERY_CONTEXT_STATUS,
+                "trust": DISCOVERY_TRUST_LABEL,
+            },
+            "sources": "excluded from default context",
         },
         "budget": {
             "configured_tokens": request.budget,
@@ -325,14 +311,16 @@ def _render(
         "",
     ]
     for candidate in selected:
+        kind = candidate.record_kind if candidate.record_kind is not None else "n/a"
         lines.extend(
             [
                 f"--- BEGIN ITEM {candidate.id} ---",
                 f"**Title:** {candidate.title}",
-                f"**Type:** {candidate.type} | **Scope:** {candidate.scope} | **Status:** {candidate.status}",
+                f"**Type:** {candidate.type} | **Record kind:** {kind} | **Scope:** {candidate.scope} | **Status:** {candidate.status}",
+                f"**Trust:** {candidate.trust_label}",
+                *([f"**Verified:** {candidate.verified}"] if candidate.verified is not None else []),
                 f"**Path:** {candidate.path}",
                 f"**Selection:** {candidate.selection_reason}",
-                *([f"**Trust:** {candidate.trust_label}"] if candidate.trust_label is not None else []),
                 "**Content:**",
                 candidate.body,
                 f"--- END ITEM {candidate.id} ---",
@@ -377,11 +365,13 @@ def _collect_ranked_candidates(
     project_scope: str,
 ) -> list[Candidate]:
     document_by_id = {document.metadata["id"]: document for document in documents}
+    scopes = context_scopes(project_scope.removeprefix("project:"))
     fts_rows = search_index_terms(
         workspace,
         request_terms,
-        ("general", project_scope),
-        sorted(USABLE_STATUSES),
+        scopes,
+        context_search_statuses(),
+        types=context_search_types(),
     )
     retained_discovery_rows = search_index_terms(
         workspace,
@@ -395,15 +385,16 @@ def _collect_ranked_candidates(
     candidates: dict[str, Candidate] = {}
     for row in fts_rows:
         document = document_by_id[row["id"]]
+        if not _context_eligible(document, project_scope):
+            continue
         direct_ids.add(row["id"])
         matched = tuple(row["matched_terms"])
-        reason = f"FTS task/work-item match: {', '.join(matched)}"
         candidates[row["id"]] = _document_candidate(
             workspace,
             document,
             project_scope=project_scope,
             discovery="fts-task-work-item",
-            selection_reason=reason,
+            selection_reason=f"FTS task/work-item match: {', '.join(matched)}",
             matched_terms=matched,
             fts_rank=row["fts_rank"],
         )
@@ -414,7 +405,7 @@ def _collect_ranked_candidates(
         source = document_by_id.get(source_id)
         if source is None or not _context_eligible(source, project_scope):
             continue
-        for field in ("related", "sources", "supersedes"):
+        for field in RELATION_FIELDS:
             for target_id in source.metadata.get(field, []):
                 target = document_by_id[target_id]
                 if not _context_eligible(target, project_scope) or target_id == overview.metadata["id"]:
@@ -439,27 +430,27 @@ def _collect_ranked_candidates(
         if not _context_eligible(source, project_scope):
             continue
         source_id = source.metadata["id"]
-        for field in ("related", "sources", "supersedes"):
-            if any(target_id in relationship_sources for target_id in source.metadata.get(field, [])):
-                if source_id == overview.metadata["id"]:
-                    continue
-                target_id = next(target_id for target_id in source.metadata.get(field, []) if target_id in relationship_sources)
-                if source_id in candidates:
-                    candidates[source_id] = _with_relationship(
-                        candidates[source_id],
-                        target_id,
-                        f"one-hop relationship via {field} to {target_id}",
-                    )
-                else:
-                    candidates[source_id] = _document_candidate(
-                        workspace,
-                        source,
-                        project_scope=project_scope,
-                        discovery="explicit-one-hop-relationship",
-                        selection_reason=f"one-hop relationship via {field} to {target_id}",
-                        relationship_to=target_id,
-                    )
-                break
+        for field in RELATION_FIELDS:
+            related_ids = [target_id for target_id in source.metadata.get(field, []) if target_id in relationship_sources]
+            if not related_ids or source_id == overview.metadata["id"]:
+                continue
+            target_id = related_ids[0]
+            if source_id in candidates:
+                candidates[source_id] = _with_relationship(
+                    candidates[source_id],
+                    target_id,
+                    f"one-hop relationship via {field} to {target_id}",
+                )
+            else:
+                candidates[source_id] = _document_candidate(
+                    workspace,
+                    source,
+                    project_scope=project_scope,
+                    discovery="explicit-one-hop-relationship",
+                    selection_reason=f"one-hop relationship via {field} to {target_id}",
+                    relationship_to=target_id,
+                )
+            break
 
     for skill in _skill_candidates(workspace, request_terms):
         candidates[skill.key] = skill
@@ -503,7 +494,7 @@ def build_context(request: ContextRequest, workspace: Workspace) -> str:
         raise ContextError(f"cannot generate context from invalid corpus:\n{details}")
     validate_index(workspace, documents)
 
-    overview, overview_discovery = _resolve_project(documents, request.project)
+    overview = _resolve_project(documents, request.project)
     project_scope = f"project:{request.project}"
     request_terms = _terms(request.task, request.work_item)
     if not request_terms:
@@ -514,7 +505,7 @@ def build_context(request: ContextRequest, workspace: Workspace) -> str:
         workspace,
         overview,
         project_scope=project_scope,
-        discovery=overview_discovery,
+        discovery="mandatory-project-overview",
         selection_reason="mandatory project context",
     )
     optional = [candidate for candidate in optional if candidate.key != overview_candidate.key]

@@ -11,7 +11,7 @@ tags:
 
 # Ingest source
 
-Use this skill when a local Markdown or text file should become a raw, provenance-bearing source. Do not treat ingestion as claim verification or synthesis.
+Use this skill when a local Markdown or text file should become a raw, provenance-bearing source. Do not treat ingestion as claim verification or synthesis; sources are excluded from default context.
 
 ## Workflow
 

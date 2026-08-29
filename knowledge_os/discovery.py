@@ -7,23 +7,18 @@ Markdown or generated indexes.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-import hashlib
 import json
-import os
 from pathlib import Path
 import re
-import shutil
-import stat
-import tempfile
 from typing import Any, Iterable
 
 import yaml
 
-from .index import rebuild_indexes, search_index_terms, validate_index
+from .context_policy import trust_label
+from .index import search_index_terms, validate_index
 from .model import (
     DISCOVERY_DECISION_TO_STATUS,
     DISCOVERY_STATUSES,
@@ -33,10 +28,19 @@ from .model import (
     STANDARD_STATUSES,
     Document,
     MetadataError,
-    parse_document,
     parse_document_text,
 )
-from .workspace import MANAGED_DIRS, Workspace, atomic_write, validate_workspace
+from .workspace import (
+    Workspace,
+    atomic_write,
+    exclusive_write,
+    refresh_derived_indexes,
+    stage_workspace,
+    staged_documents,
+    validate_workspace,
+    workspace_mutation_lock,
+    WorkspaceError,
+)
 
 
 DISCOVERY_DIRECTORY = "discoveries"
@@ -46,54 +50,6 @@ TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
 
 class DiscoveryError(ValueError):
     """A user-actionable discovery workflow error."""
-
-
-class _ExclusiveCreateCleanupError(DiscoveryError):
-    """An exclusive create failed and its partial path could not be safely removed."""
-
-
-@contextmanager
-def _workspace_mutation_lock(workspace: Workspace) -> Iterable[None]:
-    identity = str(workspace.root).casefold() if os.name == "nt" else str(workspace.root)
-    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
-    lock_path = Path(tempfile.gettempdir()) / f"knowledge-os-discovery-{digest}.lock"
-    handle = lock_path.open("a+b")
-    locked = False
-    try:
-        handle.seek(0, os.SEEK_END)
-        if handle.tell() == 0:
-            handle.write(b"\0")
-            handle.flush()
-            os.fsync(handle.fileno())
-        handle.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        except OSError as exc:
-            raise DiscoveryError(f"could not acquire discovery mutation lock for {workspace.root}: {exc}") from exc
-        locked = True
-        yield
-    finally:
-        if locked:
-            try:
-                handle.seek(0)
-                if os.name == "nt":
-                    import msvcrt
-
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
-        handle.close()
 
 
 @dataclass
@@ -144,6 +100,13 @@ def _validated_documents(workspace: Workspace, operation: str) -> list[Document]
     if issues:
         raise DiscoveryError(f"cannot {operation} with an invalid corpus:\n{_details(issues)}")
     return documents
+
+
+def _refresh_indexes(workspace: Workspace) -> int:
+    try:
+        return refresh_derived_indexes(workspace)
+    except WorkspaceError as exc:
+        raise DiscoveryError(str(exc)) from exc
 
 
 def _find_discovery(documents: Iterable[Document], record_id: str) -> Document:
@@ -208,164 +171,6 @@ def _ensure_candidate(document: Document) -> None:
         raise DiscoveryError("discovery add requires no review events")
 
 
-def _stage_workspace(workspace: Workspace) -> tuple[tempfile.TemporaryDirectory[str], Workspace]:
-    temporary = tempfile.TemporaryDirectory(prefix="kos-discovery-", dir=workspace.root.parent)
-    stage_root = Path(temporary.name)
-    marker = workspace.root / "knowledge-os.toml"
-    (stage_root / marker.name).write_bytes(marker.read_bytes())
-    for directory in MANAGED_DIRS:
-        source = workspace.root / directory
-        destination = stage_root / directory
-        if source.is_dir():
-            shutil.copytree(source, destination)
-        else:
-            destination.mkdir(parents=True)
-    return temporary, Workspace(stage_root)
-
-
-def _stage_and_verify(stage: Workspace) -> tuple[list[Document], int]:
-    count = rebuild_indexes(stage)
-    documents, issues = validate_workspace(stage)
-    if issues:
-        raise DiscoveryError(f"resulting corpus is invalid:\n{_details(issues)}")
-    validate_index(stage, documents)
-    return documents, count
-
-
-def _snapshot_live_paths(workspace: Workspace, relative_paths: Iterable[str]) -> dict[str, bytes | None]:
-    snapshot: dict[str, bytes | None] = {}
-    for relative in dict.fromkeys(relative_paths):
-        path = workspace.root / relative
-        if path.is_file():
-            snapshot[relative] = path.read_bytes()
-        elif path.exists():
-            raise DiscoveryError(f"mutation path {workspace.relative(path)} is not a file")
-        else:
-            snapshot[relative] = None
-    return snapshot
-
-
-def _verify_live_snapshot(workspace: Workspace, snapshot: dict[str, bytes | None]) -> None:
-    for relative, expected in snapshot.items():
-        path = workspace.root / relative
-        if expected is None:
-            if path.exists():
-                raise DiscoveryError(f"concurrent change detected: expected {relative} to remain absent")
-        elif not path.is_file() or path.read_bytes() != expected:
-            raise DiscoveryError(f"concurrent change detected in {relative}")
-
-
-def _exclusive_create(
-    path: Path,
-    content: bytes,
-    relative: str,
-    written: dict[str, bytes],
-    created: set[str],
-) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("xb")
-    opened_stat = os.fstat(handle.fileno())
-    try:
-        with handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-    except Exception as exc:
-        try:
-            if not handle.closed:
-                handle.close()
-            try:
-                current_stat = path.lstat()
-            except FileNotFoundError:
-                current_stat = None
-            if current_stat is not None:
-                if not stat.S_ISREG(current_stat.st_mode) or not os.path.samestat(opened_stat, current_stat):
-                    raise DiscoveryError(
-                        f"exclusive create failed for {relative}; refusing to remove a concurrently replaced path"
-                    )
-                path.unlink()
-        except Exception as cleanup_error:
-            raise _ExclusiveCreateCleanupError(
-                f"exclusive create failed for {relative} and its partial path could not be safely removed: "
-                f"{cleanup_error}"
-            ) from exc
-        raise
-    written[relative] = content
-    created.add(relative)
-
-
-def _rollback_written(
-    workspace: Workspace,
-    snapshot: dict[str, bytes | None],
-    written: dict[str, bytes],
-    created: set[str],
-) -> None:
-    for relative in reversed(tuple(written)):
-        path = workspace.root / relative
-        if relative in created:
-            if path.exists():
-                if not path.is_file() or path.read_bytes() != written[relative]:
-                    raise DiscoveryError(
-                        f"cannot safely roll back concurrently changed path {relative}"
-                    )
-                path.unlink()
-            continue
-        content = written[relative]
-        if not path.is_file() or path.read_bytes() != content:
-            raise DiscoveryError(f"cannot safely roll back concurrently changed path {relative}")
-        original = snapshot[relative]
-        if original is None:
-            path.unlink()
-        else:
-            atomic_write(path, original)
-
-
-def _commit_staged(
-    workspace: Workspace,
-    stage: Workspace,
-    snapshot: dict[str, bytes | None],
-    *,
-    exclusive_paths: Iterable[str] = (),
-) -> None:
-    relative_paths = tuple(snapshot)
-    exclusive_paths = frozenset(exclusive_paths)
-    live_paths = {relative: workspace.root / relative for relative in relative_paths}
-    stage_paths = {relative: stage.root / relative for relative in relative_paths}
-    if any(not path.is_file() for path in stage_paths.values()):
-        missing = [relative for relative, path in stage_paths.items() if not path.is_file()]
-        raise DiscoveryError(f"staged mutation is missing file(s): {', '.join(missing)}")
-    written: dict[str, bytes] = {}
-    created: set[str] = set()
-    try:
-        _verify_live_snapshot(workspace, snapshot)
-        for relative in relative_paths:
-            content = stage_paths[relative].read_bytes()
-            if relative in exclusive_paths:
-                _exclusive_create(live_paths[relative], content, relative, written, created)
-            else:
-                try:
-                    atomic_write(live_paths[relative], content)
-                except Exception:
-                    if live_paths[relative].is_file() and live_paths[relative].read_bytes() == content:
-                        written[relative] = content
-                    raise
-                written[relative] = content
-        documents, issues = validate_workspace(workspace)
-        if issues:
-            raise DiscoveryError(f"live corpus failed post-commit validation:\n{_details(issues)}")
-        validate_index(workspace, documents)
-    except Exception as exc:
-        try:
-            _rollback_written(workspace, snapshot, written, created)
-        except Exception as rollback_error:
-            raise DiscoveryError(
-                f"mutation failed and rollback failed: {exc}; {rollback_error}"
-            ) from exc
-        if isinstance(exc, _ExclusiveCreateCleanupError):
-            raise
-        raise DiscoveryError(f"mutation failed; canonical corpus and indexes were restored: {exc}") from exc
-
-
 def _transition(document: Document, target_status: str) -> None:
     current_status = document.metadata["status"]
     if target_status not in DISCOVERY_STATUSES:
@@ -398,7 +203,6 @@ def _updated_discovery_metadata(
     reviewer: str | None,
     reason: str | None,
     target: str | None = None,
-    related_target: str | None = None,
 ) -> dict[str, Any]:
     status = DISCOVERY_DECISION_TO_STATUS[decision]
     _transition(document, status)
@@ -409,18 +213,13 @@ def _updated_discovery_metadata(
     metadata["reviews"] = reviews
     metadata["status"] = status
     metadata["updated"] = mutation_date
-    if related_target is not None:
-        related = list(metadata.get("related", []))
-        if related_target not in related:
-            related.append(related_target)
-        metadata["related"] = related
     return metadata
 
 
 def add_discovery(workspace: Workspace, input_path: Path) -> tuple[str, bool, int]:
-    """Add a proposed discovery after staging and validating the resulting corpus."""
+    """Add a proposed discovery under the shared workspace mutation lock."""
 
-    with _workspace_mutation_lock(workspace):
+    with workspace_mutation_lock(workspace):
         return _add_discovery_locked(workspace, input_path)
 
 
@@ -445,28 +244,19 @@ def _add_discovery_locked(workspace: Workspace, input_path: Path) -> tuple[str, 
             f"existing destination {workspace.relative(destination)} has divergent content; refusing overwrite"
         )
 
-    relative_paths = ["indexes/catalog.md", "indexes/catalog.sqlite3"]
     relative_record = f"{DISCOVERY_DIRECTORY}/{record_id}.md"
     if created:
-        relative_paths.insert(0, relative_record)
-    snapshot = _snapshot_live_paths(workspace, relative_paths)
-    temporary, stage = _stage_workspace(workspace)
-    try:
-        stage_destination = stage.root / DISCOVERY_DIRECTORY / f"{record_id}.md"
-        if created:
-            atomic_write(stage_destination, canonical)
-        else:
-            parse_document(stage_destination)
-        _, count = _stage_and_verify(stage)
-        _commit_staged(
-            workspace,
-            stage,
-            snapshot,
-            exclusive_paths=((relative_record,) if created else ()),
-        )
-        return record_id, created, count
-    finally:
-        temporary.cleanup()
+        with stage_workspace(workspace) as stage:
+            atomic_write(stage.root / relative_record, canonical)
+            staged_documents(stage, "add a discovery")
+        try:
+            exclusive_write(destination, canonical)
+        except FileExistsError as exc:
+            raise DiscoveryError(
+                f"destination {workspace.relative(destination)} was created by another writer; refusing overwrite"
+            ) from exc
+    count = _refresh_indexes(workspace)
+    return record_id, created, count
 
 
 def _change_status(
@@ -477,7 +267,7 @@ def _change_status(
     reviewer: str | None,
     reason: str | None,
 ) -> tuple[str, int]:
-    with _workspace_mutation_lock(workspace):
+    with workspace_mutation_lock(workspace):
         return _change_status_locked(
             workspace,
             record_id,
@@ -510,16 +300,17 @@ def _change_status_locked(
     content = _frontmatter(metadata, discovery.body)
 
     relative_record = f"{DISCOVERY_DIRECTORY}/{record_id}.md"
-    relative_paths = (relative_record, "indexes/catalog.md", "indexes/catalog.sqlite3")
-    snapshot = _snapshot_live_paths(workspace, relative_paths)
-    temporary, stage = _stage_workspace(workspace)
-    try:
+    with stage_workspace(workspace) as stage:
         atomic_write(stage.root / relative_record, content)
-        _, count = _stage_and_verify(stage)
-        _commit_staged(workspace, stage, snapshot)
-        return metadata["status"], count
-    finally:
-        temporary.cleanup()
+        staged_documents(stage, f"{decision} discovery")
+    try:
+        atomic_write(workspace.root / relative_record, content)
+    except OSError as exc:
+        raise DiscoveryError(
+            f"canonical discovery write failed for {relative_record}; run 'kos lint' before retrying: {exc}"
+        ) from exc
+    count = _refresh_indexes(workspace)
+    return metadata["status"], count
 
 
 def retain_discovery(
@@ -676,6 +467,7 @@ def render_review_packet(workspace: Workspace, discovery: Document, related: lis
         f"- **Title:** {metadata['title']}",
         f"- **Status:** {metadata['status']}",
         f"- **Scope:** {metadata['scope']}",
+        f"- **Trust:** {trust_label(discovery)}",
         "",
         "### Statement / observation",
         "",
@@ -721,7 +513,7 @@ def render_review_packet(workspace: Workspace, discovery: Document, related: lis
             "",
             "- **Retain:** move a proposed project-scoped observation to `retained`; retained observations are eligible only for that project's context and remain explicitly unestablished.",
             "- **Reject:** move a proposed or retained observation to terminal `rejected` with a reason.",
-            "- **Promote new:** create a new draft knowledge/project record from this body, link provenance directly to this discovery, and move the discovery to terminal `promoted`. This never merges, overwrites, or supersedes an existing record.",
+            "- **Promote new:** create a new draft knowledge/project record from this body, link its provenance directly to this discovery, and move the discovery to terminal `promoted`. This is the only promotion lineage; it does not add duplicate `sources` or `related` links and never merges, overwrites, or supersedes an existing record.",
             "",
             "## Promotion flags",
             "",
@@ -755,6 +547,7 @@ def inspect_discovery(workspace: Workspace, record_id: str) -> str:
         "created": metadata["created"],
         "updated": metadata["updated"],
         "path": workspace.relative(discovery.path),
+        "trust": trust_label(discovery),
         "origin": metadata.get("origin"),
         "evidence": metadata["evidence"],
         "provenance": metadata["provenance"],
@@ -782,7 +575,7 @@ def promote_discovery(
     acknowledge_related: bool = False,
     allow_scope_broadening: bool = False,
 ) -> tuple[str, int, list[str]]:
-    with _workspace_mutation_lock(workspace):
+    with workspace_mutation_lock(workspace):
         return _promote_discovery_locked(
             workspace,
             record_id,
@@ -843,7 +636,8 @@ def _promote_discovery_locked(
     target_type = "knowledge" if scope == "general" else "project"
     destination_directory = "knowledge" if scope == "general" else "projects"
     target_path = workspace.root / destination_directory / f"{target_id}.md"
-    if target_path.exists():
+    workspace.assert_safe_path(target_path)
+    if target_path.exists() or target_path.is_symlink():
         raise DiscoveryError(
             f"target path {workspace.relative(target_path)} already exists; promotion never overwrites records"
         )
@@ -857,7 +651,6 @@ def _promote_discovery_locked(
         "created": mutation_date,
         "updated": mutation_date,
         "provenance": [{"kind": "discovery", "reference": record_id}],
-        "sources": [record_id],
     }
     discovery_metadata = _updated_discovery_metadata(
         discovery,
@@ -865,31 +658,33 @@ def _promote_discovery_locked(
         reviewer=reviewer,
         reason=reason,
         target=target_id,
-        related_target=target_id,
     )
     target_content = _frontmatter(target_metadata, discovery.body)
     discovery_content = _frontmatter(discovery_metadata, discovery.body)
 
     discovery_relative = f"{DISCOVERY_DIRECTORY}/{record_id}.md"
     target_relative = f"{destination_directory}/{target_id}.md"
-    relative_paths = (
-        target_relative,
-        discovery_relative,
-        "indexes/catalog.md",
-        "indexes/catalog.sqlite3",
-    )
-    snapshot = _snapshot_live_paths(workspace, relative_paths)
-    temporary, stage = _stage_workspace(workspace)
-    try:
+    with stage_workspace(workspace) as stage:
         atomic_write(stage.root / discovery_relative, discovery_content)
         atomic_write(stage.root / target_relative, target_content)
-        _, count = _stage_and_verify(stage)
-        _commit_staged(
-            workspace,
-            stage,
-            snapshot,
-            exclusive_paths=(target_relative,),
-        )
-        return target_id, count, related_ids
-    finally:
-        temporary.cleanup()
+        staged_documents(stage, "promote a discovery")
+
+    try:
+        # Target first makes a crash-visible partial promotion deterministic: lint
+        # reports a target pointing at a discovery that is not promoted yet.
+        exclusive_write(target_path, target_content)
+        atomic_write(workspace.root / discovery_relative, discovery_content)
+    except FileExistsError as exc:
+        raise DiscoveryError(
+            f"promotion target {target_relative} was created by another writer; refusing overwrite; "
+            "run 'kos lint' and then 'kos index' before retrying"
+        ) from exc
+    except OSError as exc:
+        raise DiscoveryError(
+            "promotion canonical write was interrupted; canonical Markdown may be partially updated; "
+            "run 'kos lint' and then 'kos index' to recover before retrying: "
+            f"{exc}"
+        ) from exc
+
+    count = _refresh_indexes(workspace)
+    return target_id, count, related_ids

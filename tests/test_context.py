@@ -45,7 +45,7 @@ def run_kos_bytes(workspace: Path, *arguments: str) -> subprocess.CompletedProce
 def copy_fixture() -> tuple[tempfile.TemporaryDirectory[str], Path]:
     temporary = tempfile.TemporaryDirectory()
     root = Path(temporary.name) / "workspace"
-    shutil.copytree(FIXTURE, root)
+    shutil.copytree(FIXTURE, root, ignore=shutil.ignore_patterns("indexes"))
     return temporary, root
 
 
@@ -115,6 +115,7 @@ class ContextExportTests(unittest.TestCase):
             )
             project_decision = next(item for item in package["items"] if item["id"] == "url-ingestion-provenance")
             self.assertEqual(project_decision["relationship_to"], "knowledge-os")
+            self.assertEqual(project_decision["record_kind"], "decision")
             self.assertIn("explicit-one-hop-relationship", project_decision["discovery"])
             self.assertIn("original URL", result.stdout)
             self.assertIn("security boundaries", result.stdout)
@@ -311,12 +312,12 @@ class ContextExportTests(unittest.TestCase):
                 "--task",
                 "Add URL ingestion while preserving provenance",
                 "--budget",
-                "500",
+                "1200",
             )
             self.assertEqual(bounded.returncode, 0, bounded.stderr)
             bounded_manifest = manifest(bounded.stdout)
             self.assertGreater(bounded_manifest["selection"]["budget_excluded"], 0)
-            self.assertLessEqual(bounded_manifest["budget"]["used_tokens"], 500)
+            self.assertLessEqual(bounded_manifest["budget"]["used_tokens"], 1200)
             self.assertNotIn("large-url-context", {item["id"] for item in bounded_manifest["items"]})
 
             too_small = run_kos(
@@ -400,10 +401,14 @@ class ContextExportTests(unittest.TestCase):
                 text = path.read_text(encoding="utf-8")
                 text = text.replace("status: active", "status: archived").replace("status: draft", "status: archived")
                 path.write_text(text, encoding="utf-8")
-            index_fixture(root)
+            invalid_overviews = run_kos(root, "lint")
+            self.assertNotEqual(invalid_overviews.returncode, 0)
+            self.assertIn("project overview 'knowledge-os'", invalid_overviews.stderr)
+            self.assertIn("is not usable", invalid_overviews.stderr)
             no_usable = run_kos(root, "context", "--project", "knowledge-os", "--task", "URL provenance", "--budget", "12000")
             self.assertNotEqual(no_usable.returncode, 0)
-            self.assertIn("project 'knowledge-os' has no usable context", no_usable.stderr)
+            self.assertIn("project overview 'knowledge-os'", no_usable.stderr)
+            self.assertIn("is not usable", no_usable.stderr)
 
             (root / "knowledge" / "bad.md").write_text("not metadata\n", encoding="utf-8")
             malformed = run_kos(root, "context", "--project", "knowledge-os", "--task", "URL provenance", "--budget", "12000")
@@ -426,7 +431,9 @@ class ContextExportTests(unittest.TestCase):
         with temporary:
             skill = root / "skills" / "ingest-source" / "SKILL.md"
             skill.write_text("---\nname: ingest-source\n---\n\n# Ingest source\n", encoding="utf-8")
-            index_fixture(root)
+            indexed = run_kos(root, "index")
+            self.assertNotEqual(indexed.returncode, 0)
+            self.assertIn("requires a non-empty description", indexed.stderr)
             result = run_kos(
                 root,
                 "context",
@@ -438,6 +445,7 @@ class ContextExportTests(unittest.TestCase):
                 "12000",
             )
             self.assertNotEqual(result.returncode, 0)
+            self.assertIn("cannot generate context from invalid corpus", result.stderr)
             self.assertIn("requires a non-empty description", result.stderr)
 
 

@@ -14,7 +14,7 @@ import yaml
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 MANAGED_TYPES = {"source", "knowledge", "project", "memory", "synthesis", "discovery"}
-STANDARD_STATUSES = {"draft", "active", "verified", "deprecated", "superseded", "archived"}
+STANDARD_STATUSES = {"draft", "active", "deprecated", "superseded", "archived"}
 DISCOVERY_STATUSES = {"proposed", "retained", "rejected", "promoted"}
 DISCOVERY_DECISION_TO_STATUS = {"retain": "retained", "reject": "rejected", "promote": "promoted"}
 DISCOVERY_DECISIONS = set(DISCOVERY_DECISION_TO_STATUS)
@@ -26,6 +26,8 @@ DISCOVERY_TRANSITIONS = {
 }
 CONFIDENCE_VALUES = {"low", "medium", "high"}
 DISCOVERY_ONLY_FIELDS = {"evidence", "origin", "confidence", "reviews"}
+RECORD_KIND_TYPES = {"knowledge", "project"}
+RECORD_KINDS = {"ordinary", "decision"}
 ALLOWED_FIELDS = {
     "id",
     "title",
@@ -35,6 +37,7 @@ ALLOWED_FIELDS = {
     "created",
     "updated",
     "verified",
+    "record_kind",
     "provenance",
     "tags",
     "related",
@@ -213,7 +216,7 @@ def validate_metadata(metadata: Any, path: Path, *, check_filename: bool = True)
     record_id = _string(metadata["id"], "id")
     if not ID_PATTERN.fullmatch(record_id):
         raise MetadataError("id must be lowercase kebab-case")
-    title = _string(metadata["title"], "title")
+    _string(metadata["title"], "title")
     record_type = _string(metadata["type"], "type")
     if record_type not in MANAGED_TYPES:
         raise MetadataError(f"type must be one of: {', '.join(sorted(MANAGED_TYPES))}")
@@ -226,17 +229,24 @@ def validate_metadata(metadata: Any, path: Path, *, check_filename: bool = True)
         raise MetadataError("scope must be general or project:<lowercase-kebab>")
     if record_type == "project" and scope == "general":
         raise MetadataError("project records require scope project:<lowercase-kebab>")
+    if record_type == "knowledge" and scope != "general":
+        raise MetadataError("knowledge records require scope general")
     created = _date(metadata["created"], "created")
     updated = _date(metadata["updated"], "updated")
     if updated < created:
         raise MetadataError("updated must be on or after created")
-    if status == "verified" and "verified" not in metadata:
-        raise MetadataError("verified date is required when status is verified")
     if "verified" in metadata:
         verified = _date(metadata["verified"], "verified")
         if verified < created or verified > updated:
             raise MetadataError("verified must be between created and updated")
     _validate_provenance(metadata["provenance"])
+
+    if "record_kind" in metadata:
+        if record_type not in RECORD_KIND_TYPES:
+            raise MetadataError("record_kind is only allowed for knowledge and project records")
+        record_kind = _string(metadata["record_kind"], "record_kind")
+        if record_kind not in RECORD_KINDS:
+            raise MetadataError("record_kind must be one of: decision, ordinary")
 
     for field in ("tags",):
         if field in metadata and (not isinstance(metadata[field], list) or any(not isinstance(v, str) for v in metadata[field])):

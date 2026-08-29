@@ -1,6 +1,10 @@
 # Context export example
 
-This is a nested, disposable example workspace for the deterministic context command. Its records are a fixture, not part of the repository's canonical root corpus.
+This is a nested, disposable example workspace for the deterministic,
+trust-aware context command. Its records are a fixture, not part of the
+repository's canonical root corpus. The requested project has an exact
+`projects/knowledge-os.md` overview; the other project demonstrates the scope
+boundary.
 
 From the repository root:
 

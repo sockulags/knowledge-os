@@ -4,6 +4,7 @@ title: URL ingestion and provenance decision
 type: project
 status: draft
 scope: project:knowledge-os
+record_kind: decision
 created: '2026-08-29'
 updated: '2026-08-29'
 provenance:

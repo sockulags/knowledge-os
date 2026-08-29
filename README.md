@@ -1,6 +1,9 @@
 # Knowledge OS
 
-Knowledge OS is a local-first durable knowledge system for Markdown and text. It keeps raw sources and external-agent discoveries separate from durable knowledge, preserves provenance and evidence, and provides deterministic validation, indexing, search, retrieval, review, and explicit promotion.
+Knowledge OS `0.0.1` is a local-first durable knowledge system for Markdown
+and text. Markdown is canonical truth. Sources and external-agent discoveries
+remain separate trust boundaries, while SQLite and the catalog are disposable
+indexes. The complete frozen contract is [`docs/architecture.md`](docs/architecture.md).
 
 ## Bootstrap
 
@@ -24,11 +27,34 @@ kos lint
 kos index
 ```
 
-The workspace root is found from the current directory or with `kos --root PATH`. Try `kos ingest examples/sample.md`, then `kos search xylophone --json`, and `kos inspect <id>`. `inbox/` is intentionally not governed by durable metadata.
+The workspace root is found from the current directory or with `kos --root
+PATH`. Try `kos ingest examples/sample.md`, then `kos search xylophone --json`,
+and `kos inspect <id>`. `inbox/` is intentionally outside the managed record
+contract.
+
+## Export bounded context
+
+After indexing a workspace, export deterministic, trust-aware, project-scoped
+context for an external agent:
+
+```powershell
+kos --root examples/context-workspace index
+kos --root examples/context-workspace context --project knowledge-os --task "Add URL ingestion while preserving provenance" --budget 12000 > context.md
+```
+
+Context includes the exact project overview, eligible general/project durable
+records, retained discoveries from that project, and relevant skills. Raw
+sources, other project scopes, and non-eligible lifecycle states are excluded.
+Every selected item exposes its type, record kind, scope, status, trust label,
+path, provenance, and selection evidence. The output is generated,
+non-canonical Markdown and is safe to discard. See
+[`examples/context-workspace/README.md`](examples/context-workspace/README.md).
 
 ## Record an external discovery safely
 
-An external agent may write a structured proposed discovery, but it does not become knowledge implicitly. Review it, retain it only as project-scoped reviewed memory, or promote it into a new draft record:
+An external agent may write a structured proposed discovery, but it does not
+become knowledge implicitly. Review it, retain it only as project-scoped
+reviewed memory, or promote it into a new draft record:
 
 ```powershell
 kos discovery add .\examples\discovery.md
@@ -37,30 +63,47 @@ kos discovery retain observed-provenance-boundary --reviewer Lucas --reason "Evi
 kos discovery promote observed-provenance-boundary --target-id provenance-boundary-draft --title "Provenance boundary" --scope project:knowledge-os --acknowledge-related
 ```
 
-The complete input is [`examples/discovery.md`](examples/discovery.md), and every command uses its actual ID. `discovery review` is read-only generated Markdown. `retain`, `reject`, and `promote` append explicit review history. Promotion copies the observation body into a new `draft`, links its provenance directly to the discovery, and never merges, overwrites, or supersedes an existing record. A project-scoped discovery promoted to `general` additionally requires `--allow-scope-broadening`.
+Promotion is promote-new only. The target's direct provenance and the
+discovery's promote review target are the only promotion lineage. Promotion
+never merges, overwrites, supersedes, or adds duplicate `sources`/`related`
+links. A project-scoped discovery promoted to `general` additionally requires
+`--allow-scope-broadening`.
 
-## Export bounded context
+## Trust and metadata
 
-After indexing a workspace, export Markdown-first context for an external agent. The generated UTF-8/LF output is non-canonical and goes to stdout, so shell redirection is safe:
+Sources are raw captured material and remain searchable for audit, but are not
+default context. Ordinary lifecycle statuses are exactly `draft`, `active`,
+`deprecated`, `superseded`, and `archived`; `verified` is not a status. An
+optional `verified` ISO date independently produces the `verified durable`
+classification. `record_kind` is optional only for `knowledge` and `project`
+records, with `ordinary` (the default) or `decision`.
+
+`knowledge-os.toml` must contain `[workspace].version = 1`. `kos lint` validates
+the workspace version, all managed records, cross-record provenance and
+relationship invariants, managed paths, and every skill. Skills use
+`skills/<name>/SKILL.md` with validated frontmatter and a non-empty body.
+
+## Recovery and disposable indexes
+
+Ingest, discovery mutations, and `kos index` share one workspace advisory
+lock. Mutations validate the current and intended corpus, write only minimal
+canonical files, then rebuild `indexes/catalog.md` and
+`indexes/catalog.sqlite3`. Promotion is not crash-atomic and no journal or
+rollback system is used. If a partial lineage or index failure occurs, repair
+or inspect canonical Markdown and run:
 
 ```powershell
-kos --root examples/context-workspace index
-kos --root examples/context-workspace context --project knowledge-os --task "Add URL ingestion while preserving provenance" --budget 12000 > context.md
+kos lint
+kos index
 ```
 
-`kos context` selects the mandatory project overview, deterministic FTS matches, one-hop explicit relationships, and selectively relevant skills. It never edits canonical records or rebuilds indexes. See [`examples/context-workspace/README.md`](examples/context-workspace/README.md) for the runnable dogfooding fixture.
+Deleting both generated index files leaves canonical Markdown valid and they
+can be rebuilt with `kos index`.
 
-## Discovery trust boundary
+## Scope
 
-Discoveries live under `discoveries/` with globally unique IDs, required non-empty evidence and provenance, and optional origin, confidence (`low`, `medium`, or `high`), and review history. Evidence references with `kind: record` must resolve to a Knowledge OS ID; other references stay opaque. The lifecycle is `proposed -> retained | rejected | promoted`, with `rejected` and `promoted` terminal. Only retained discoveries in the requested project scope enter context, and they are labeled reviewed observations rather than established knowledge. Ordinary search can still find every discovery status for audit.
-
-## MVP boundaries
-
-The CLI and standard-library SQLite FTS5 cache are local only. Review matching is deterministic lexical FTS plus metadata and explicit relationships; it is not semantic contradiction detection or fact checking. Promotion is promote-new only: merge-to-existing and supersession are postponed. Round 3 serializes cooperating mutations and rolls back caught write or validation failures, but it is not crash-atomic across several files. An abrupt process or OS interruption between replacements may require `kos lint`, `kos index`, and manual inspection before retrying. No URL ingestion, maintenance automation, LLM decisions, embeddings, graph database, server, GUI, vector database, MCP implementation, or Agentic Work OS coupling is included. See [`docs/architecture.md`](docs/architecture.md) and [`docs/decisions/0001-stack-and-index.md`](docs/decisions/0001-stack-and-index.md).
-
-## Prioritized next issues
-
-1. Model source variants and remote URLs without weakening provenance.
-2. Add richer relationship indexes and backlinks.
-3. Decide whether merge-to-existing is safe; it is deliberately not part of Round 3.
-4. Consider embeddings only after evidence shows deterministic retrieval is insufficient.
+The CLI and standard-library SQLite FTS5 cache are local only. Retrieval and
+review are deterministic lexical FTS plus metadata and explicit relationships;
+they are not semantic fact checking or contradiction detection. No URL/PDF
+ingestion, embeddings, model calls, server, GUI, MCP/API, cloud sync, or
+Agentic Work OS coupling is included in v0.0.1.

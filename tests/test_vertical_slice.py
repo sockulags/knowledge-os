@@ -107,11 +107,14 @@ class KnowledgeOsVerticalSliceTests(unittest.TestCase):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["type"], "source")
             self.assertIn("xylophone", results[0]["snippet"])
-            self.assertEqual(set(results[0]), {"id", "title", "type", "status", "scope", "path", "snippet"})
+            self.assertEqual(
+                set(results[0]),
+                {"id", "title", "type", "record_kind", "status", "scope", "path", "snippet"},
+            )
             plain = run_kos(root, "search", "xylophone")
             self.assertEqual(plain.returncode, 0, plain.stderr)
             self.assertEqual(len(plain.stdout.splitlines()), 1)
-            self.assertEqual(plain.stdout.split("\t")[4], "general")
+            self.assertEqual(plain.stdout.split("\t")[5], "general")
             record_id = results[0]["id"]
             inspected = run_kos(root, "inspect", record_id)
             self.assertEqual(inspected.returncode, 0, inspected.stderr)
@@ -188,7 +191,7 @@ class KnowledgeOsVerticalSliceTests(unittest.TestCase):
                     "id": "bad-verification-date",
                     "title": "Wrong verification date",
                     "type": "knowledge",
-                    "status": "verified",
+                    "status": "active",
                     "scope": "general",
                     "created": "2026-08-29",
                     "updated": "2026-08-29",
