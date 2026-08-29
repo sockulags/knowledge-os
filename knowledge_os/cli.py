@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import sys
 
+from .context import ContextRequest, build_context
 from .index import rebuild_indexes, search_index
 from .ingest import ingest_source
 from .model import MetadataError
@@ -42,6 +43,13 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("id")
     inspect.add_argument("--full", action="store_true")
     _root_option(inspect)
+
+    context = commands.add_parser("context", help="export a deterministic Markdown context package")
+    context.add_argument("--project", required=True, help="project ID")
+    context.add_argument("--task", required=True, help="task description")
+    context.add_argument("--work-item", help="optional work-item description")
+    context.add_argument("--budget", required=True, type=int, help="maximum estimated tokens")
+    _root_option(context)
     return parser
 
 
@@ -114,6 +122,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "inspect":
             return _inspect(workspace, args.id, args.full)
+        if args.command == "context":
+            package = build_context(
+                ContextRequest(
+                    project=args.project,
+                    task=args.task,
+                    work_item=args.work_item,
+                    budget=args.budget,
+                ),
+                workspace,
+            )
+            stdout_buffer = getattr(sys.stdout, "buffer", None)
+            if stdout_buffer is None:
+                sys.stdout.write(package)
+            else:
+                stdout_buffer.write(package.encode("utf-8"))
+            return 0
     except (MetadataError, WorkspaceError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

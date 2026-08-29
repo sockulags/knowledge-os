@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Any, Iterable
 
 from .model import Document
 from .workspace import Workspace, atomic_write, validate_workspace
@@ -114,3 +115,104 @@ def search_index(workspace: Workspace, query: str, limit: int) -> list[dict[str,
     for result in results:
         result["snippet"] = " ".join(result["snippet"].split())
     return results
+
+
+def _fts_query(terms: Iterable[str]) -> str:
+    quoted = [f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms if term.strip()]
+    return " OR ".join(quoted)
+
+
+def search_index_terms(
+    workspace: Workspace,
+    terms: Iterable[str],
+    scopes: Iterable[str],
+    statuses: Iterable[str],
+) -> list[dict[str, Any]]:
+    """Return eligible FTS matches ranked by distinct matched request terms.
+
+    This is deliberately read-only and does not attempt to refresh the cache. The
+    per-term queries preserve SQLite tokenizer semantics while keeping excluded
+    scopes and statuses from affecting result order.
+    """
+
+    database = workspace.root / "indexes" / "catalog.sqlite3"
+    if not database.is_file():
+        raise ValueError("search index is absent; run 'kos index' first")
+    distinct_terms = tuple(dict.fromkeys(term for term in terms if term.strip()))
+    if not distinct_terms:
+        raise ValueError("context request must contain at least one searchable term")
+    allowed_scopes = tuple(dict.fromkeys(scope for scope in scopes if scope.strip()))
+    if not allowed_scopes:
+        raise ValueError("context search requires at least one scope")
+    allowed_statuses = tuple(dict.fromkeys(status for status in statuses if status.strip()))
+    if not allowed_statuses:
+        raise ValueError("context search requires at least one status")
+    scope_placeholders = ", ".join("?" for _ in allowed_scopes)
+    status_placeholders = ", ".join("?" for _ in allowed_statuses)
+    connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        matched_ids: set[str] = set()
+        matched_terms: dict[str, list[str]] = {}
+        for term in distinct_terms:
+            rows = connection.execute(
+                f"""
+                SELECT id
+                FROM documents_fts
+                WHERE documents_fts MATCH ?
+                  AND scope IN ({scope_placeholders})
+                  AND status IN ({status_placeholders})
+                ORDER BY id
+                """,
+                (_fts_query((term,)), *allowed_scopes, *allowed_statuses),
+            ).fetchall()
+            for row in rows:
+                record_id = row["id"]
+                matched_ids.add(record_id)
+                matched_terms.setdefault(record_id, []).append(term)
+    except sqlite3.OperationalError as exc:
+        raise ValueError(f"context search query could not be parsed: {exc}") from exc
+    finally:
+        connection.close()
+    ordered = sorted(matched_ids, key=lambda record_id: (-len(matched_terms[record_id]), record_id))
+    return [
+        {"id": record_id, "matched_terms": matched_terms[record_id], "fts_rank": rank}
+        for rank, record_id in enumerate(ordered)
+    ]
+
+
+def validate_index(workspace: Workspace, documents: list[Document]) -> None:
+    """Ensure the read-only cache describes the current valid Markdown corpus."""
+
+    database = workspace.root / "indexes" / "catalog.sqlite3"
+    if not database.is_file():
+        raise ValueError("search index is absent; run 'kos index' first")
+    expected = sorted(
+        (
+            document.metadata["id"],
+            document.metadata["title"],
+            document.metadata["type"],
+            document.metadata["status"],
+            document.metadata["scope"],
+            workspace.relative(document.path),
+            " ".join(document.metadata.get("tags", [])),
+            document.body,
+        )
+        for document in documents
+    )
+    try:
+        connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        try:
+            actual = [
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT id, title, type, status, scope, path, tags, body FROM documents_fts ORDER BY id"
+                )
+            ]
+        finally:
+            connection.close()
+    except (sqlite3.DatabaseError, OSError) as exc:
+        raise ValueError(f"search index could not be read: {exc}") from exc
+    if actual != expected:
+        raise ValueError("search index is stale; run 'kos index' first")

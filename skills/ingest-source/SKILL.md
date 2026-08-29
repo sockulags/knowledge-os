@@ -1,6 +1,12 @@
 ---
 name: ingest-source
 description: Ingest one local Markdown or text source into Knowledge OS while preserving provenance and validating the resulting durable record.
+tags:
+  - ingest
+  - ingestion
+  - provenance
+  - local-file
+  - validation
 ---
 
 # Ingest source

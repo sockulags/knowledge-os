@@ -26,14 +26,24 @@ kos index
 
 The workspace root is found from the current directory or with `kos --root PATH`. Try `kos ingest examples/sample.md`, then `kos search xylophone --json`, and `kos inspect <id>`. `inbox/` is intentionally not governed by durable metadata.
 
+## Export bounded context
+
+After indexing a workspace, export Markdown-first context for an external agent. The generated UTF-8/LF output is non-canonical and goes to stdout, so shell redirection is safe:
+
+```powershell
+kos --root examples/context-workspace index
+kos --root examples/context-workspace context --project knowledge-os --task "Add URL ingestion while preserving provenance" --budget 12000 > context.md
+```
+
+`kos context` selects the mandatory project overview, deterministic FTS matches, one-hop explicit relationships, and selectively relevant skills. It never edits canonical records or rebuilds indexes. See [`examples/context-workspace/README.md`](examples/context-workspace/README.md) for the runnable dogfooding fixture.
+
 ## MVP boundaries
 
 The CLI and standard-library SQLite FTS5 cache are local only. No server, GUI, vector database, MCP implementation, or Agentic Work OS coupling is included. See [`docs/architecture.md`](docs/architecture.md) and [`docs/decisions/0001-stack-and-index.md`](docs/decisions/0001-stack-and-index.md).
 
 ## Prioritized next issues
 
-1. Define a stable context-export contract for agents.
-2. Add explicit promotion and maintenance workflows from raw sources to durable records.
-3. Model source variants and remote URLs without weakening provenance.
-4. Add richer relationship indexes and backlinks.
-5. Consider embeddings only after evidence shows deterministic retrieval is insufficient.
+1. Add explicit promotion and maintenance workflows from raw sources to durable records.
+2. Model source variants and remote URLs without weakening provenance.
+3. Add richer relationship indexes and backlinks.
+4. Consider embeddings only after evidence shows deterministic retrieval is insufficient.
