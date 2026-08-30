@@ -12,7 +12,8 @@ derived, disposable state. Context packages and discovery review packets are
 generated views and are never canonical knowledge.
 
 Knowledge OS owns durable records, provenance, validation, indexing, search,
-bounded context, and the explicit discovery return path. Agentic Work OS owns
+bounded context, the explicit discovery return path, and the deterministic
+create-only capture primitive for approved records. Agentic Work OS owns
 execution and orchestration; this repository has no runtime dependency on it.
 
 The product does not include URLs, PDFs, embeddings, semantic search or
@@ -130,6 +131,17 @@ promoted pair when `target.sources` contains its discovery ID or when the
 promoted discovery's `related` contains its promote review target. Unrelated
 `sources` and `related` relationships remain valid.
 
+Approved conversational candidates use the separate capture path
+`kos --root PATH capture CANDIDATE.md [--json]`. Capture accepts only
+`knowledge`, `project`, and `memory` records, maps each type to its canonical
+managed root, derives the filename from the ID, and refuses existing IDs or
+destination paths. Candidates must have valid metadata, a non-empty body and
+provenance, `draft` or `active` lifecycle status, and no `verified` field.
+Project scope and overview invariants are checked by whole-corpus staged
+validation before the canonical exclusive create. Capture does not infer
+meaning, decide approval, verify claims, or alter cwd discovery; a cross-chat
+caller supplies the configured `--root` explicitly.
+
 Lint also detects practical partial promotion states: a promoted discovery
 whose target is missing, a target whose discovery provenance is missing or
 invalid, a target provenance edge pointing at a proposed/retained discovery,
@@ -185,7 +197,7 @@ context.
 
 ## Mutation and recovery contract
 
-Ingest, discovery add/retain/reject/promote, and index replacement all use one
+Ingest, capture, discovery add/retain/reject/promote, and index replacement all use one
 workspace-scoped advisory mutation lock owned by workspace infrastructure.
 Each mutation follows this order:
 
@@ -219,6 +231,9 @@ derived files from Markdown.
   including type, record kind, status, scope, path, and snippet.
 - `kos inspect ID` provides compact record metadata; `--full` adds the body.
 - `kos context` emits bounded, trust-aware, project-scoped generated context.
+- `kos capture PATH` creates one approved, create-only `knowledge`, `project`,
+  or `memory` record after staged whole-corpus validation; `--json` reports
+  its exact ID, type, scope, canonical path, and status.
 - `kos discovery add PATH`, `review ID`, `retain ID`, `reject ID`, and
   `promote ID` implement the explicit discovery return path.
 

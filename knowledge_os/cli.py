@@ -9,6 +9,7 @@ import sys
 
 from .context import ContextRequest, build_context
 from .context_policy import trust_label
+from .capture import capture_record
 from .discovery import (
     add_discovery,
     inspect_discovery,
@@ -59,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--work-item", help="optional work-item description")
     context.add_argument("--budget", required=True, type=int, help="maximum estimated tokens")
     _root_option(context)
+
+    capture = commands.add_parser("capture", help="create one approved durable record")
+    capture.add_argument("path", type=Path, help="approved candidate Markdown record")
+    capture.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(capture)
 
     discovery = commands.add_parser("discovery", help="record, review, and promote discoveries")
     _root_option(discovery)
@@ -196,6 +202,26 @@ def main(argv: list[str] | None = None) -> int:
                 workspace,
             )
             _write_stdout(package)
+            return 0
+        if args.command == "capture":
+            result = capture_record(workspace, args.path)
+            if args.as_json:
+                print(
+                    json.dumps(
+                        {
+                            "id": result.id,
+                            "type": result.type,
+                            "scope": result.scope,
+                            "path": result.path,
+                            "status": result.status,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                )
+            else:
+                print(f"Captured {result.id} ({result.type}, {result.scope}, {result.status})")
+                print(f"Index refreshed: {result.index_count} record(s)")
             return 0
         if args.command == "discovery":
             if args.discovery_command == "add":

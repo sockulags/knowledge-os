@@ -32,6 +32,26 @@ PATH`. Try `kos ingest examples/sample.md`, then `kos search xylophone --json`,
 and `kos inspect <id>`. `inbox/` is intentionally outside the managed record
 contract.
 
+## Capture an approved record
+
+The cross-chat integration writes only after approval by passing a complete
+Markdown candidate to the create-only capture primitive:
+
+```powershell
+kos --root $env:KNOWLEDGE_OS_ROOT capture .\approved-candidate.md --json
+# Or from another cwd:
+py -3.11 -m knowledge_os --root $env:KNOWLEDGE_OS_ROOT capture .\approved-candidate.md --json
+```
+
+Capture accepts only `knowledge`, `project`, and `memory` records with valid
+schema/frontmatter, a non-empty body and provenance, `draft` or `active`
+status, and no `verified` field. It maps the type to `knowledge/`, `projects/`,
+or `memory/`, derives `<id>.md`, refuses duplicate IDs and overwrites, checks
+project overview invariants in a staged whole-corpus validation, and refreshes
+the indexes on success. `--json` reports the exact captured `id`, `type`,
+`scope`, canonical relative `path`, and `status`. Detection, proposal timing,
+approval handling, and background saving remain outside Knowledge OS.
+
 ## Export bounded context
 
 After indexing a workspace, export deterministic, trust-aware, project-scoped

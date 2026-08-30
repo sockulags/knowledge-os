@@ -25,7 +25,16 @@ is promote-new into a `draft` knowledge/project record. Promotion lineage is
 only target provenance plus the promote review target; it does not add
 redundant `sources` or `related` links.
 
-Ingest, discovery mutations, and index replacement share one workspace
+After a user approves a complete candidate record, the safe write primitive is
+`kos --root PATH capture CANDIDATE.md [--json]`. Capture is create-only for
+`knowledge`, `project`, and `memory` records, requires `draft` or `active`
+status and non-empty provenance, rejects `verified`, maps the type to its
+canonical managed root, validates the whole staged corpus, and rebuilds the
+disposable indexes. Cross-chat integrations must pass the explicit configured
+workspace root; capture does not change cwd discovery semantics or perform
+detection, proposal, approval, or background saving.
+
+Ingest, capture, discovery mutations, and index replacement share one workspace
 advisory lock. Mutations validate the current and staged corpus, write minimal
 canonical files, then rebuild disposable indexes. The multi-file promotion is
 not crash-atomic. If a partial lineage or an index failure is reported, repair

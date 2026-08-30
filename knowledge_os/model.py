@@ -93,9 +93,15 @@ def _id_list(value: Any, field: str) -> list[str]:
 def _validate_provenance(value: Any) -> None:
     if not isinstance(value, list) or not value:
         raise MetadataError("provenance must be a non-empty list")
+    allowed_fields = {"kind", "reference", "captured", "sha256"}
     for index, item in enumerate(value):
         if not isinstance(item, dict):
             raise MetadataError(f"provenance[{index}] must be an object")
+        unknown = sorted(set(item) - allowed_fields, key=str)
+        if unknown:
+            raise MetadataError(
+                f"provenance[{index}] has unknown field(s): {', '.join(map(str, unknown))}"
+            )
         for field in ("kind", "reference"):
             if field not in item:
                 raise MetadataError(f"provenance[{index}] requires {field}")
