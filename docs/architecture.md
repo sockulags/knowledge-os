@@ -12,14 +12,19 @@ derived, disposable state. Context packages and discovery review packets are
 generated views and are never canonical knowledge.
 
 Knowledge OS owns durable records, provenance, validation, indexing, search,
-bounded context, and the explicit discovery return path. Agentic Work OS owns
-execution and orchestration; this repository has no runtime dependency on it.
+bounded context, the explicit discovery return path, and the deterministic
+create-only capture primitive for approved records. The root Codex plugin also
+owns the automatic conversational detection, proposal batching, and approval
+workflow that calls that primitive. Agentic Work OS owns execution and
+orchestration; this repository has no runtime dependency on either Agent OS or
+Agentic Work OS.
 
 The product does not include URLs, PDFs, embeddings, semantic search or
 reranking, LLM trust decisions, contradiction or backlink subsystems, merge or
 supersession automation, MCP/API, GUI, cloud or multi-user behavior, a database
-as canonical storage, WAL/journal/transaction infrastructure, plugins, or
-background workers.
+as canonical storage, WAL/journal/transaction infrastructure, or background
+workers. The Codex plugin is a thin distribution surface for the conversational
+capture skill, not a second storage or execution system.
 
 ## Workspace and filesystem
 
@@ -130,6 +135,17 @@ promoted pair when `target.sources` contains its discovery ID or when the
 promoted discovery's `related` contains its promote review target. Unrelated
 `sources` and `related` relationships remain valid.
 
+Approved conversational candidates use the separate capture path
+`kos --root PATH capture CANDIDATE.md [--json]`. Capture accepts only
+`knowledge`, `project`, and `memory` records, maps each type to its canonical
+managed root, derives the filename from the ID, and refuses existing IDs or
+destination paths. Candidates must have valid metadata, a non-empty body and
+provenance, `draft` or `active` lifecycle status, and no `verified` field.
+Project scope and overview invariants are checked by whole-corpus staged
+validation before the canonical exclusive create. Capture does not infer
+meaning, decide approval, verify claims, or alter cwd discovery; a cross-chat
+caller supplies the configured `--root` explicitly.
+
 Lint also detects practical partial promotion states: a promoted discovery
 whose target is missing, a target whose discovery provenance is missing or
 invalid, a target provenance edge pointing at a proposed/retained discovery,
@@ -173,6 +189,27 @@ Discovery review is also deterministic lexical matching and explicit links,
 not semantic contradiction detection or fact checking. Review output is
 generated Markdown and does not decide an outcome.
 
+## Codex plugin distribution
+
+The repository root is a standalone Codex plugin named `knowledge-os`.
+`.codex-plugin/plugin.json` exposes `skills/`, and the repo-owned marketplace
+manifest at `.agents/plugins/marketplace.json` publishes the plugin from `./`.
+The automatically discoverable `skills/knowledge-os-capture/SKILL.md` detects
+durable decisions, reusable lessons, and recurring preferences, batches
+approval proposals at natural pauses, and supports direct `save this` or
+`spara detta` intent. It creates no candidate before approval and safe-no-ops
+when `KNOWLEDGE_OS_ROOT` or the Python 3.11 `knowledge_os` dependency is not
+available. When the dependency is missing, it offers an explicit one-time
+installation from the plugin root derived from the loaded skill path; it never
+installs silently. Launcher selection is cross-platform: `py -3.11` on
+Windows, `python3.11` on macOS/Linux, and only a proven Python >=3.11 `python3`
+fallback. After setup and approval it invokes the selected launcher with
+`knowledge_os --root ... capture ... --json`. Setup detects
+`sys.prefix != sys.base_prefix` with that launcher and omits `--user` inside a
+virtual environment; non-venv setup uses `--user`. Deterministic storage,
+schema validation, provenance, locking, and index refresh remain owned by
+Knowledge OS.
+
 ## Skills
 
 Each skill is `skills/<name>/SKILL.md`. Shared parsing and validation require
@@ -185,7 +222,7 @@ context.
 
 ## Mutation and recovery contract
 
-Ingest, discovery add/retain/reject/promote, and index replacement all use one
+Ingest, capture, discovery add/retain/reject/promote, and index replacement all use one
 workspace-scoped advisory mutation lock owned by workspace infrastructure.
 Each mutation follows this order:
 
@@ -219,6 +256,9 @@ derived files from Markdown.
   including type, record kind, status, scope, path, and snippet.
 - `kos inspect ID` provides compact record metadata; `--full` adds the body.
 - `kos context` emits bounded, trust-aware, project-scoped generated context.
+- `kos capture PATH` creates one approved, create-only `knowledge`, `project`,
+  or `memory` record after staged whole-corpus validation; `--json` reports
+  its exact ID, type, scope, canonical path, and status.
 - `kos discovery add PATH`, `review ID`, `retain ID`, `reject ID`, and
   `promote ID` implement the explicit discovery return path.
 
