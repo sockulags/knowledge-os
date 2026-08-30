@@ -1,0 +1,20 @@
+{
+  "name": "knowledge-os",
+  "interface": {
+    "displayName": "Knowledge OS"
+  },
+  "plugins": [
+    {
+      "name": "knowledge-os",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

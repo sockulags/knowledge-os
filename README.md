@@ -3,7 +3,9 @@
 Knowledge OS `0.0.1` is a local-first durable knowledge system for Markdown
 and text. Markdown is canonical truth. Sources and external-agent discoveries
 remain separate trust boundaries, while SQLite and the catalog are disposable
-indexes. The complete frozen contract is [`docs/architecture.md`](docs/architecture.md).
+indexes. Its root Codex plugin provides automatic, approval-gated conversational
+capture; the deterministic storage boundary remains the local CLI. The complete
+frozen contract is [`docs/architecture.md`](docs/architecture.md).
 
 ## Bootstrap
 
@@ -49,8 +51,64 @@ status, and no `verified` field. It maps the type to `knowledge/`, `projects/`,
 or `memory/`, derives `<id>.md`, refuses duplicate IDs and overwrites, checks
 project overview invariants in a staged whole-corpus validation, and refreshes
 the indexes on success. `--json` reports the exact captured `id`, `type`,
-`scope`, canonical relative `path`, and `status`. Detection, proposal timing,
-approval handling, and background saving remain outside Knowledge OS.
+`scope`, canonical relative `path`, and `status`. The bundled `knowledge-os`
+Codex plugin owns detection, natural-pause proposal batching, and approval
+handling; it invokes this CLI only after approval. There is no Agent OS
+dependency and no background saving.
+
+The plugin is distributed from this repository through
+`.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json`. Its
+`knowledge-os-capture` skill remains automatically discoverable. Standalone
+means the skill and its companion CLI source are owned and distributed here;
+the CLI package still needs one explicit, one-time local setup when it is not
+already importable. The skill derives the plugin root from its loaded
+`SKILL.md`, asks before installing, and safely does nothing when setup is
+declined or unavailable.
+
+On Windows PowerShell, set `$loadedSkillPath` to the absolute path of the
+loaded `skills/knowledge-os-capture/SKILL.md`, derive `$pluginRoot` from it, and
+use the selected Python 3.11 launcher for setup:
+
+```powershell
+$loadedSkillPath = '<absolute path to the loaded SKILL.md>'
+$pluginRoot = (Resolve-Path (Join-Path (Split-Path -Parent $loadedSkillPath) '..\..')).Path
+$python = @('py', '-3.11')
+$venv = (& $python[0] $python[1] -c "import sys; print(sys.prefix != sys.base_prefix)").Trim()
+if ($venv -eq 'True') {
+  & $python[0] $python[1] -m pip install "$pluginRoot"
+} elseif ($venv -eq 'False') {
+  & $python[0] $python[1] -m pip install --user "$pluginRoot"
+} else {
+  Write-Output 'No valid virtual-environment state; safe-no-op.'
+  exit 0
+}
+```
+
+On macOS/Linux, derive the root from the loaded skill path and use
+`python3.11`, or a `python3` fallback only after proving it is Python >=3.11:
+
+```sh
+loaded_skill_path='<absolute path to the loaded SKILL.md>'
+plugin_root="$(cd "$(dirname "$loaded_skill_path")/../.." && pwd -P)"
+if command -v python3.11 >/dev/null 2>&1 && python3.11 -c 'import sys; assert sys.version_info >= (3, 11)' >/dev/null; then
+  python_cmd=python3.11
+elif command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; assert sys.version_info >= (3, 11)' >/dev/null; then
+  python_cmd=python3
+else
+  echo 'No proven Python >=3.11 launcher; safe-no-op.'
+  exit 0
+fi
+venv_state=$("$python_cmd" -c 'import sys; print(sys.prefix != sys.base_prefix)')
+case "$venv_state" in
+  True) "$python_cmd" -m pip install "$plugin_root" ;;
+  False) "$python_cmd" -m pip install --user "$plugin_root" ;;
+  *) echo 'No valid virtual-environment state; safe-no-op.'; exit 0 ;;
+esac
+```
+
+The skill asks for approval immediately before the selected install command,
+then rechecks `import knowledge_os` with that same launcher before any
+candidate is created.
 
 ## Export bounded context
 

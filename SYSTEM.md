@@ -46,4 +46,17 @@ There is no rollback or journal for derived-state failures.
 hand-edit generated index files. The SQLite file and catalog are disposable;
 deleting both leaves the corpus valid and `kos index` rebuilds them.
 
+The root `knowledge-os` Codex plugin distributes the automatic
+`knowledge-os-capture` skill. It detects durable decisions, reusable lessons,
+and recurring preferences, batches proposals at natural pauses, and handles
+user approval. It never writes before approval; after approval it invokes the
+deterministic `capture` primitive with the explicit `KNOWLEDGE_OS_ROOT`. This
+plugin is owned by Knowledge OS and has no Agent OS dependency. A clean plugin
+install may require one explicit, one-time installation of this repository's
+companion Python package; the skill derives the source root from its loaded
+path, asks before mutating the user's Python environment, and safe-no-ops when
+setup is declined or unavailable. It detects `sys.prefix != sys.base_prefix`
+with the selected launcher: an active virtual environment receives the package
+without `--user`; otherwise setup uses `--user`.
+
 Knowledge OS answers “What should the agent know?”. Agentic Work OS answers “What should execute?”. Their interfaces may connect later, but their implementations stay separate here.

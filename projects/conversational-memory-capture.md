@@ -6,7 +6,7 @@ status: active
 scope: project:knowledge-os
 record_kind: decision
 created: '2026-08-29'
-updated: '2026-08-29'
+updated: '2026-08-30'
 provenance:
   - kind: user-approved-conversation
     reference: conversation:2026-08-29:durable-product-principle-and-conversational-capture
@@ -29,9 +29,20 @@ Durable memory should not depend on the user noticing and initiating every save,
 
 The approved result is materialized through the create-only Knowledge OS
 primitive `kos --root <ROOT> capture <approved-candidate.md> [--json]`. The
-caller supplies the explicit configured root for cross-chat reachability;
-capture validates and indexes the candidate but does not perform detection or
-approval.
+Knowledge OS Codex plugin ships the automatic detection, natural-pause proposal
+batching, direct-save handling, and approval workflow. It supplies the explicit
+configured root for cross-chat reachability; capture validates and indexes the
+candidate but does not infer meaning or approval.
+
+The plugin is distributed by this repository as `knowledge-os` with the
+automatic `knowledge-os-capture` skill. It has no Agent OS or Agentic Work OS
+dependency. Standalone means the skill and companion CLI source are owned and
+distributed here, not that a clean plugin install has zero prerequisites: the
+skill may offer one explicit, one-time package installation from the plugin
+root, after user approval, when `knowledge_os` is not importable.
+The selected launcher detects whether `sys.prefix != sys.base_prefix`; setup
+installs without `--user` in an active virtual environment and uses `--user`
+otherwise.
 
 Decisions default to the current project scope. Reusable lessons use general knowledge or the current project scope as appropriate. Recurring user preferences use user memory, with a project scope when the preference is project-specific.
 

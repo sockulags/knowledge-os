@@ -1,0 +1,32 @@
+{
+  "name": "knowledge-os",
+  "version": "0.0.1",
+  "description": "Approval-gated conversational capture for Knowledge OS durable Markdown records, with an explicit one-time companion CLI setup when needed.",
+  "author": {
+    "name": "Sockulags",
+    "url": "https://github.com/sockulags"
+  },
+  "homepage": "https://github.com/sockulags/knowledge-os",
+  "repository": "https://github.com/sockulags/knowledge-os",
+  "keywords": [
+    "knowledge",
+    "memory",
+    "capture",
+    "conversation"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Knowledge OS",
+    "shortDescription": "Approval-gated conversational memory capture",
+    "longDescription": "Detect durable decisions, reusable lessons, and recurring preferences in conversation, batch proposals at natural pauses, and capture only approved records in a configured Knowledge OS workspace. The skill offers an explicit one-time local CLI setup when the companion package is not installed.",
+    "developerName": "Sockulags",
+    "category": "Productivity",
+    "capabilities": [
+      "Detect durable conversation candidates",
+      "Capture approved Knowledge OS records"
+    ],
+    "defaultPrompt": [
+      "Capture durable decisions only after I approve them."
+    ]
+  }
+}
