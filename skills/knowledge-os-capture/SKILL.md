@@ -127,11 +127,19 @@ and relevant context in `reference` and the body; do not invent approval or veri
 Include uncertainty in the body, omit `verified`, and never fabricate a `sha256`. Keep the body
 limited to the approved durable statement and useful context.
 
+For a `project` record, the proposal must also identify its path relative to
+`projects/<project-id>/`. Use the project root by default. When the approved
+destination is a nested folder or its root `README.md`, pass that exact relative
+path with `--project-path`; never invent a folder that the user did not approve.
+
 Invoke the storage boundary only after the approved file exists:
 
 ```powershell
 & $python[0] $python[1] -m knowledge_os --root "$env:KNOWLEDGE_OS_ROOT" capture "$candidate" --json
 ```
+
+For an approved nested project destination, append `--project-path
+"$approvedProjectPath"`.
 
 POSIX shells use the same selected launcher variable, including the documented `python3` fallback:
 
@@ -139,7 +147,17 @@ POSIX shells use the same selected launcher variable, including the documented `
 "$python_cmd" -m knowledge_os --root "$KNOWLEDGE_OS_ROOT" capture "$candidate" --json
 ```
 
+For an approved nested project destination, append `--project-path
+"$approved_project_path"`.
+
 Call once per approved candidate; never pass an unapproved batch. Report the exact returned fields
 that identify the outcome and record, preserving their values without inference; dump the full JSON
 only when its additional fields are needed to explain an error or ambiguity. Clean up the temporary
 candidate after success or failure and report any cleanup failure as a blocker.
+
+Capturing a decision stores it as a non-governing draft. Approval to store the candidate is not by
+itself authority to make the decision active. Call `kos decision accept` only when the user has also
+explicitly accepted the decision as governing in the current conversation. In that case, inspect the
+new record to obtain its exact `content_sha256`, use the accepted conversation as
+`--acceptance-reference`, and report the separate activation. Never activate a replacement draft
+with this command; accepted replacements must use the coordinated `kos supersede` operation.

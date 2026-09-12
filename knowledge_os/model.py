@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
-import re
 from pathlib import Path
 from typing import Any
 
 import yaml
-
 
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -28,6 +28,7 @@ CONFIDENCE_VALUES = {"low", "medium", "high"}
 DISCOVERY_ONLY_FIELDS = {"evidence", "origin", "confidence", "reviews"}
 RECORD_KIND_TYPES = {"knowledge", "project"}
 RECORD_KINDS = {"ordinary", "decision"}
+DECISION_ACCEPTANCE_KIND = "decision-acceptance"
 ALLOWED_FIELDS = {
     "id",
     "title",
@@ -61,6 +62,19 @@ class Document:
     path: Path
     metadata: dict[str, Any]
     body: str
+
+
+def render_document(metadata: dict[str, Any], body: str) -> bytes:
+    """Render one canonical Markdown record as UTF-8/LF bytes."""
+
+    rendered = yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True).rstrip("\n")
+    return f"---\n{rendered}\n---\n\n{body}".encode()
+
+
+def content_sha256(path: Path) -> str:
+    """Hash the exact bytes an agent read from a canonical file."""
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _string(value: Any, field: str) -> str:
@@ -254,6 +268,17 @@ def validate_metadata(metadata: Any, path: Path, *, check_filename: bool = True)
         if record_kind not in RECORD_KINDS:
             raise MetadataError("record_kind must be one of: decision, ordinary")
 
+    if metadata.get("record_kind") == "decision":
+        acceptance = [
+            item for item in metadata["provenance"] if item["kind"] == DECISION_ACCEPTANCE_KIND
+        ]
+        if status in {"active", "superseded"} and not acceptance:
+            raise MetadataError(
+                f"{status} decisions require provenance kind {DECISION_ACCEPTANCE_KIND!r}"
+            )
+        if status == "draft" and acceptance:
+            raise MetadataError("draft decisions must not contain decision-acceptance provenance")
+
     for field in ("tags",):
         if field in metadata and (not isinstance(metadata[field], list) or any(not isinstance(v, str) for v in metadata[field])):
             raise MetadataError(f"{field} must be a list of strings")
@@ -319,9 +344,9 @@ def parse_document_text(path: Path, text: str, *, check_filename: bool = True) -
     return Document(path=path, metadata=validated, body=body)
 
 
-def parse_document(path: Path) -> Document:
+def parse_document(path: Path, *, check_filename: bool = True) -> Document:
     try:
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise MetadataError("file must be UTF-8 text") from exc
-    return parse_document_text(path, text)
+    return parse_document_text(path, text, check_filename=check_filename)

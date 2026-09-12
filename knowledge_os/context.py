@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from datetime import date, datetime
 import json
 import math
 import re
+from dataclasses import dataclass, replace
+from datetime import date, datetime
 from typing import Any, Iterable
 
 from .context_policy import (
@@ -22,10 +22,9 @@ from .context_policy import (
     is_context_eligible,
 )
 from .index import search_index_terms, validate_index
-from .model import ID_PATTERN, Document, RELATION_FIELDS
+from .model import ID_PATTERN, RELATION_FIELDS, Document, content_sha256
 from .skills import Skill, load_skills, skill_search_terms
-from .workspace import Workspace, validate_workspace
-
+from .workspace import Workspace, validate_workspace, workspace_identity
 
 STATUS_WEIGHTS = {"active": 15, "draft": 5, "retained": 15}
 TYPE_WEIGHTS = {"project": 30, "knowledge": 20, "synthesis": 15, "memory": 10, "discovery": 10}
@@ -44,6 +43,7 @@ class ContextRequest:
     task: str
     budget: int
     work_item: str | None = None
+    required_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,7 @@ class Candidate:
     trust_label: str = ""
     verified: str | None = None
     record_kind: str | None = None
+    content_sha256: str = ""
 
 
 def estimate_tokens(text: str) -> int:
@@ -133,6 +134,7 @@ def _document_candidate(
         trust_label=eligibility.trust_label,
         verified=eligibility.verified,
         record_kind=record_kind,
+        content_sha256=content_sha256(document.path),
     )
 
 
@@ -172,6 +174,7 @@ def _skill_candidate(workspace: Workspace, skill: Skill, request_terms: list[str
         matched_terms=matched,
         score=len(matched) * 25 + 18,
         trust_label=OPERATIONAL_SKILL_TRUST_LABEL,
+        content_sha256=content_sha256(skill.path),
     )
 
 
@@ -236,7 +239,7 @@ def _manifest_item(candidate: Candidate) -> dict[str, Any]:
     item: dict[str, Any] = {
         "id": candidate.id,
         "title": candidate.title,
-        "selection_mode": "mandatory" if candidate.discovery.startswith("mandatory-project") else "ranked",
+        "selection_mode": "mandatory" if candidate.discovery.startswith("mandatory-") else "ranked",
         "discovery": candidate.discovery,
         "selection_reason": candidate.selection_reason,
         "score": candidate.score,
@@ -248,6 +251,7 @@ def _manifest_item(candidate: Candidate) -> dict[str, Any]:
         "status": candidate.status,
         "trust": candidate.trust_label,
         "path": candidate.path,
+        "content_sha256": candidate.content_sha256,
         "provenance": candidate.provenance,
     }
     if candidate.record_kind is not None:
@@ -258,6 +262,7 @@ def _manifest_item(candidate: Candidate) -> dict[str, Any]:
 
 
 def _render(
+    workspace: Workspace,
     request: ContextRequest,
     selected: list[Candidate],
     ranked_candidates: list[Candidate],
@@ -267,10 +272,12 @@ def _render(
     project_scope = f"project:{request.project}"
     manifest = {
         "contract": "kos-context/v1",
+        "workspace": workspace_identity(workspace),
         "request": {
             "project": request.project,
             "task": request.task,
             "work_item": request.work_item,
+            "required_ids": list(request.required_ids),
         },
         "eligibility": {
             "included_scopes": list(context_scopes(request.project)),
@@ -331,6 +338,7 @@ def _render(
 
 
 def _stable_render(
+    workspace: Workspace,
     request: ContextRequest,
     selected: list[Candidate],
     ranked_candidates: list[Candidate],
@@ -338,7 +346,7 @@ def _stable_render(
 ) -> tuple[str, int]:
     used = 0
     for _ in range(100):
-        rendered = _render(request, selected, ranked_candidates, excluded, used)
+        rendered = _render(workspace, request, selected, ranked_candidates, excluded, used)
         estimated = estimate_tokens(rendered)
         if estimated == used:
             return rendered, estimated
@@ -355,6 +363,13 @@ def _validate_request(request: ContextRequest) -> None:
         raise ContextError("--work-item must not be empty when provided")
     if not isinstance(request.budget, int) or isinstance(request.budget, bool) or request.budget < 1:
         raise ContextError("--budget must be at least 1")
+    seen: set[str] = set()
+    for record_id in request.required_ids:
+        if not isinstance(record_id, str) or not ID_PATTERN.fullmatch(record_id):
+            raise ContextError("--require values must be lowercase kebab-case record IDs")
+        if record_id in seen:
+            raise ContextError(f"duplicate --require ID: {record_id}")
+        seen.add(record_id)
 
 
 def _collect_ranked_candidates(
@@ -458,29 +473,30 @@ def _collect_ranked_candidates(
 
 
 def _fit_to_budget(
+    workspace: Workspace,
     request: ContextRequest,
-    overview: Candidate,
+    mandatory: list[Candidate],
     ranked_candidates: list[Candidate],
 ) -> str:
-    _, minimum_tokens = _stable_render(request, [overview], ranked_candidates, ranked_candidates)
+    _, minimum_tokens = _stable_render(workspace, request, mandatory, ranked_candidates, ranked_candidates)
     if minimum_tokens > request.budget:
         raise ContextError(
             f"--budget {request.budget} is too small for the mandatory project context envelope; "
             f"requires at least {minimum_tokens} estimated tokens"
         )
 
-    selected = [overview]
+    selected = list(mandatory)
     for candidate in ranked_candidates:
         tentative = selected + [candidate]
         tentative_keys = {item.key for item in tentative}
         excluded = [item for item in ranked_candidates if item.key not in tentative_keys]
-        _, estimated = _stable_render(request, tentative, ranked_candidates, excluded)
+        _, estimated = _stable_render(workspace, request, tentative, ranked_candidates, excluded)
         if estimated <= request.budget:
             selected.append(candidate)
 
     selected_keys = {item.key for item in selected}
     excluded = [candidate for candidate in ranked_candidates if candidate.key not in selected_keys]
-    rendered, _ = _stable_render(request, selected, ranked_candidates, excluded)
+    rendered, _ = _stable_render(workspace, request, selected, ranked_candidates, excluded)
     return rendered
 
 
@@ -499,8 +515,6 @@ def build_context(request: ContextRequest, workspace: Workspace) -> str:
     request_terms = _terms(request.task, request.work_item)
     if not request_terms:
         raise ContextError("context request must contain at least one searchable term")
-    optional = _collect_ranked_candidates(workspace, documents, overview, request_terms, project_scope)
-
     overview_candidate = _document_candidate(
         workspace,
         overview,
@@ -508,5 +522,31 @@ def build_context(request: ContextRequest, workspace: Workspace) -> str:
         discovery="mandatory-project-overview",
         selection_reason="mandatory project context",
     )
-    optional = [candidate for candidate in optional if candidate.key != overview_candidate.key]
-    return _fit_to_budget(request, overview_candidate, optional)
+    by_id = {document.metadata["id"]: document for document in documents}
+    required_candidates: list[Candidate] = []
+    for record_id in request.required_ids:
+        if record_id == overview_candidate.id:
+            continue
+        document = by_id.get(record_id)
+        if document is None:
+            raise ContextError(f"required record {record_id!r} was not found")
+        if not is_context_eligible(document, project_scope):
+            raise ContextError(
+                f"required record {record_id!r} is not eligible for project {request.project!r}; "
+                "required IDs do not bypass scope, status, type, or trust policy"
+            )
+        required_candidates.append(
+            _document_candidate(
+                workspace,
+                document,
+                project_scope=project_scope,
+                discovery="mandatory-required-record",
+                selection_reason="explicitly required record",
+            )
+        )
+
+    optional = _collect_ranked_candidates(workspace, documents, overview, request_terms, project_scope)
+    mandatory = [overview_candidate, *required_candidates]
+    mandatory_keys = {candidate.key for candidate in mandatory}
+    optional = [candidate for candidate in optional if candidate.key not in mandatory_keys]
+    return _fit_to_budget(workspace, request, mandatory, optional)

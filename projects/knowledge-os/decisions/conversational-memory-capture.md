@@ -8,8 +8,9 @@ record_kind: decision
 created: '2026-08-29'
 updated: '2026-08-30'
 provenance:
-  - kind: user-approved-conversation
+  - kind: decision-acceptance
     reference: conversation:2026-08-29:durable-product-principle-and-conversational-capture
+    captured: '2026-08-30T00:00:00Z'
 ---
 
 ## Decision

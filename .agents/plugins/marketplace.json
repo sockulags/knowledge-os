@@ -1,7 +1,16 @@
 {
   "name": "knowledge-os",
   "interface": {
-    "displayName": "Knowledge OS"
+    "displayName": "Knowledge OS",
+    "shortDescription": "Approved capture and repository documentation",
+    "description": "Approval-gated conversational capture and task-relevant repository documentation with explicit global and repository initialization.",
+    "capabilities": [
+      "Detect durable conversation candidates",
+      "Capture approved Knowledge OS records",
+      "Initialize global Codex and Claude documentation guidance",
+      "Initialize repository project bindings",
+      "Retrieve and maintain task-relevant documentation"
+    ]
   },
   "plugins": [
     {

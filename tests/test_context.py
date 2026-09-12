@@ -61,7 +61,13 @@ def index_fixture(root: Path) -> None:
 
 
 def write_record(root: Path, directory: str, metadata: dict, body: str) -> None:
-    path = root / directory / f"{metadata['id']}.md"
+    if directory == "projects":
+        project_id = metadata["scope"].removeprefix("project:")
+        filename = "README.md" if metadata["id"] == project_id else f"{metadata['id']}.md"
+        path = root / directory / project_id / filename
+    else:
+        path = root / directory / f"{metadata['id']}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         f"---\n{yaml.safe_dump(metadata, sort_keys=False)}---\n\n{body}",
         encoding="utf-8",
@@ -69,6 +75,134 @@ def write_record(root: Path, directory: str, metadata: dict, body: str) -> None:
 
 
 class ContextExportTests(unittest.TestCase):
+    def test_required_records_are_mandatory_hashed_and_scope_safe(self) -> None:
+        temporary, root = copy_fixture()
+        with temporary:
+            index_fixture(root)
+            result = run_kos(
+                root,
+                "context",
+                "--project",
+                "knowledge-os",
+                "--task",
+                "terms-that-do-not-match-the-required-record",
+                "--budget",
+                "12000",
+                "--require",
+                "irrelevant-general",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            package = manifest(result.stdout)
+            self.assertEqual(package["request"]["required_ids"], ["irrelevant-general"])
+            self.assertEqual(package["items"][0]["id"], "knowledge-os")
+            required = next(item for item in package["items"] if item["id"] == "irrelevant-general")
+            self.assertEqual(required["selection_mode"], "mandatory")
+            self.assertEqual(required["discovery"], "mandatory-required-record")
+            self.assertRegex(required["content_sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(package["workspace"]["name"], "context-workspace")
+            self.assertEqual(package["workspace"]["schema_version"], 1)
+            self.assertRegex(package["workspace"]["marker_sha256"], r"^[0-9a-f]{64}$")
+            self.assertTrue(all("content_sha256" in item for item in package["items"]))
+
+            out_of_scope = run_kos(
+                root,
+                "context",
+                "--project",
+                "knowledge-os",
+                "--task",
+                "URL provenance",
+                "--budget",
+                "12000",
+                "--require",
+                "other-project-url-notes",
+            )
+            self.assertNotEqual(out_of_scope.returncode, 0)
+            self.assertIn("required IDs do not bypass scope", out_of_scope.stderr)
+
+            too_small = run_kos(
+                root,
+                "context",
+                "--project",
+                "knowledge-os",
+                "--task",
+                "URL provenance",
+                "--budget",
+                "1",
+                "--require",
+                "irrelevant-general",
+            )
+            self.assertNotEqual(too_small.returncode, 0)
+            self.assertIn("mandatory project context envelope", too_small.stderr)
+
+            duplicate = run_kos(
+                root,
+                "context",
+                "--project",
+                "knowledge-os",
+                "--task",
+                "URL provenance",
+                "--budget",
+                "12000",
+                "--require",
+                "irrelevant-general",
+                "--require",
+                "irrelevant-general",
+            )
+            self.assertNotEqual(duplicate.returncode, 0)
+            self.assertIn("duplicate --require ID", duplicate.stderr)
+
+    def test_context_verify_reports_unchanged_changed_ineligible_and_missing(self) -> None:
+        temporary, root = copy_fixture()
+        with temporary:
+            index_fixture(root)
+            exported = run_kos(
+                root,
+                "context",
+                "--project",
+                "knowledge-os",
+                "--task",
+                "URL provenance",
+                "--budget",
+                "12000",
+                "--require",
+                "irrelevant-general",
+            )
+            self.assertEqual(exported.returncode, 0, exported.stderr)
+            package_path = root / "context-package.md"
+            package_path.write_text(exported.stdout, encoding="utf-8", newline="\n")
+
+            unchanged = run_kos(root, "context", "verify", package_path.name, "--json")
+            self.assertEqual(unchanged.returncode, 0, unchanged.stderr)
+            unchanged_report = json.loads(unchanged.stdout)
+            self.assertTrue(unchanged_report["ok"])
+            self.assertEqual({item["status"] for item in unchanged_report["items"]}, {"unchanged"})
+
+            record = root / "knowledge" / "irrelevant-general.md"
+            original = record.read_text(encoding="utf-8")
+            record.write_text(original + "\nChanged after export.\n", encoding="utf-8")
+            changed = run_kos(root, "context", "verify", package_path.name, "--json")
+            self.assertEqual(changed.returncode, 1)
+            changed_items = {item["id"]: item["status"] for item in json.loads(changed.stdout)["items"]}
+            self.assertEqual(changed_items["irrelevant-general"], "changed")
+
+            record.write_text(original.replace("status: active", "status: archived"), encoding="utf-8")
+            ineligible = run_kos(root, "context", "verify", package_path.name, "--json")
+            self.assertEqual(ineligible.returncode, 1)
+            ineligible_items = {item["id"]: item["status"] for item in json.loads(ineligible.stdout)["items"]}
+            self.assertEqual(ineligible_items["irrelevant-general"], "ineligible")
+
+            record.unlink()
+            missing = run_kos(root, "context", "verify", package_path.name, "--json")
+            self.assertEqual(missing.returncode, 1)
+            missing_items = {item["id"]: item["status"] for item in json.loads(missing.stdout)["items"]}
+            self.assertEqual(missing_items["irrelevant-general"], "missing")
+
+            marker = root / "knowledge-os.toml"
+            marker.write_text(marker.read_text(encoding="utf-8").replace("context-workspace", "other-workspace"), encoding="utf-8")
+            wrong_workspace = run_kos(root, "context", "verify", package_path.name, "--json")
+            self.assertEqual(wrong_workspace.returncode, 1)
+            self.assertFalse(json.loads(wrong_workspace.stdout)["workspace"]["matches"])
+
     def test_retrieves_project_general_and_skill_context_but_excludes_irrelevant_items(self) -> None:
         temporary, root = copy_fixture()
         with temporary:
@@ -150,7 +284,7 @@ class ContextExportTests(unittest.TestCase):
             self.assertEqual(raw_package["budget"]["used_tokens"], math.ceil(len(raw_output) / 4))
             self.assertLessEqual(raw_package["budget"]["used_tokens"], 12000)
 
-            (root / "projects" / "other-project-url-notes.md").unlink()
+            (root / "projects" / "other-project" / "other-project-url-notes.md").unlink()
             index_fixture(root)
             without_other_project = run_kos(root, *arguments)
             self.assertEqual(without_other_project.returncode, 0, without_other_project.stderr)
@@ -397,7 +531,7 @@ class ContextExportTests(unittest.TestCase):
             self.assertNotEqual(missing.returncode, 0)
             self.assertIn("project 'missing' was not found", missing.stderr)
 
-            for path in (root / "projects").glob("*.md"):
+            for path in (root / "projects").rglob("*.md"):
                 text = path.read_text(encoding="utf-8")
                 text = text.replace("status: active", "status: archived").replace("status: draft", "status: archived")
                 path.write_text(text, encoding="utf-8")

@@ -87,6 +87,76 @@ def managed_snapshot(root: Path) -> dict[str, bytes]:
 
 
 class CaptureTests(unittest.TestCase):
+    def test_project_capture_supports_arbitrary_nested_folders_and_folder_root_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+
+            root_candidate = root / "area-overview-candidate.md"
+            write_candidate(
+                root_candidate,
+                {
+                    "id": "knowledge-architecture",
+                    "title": "Knowledge architecture",
+                    "type": "project",
+                    "status": "active",
+                    "scope": "project:demo",
+                    "created": "2026-09-12",
+                    "updated": "2026-09-12",
+                    "provenance": [{"kind": "conversation", "reference": "nested-layout"}],
+                },
+                "Overview for this freely named folder.\n",
+            )
+            nested_root = run_kos(
+                root,
+                "capture",
+                root_candidate.name,
+                "--project-path",
+                "Architecture and design/deep/topic/README.md",
+                "--json",
+            )
+            self.assertEqual(nested_root.returncode, 0, nested_root.stderr)
+            self.assertEqual(
+                json.loads(nested_root.stdout)["path"],
+                "projects/demo/Architecture and design/deep/topic/README.md",
+            )
+
+            note_candidate = root / "note-candidate.md"
+            write_candidate(
+                note_candidate,
+                {
+                    "id": "implementation-notes",
+                    "title": "Implementation notes",
+                    "type": "project",
+                    "status": "draft",
+                    "scope": "project:demo",
+                    "created": "2026-09-12",
+                    "updated": "2026-09-12",
+                    "provenance": [{"kind": "conversation", "reference": "nested-layout"}],
+                },
+            )
+            nested_note = run_kos(
+                root,
+                "capture",
+                note_candidate.name,
+                "--project-path",
+                "any/depth/is/allowed/implementation-notes.md",
+            )
+            self.assertEqual(nested_note.returncode, 0, nested_note.stderr)
+            self.assertEqual(run_kos(root, "lint").returncode, 0)
+
+            before = managed_snapshot(root)
+            escaped = run_kos(
+                root,
+                "capture",
+                note_candidate.name,
+                "--project-path",
+                "../outside/implementation-notes.md",
+            )
+            self.assertNotEqual(escaped.returncode, 0)
+            self.assertIn("safe relative path", escaped.stderr)
+            self.assertEqual(managed_snapshot(root), before)
+
     def test_capture_creates_project_knowledge_and_memory_records(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -96,7 +166,7 @@ class CaptureTests(unittest.TestCase):
                     "project-note",
                     "project",
                     "project:demo",
-                    "projects/project-note.md",
+                    "projects/demo/project-note.md",
                 ),
                 ("general-lesson", "knowledge", "general", "knowledge/general-lesson.md"),
                 ("user-preference", "memory", "project:demo", "memory/user-preference.md"),
@@ -195,6 +265,23 @@ class CaptureTests(unittest.TestCase):
                     "must not include verified",
                 ),
                 (
+                    "active-decision",
+                    {
+                        "id": "active-decision",
+                        "title": "Active decision",
+                        "type": "knowledge",
+                        "record_kind": "decision",
+                        "status": "active",
+                        "scope": "general",
+                        "created": "2026-08-30",
+                        "updated": "2026-08-30",
+                        "provenance": [
+                            {"kind": "decision-acceptance", "reference": "conversation:accepted"}
+                        ],
+                    },
+                    "capture creates decision records as draft",
+                ),
+                (
                     "unknown-provenance",
                     {
                         "id": "unknown-provenance",
@@ -238,7 +325,7 @@ class CaptureTests(unittest.TestCase):
                 self.assertIn(expected_error, result.stderr)
                 self.assertEqual(managed_snapshot(root), before)
                 self.assertFalse((root / "knowledge" / f"{record_id}.md").exists())
-                self.assertFalse((root / "projects" / f"{record_id}.md").exists())
+                self.assertFalse((root / "projects" / "demo" / f"{record_id}.md").exists())
                 self.assertFalse((root / "memory" / f"{record_id}.md").exists())
 
     def test_final_exclusive_create_refuses_overwrite_and_preserves_competing_file(self) -> None:

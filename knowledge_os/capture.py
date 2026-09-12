@@ -6,14 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from .model import Document, MetadataError, parse_document_text
+from .model import Document, MetadataError, parse_document_text, render_document
 from .workspace import (
     Workspace,
     WorkspaceError,
     atomic_write,
     exclusive_write,
+    default_project_record_path,
+    project_directory,
     refresh_derived_indexes,
     stage_workspace,
     staged_documents,
@@ -44,11 +44,6 @@ class CaptureResult:
     index_count: int
 
 
-def _frontmatter(metadata: dict[str, Any], body: str) -> bytes:
-    rendered = yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True).rstrip("\n")
-    return f"---\n{rendered}\n---\n\n{body}".encode("utf-8")
-
-
 def _load_candidate(input_path: Path) -> Document:
     path = input_path.expanduser().resolve()
     if not path.is_file():
@@ -72,6 +67,8 @@ def _ensure_candidate(candidate: Document) -> None:
         raise CaptureError("capture accepts only type: knowledge, project, or memory")
     if metadata["status"] not in CAPTURE_STATUSES:
         raise CaptureError("capture requires status: draft or active")
+    if metadata.get("record_kind") == "decision" and metadata["status"] != "draft":
+        raise CaptureError("capture creates decision records as draft; use 'kos decision accept' to activate")
     if "verified" in metadata:
         raise CaptureError("capture candidates must not include verified")
     if not candidate.body.strip():
@@ -82,7 +79,25 @@ def _details(issues: list[Any]) -> str:
     return "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
 
 
-def capture_record(workspace: Workspace, input_path: Path) -> CaptureResult:
+def _project_relative_path(metadata: dict[str, Any], requested: Path | None) -> Path:
+    default = default_project_record_path(metadata["id"], metadata["scope"])
+    if requested is None:
+        return default
+    if requested.is_absolute() or not requested.parts or any(part in {"", ".", ".."} for part in requested.parts):
+        raise CaptureError("--project-path must be a safe relative path inside the project directory")
+    if requested.suffix.lower() not in {".md", ".markdown"}:
+        raise CaptureError("--project-path must end in .md or .markdown")
+    if requested.name != "README.md" and requested.stem != metadata["id"]:
+        raise CaptureError("--project-path filename must be README.md or have a stem equal to the record ID")
+    return project_directory(metadata["scope"]) / requested
+
+
+def capture_record(
+    workspace: Workspace,
+    input_path: Path,
+    *,
+    project_path: Path | None = None,
+) -> CaptureResult:
     """Create one approved durable record under the shared mutation contract."""
 
     with workspace_mutation_lock(workspace):
@@ -95,7 +110,14 @@ def capture_record(workspace: Workspace, input_path: Path) -> CaptureResult:
         metadata = candidate.metadata
         record_id = metadata["id"]
         record_type = metadata["type"]
-        destination = workspace.root / CAPTURE_DIRECTORIES[record_type] / f"{record_id}.md"
+        if project_path is not None and record_type != "project":
+            raise CaptureError("--project-path is only valid for type: project")
+        relative_path = (
+            _project_relative_path(metadata, project_path)
+            if record_type == "project"
+            else Path(CAPTURE_DIRECTORIES[record_type]) / f"{record_id}.md"
+        )
+        destination = workspace.root / relative_path
         workspace.assert_safe_path(destination)
 
         by_id = {document.metadata["id"]: document for document in documents}
@@ -111,8 +133,8 @@ def capture_record(workspace: Workspace, input_path: Path) -> CaptureResult:
                 detail = "is not a file"
             raise CaptureError(f"destination {workspace.relative(destination)} {detail}; refusing overwrite")
 
-        canonical = _frontmatter(metadata, candidate.body)
-        relative_record = f"{CAPTURE_DIRECTORIES[record_type]}/{record_id}.md"
+        canonical = render_document(metadata, candidate.body)
+        relative_record = relative_path.as_posix()
         with stage_workspace(workspace) as stage:
             atomic_write(stage.root / relative_record, canonical)
             staged_documents(stage, "capture an approved record")

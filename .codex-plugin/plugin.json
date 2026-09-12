@@ -1,7 +1,7 @@
 {
   "name": "knowledge-os",
   "version": "0.0.1",
-  "description": "Approval-gated conversational capture for Knowledge OS durable Markdown records, with an explicit one-time companion CLI setup when needed.",
+  "description": "Approval-gated conversational capture and task-relevant repository documentation for Knowledge OS durable Markdown records, with explicit one-time global and repository initialization when needed.",
   "author": {
     "name": "Sockulags",
     "url": "https://github.com/sockulags"
@@ -12,18 +12,23 @@
     "knowledge",
     "memory",
     "capture",
-    "conversation"
+    "conversation",
+    "documentation",
+    "projects"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Knowledge OS",
-    "shortDescription": "Approval-gated conversational memory capture",
-    "longDescription": "Detect durable decisions, reusable lessons, and recurring preferences in conversation, batch proposals at natural pauses, and capture only approved records in a configured Knowledge OS workspace. The skill offers an explicit one-time local CLI setup when the companion package is not installed.",
+    "shortDescription": "Approved capture and repository documentation",
+    "longDescription": "Detect durable decisions, reusable lessons, and recurring preferences in conversation, batch proposals at natural pauses, and capture only approved records in a configured Knowledge OS workspace. Initialize global host guidance or repository project bindings when explicitly requested, then retrieve and maintain task-relevant documentation without treating search results as verified.",
     "developerName": "Sockulags",
     "category": "Productivity",
     "capabilities": [
       "Detect durable conversation candidates",
-      "Capture approved Knowledge OS records"
+      "Capture approved Knowledge OS records",
+      "Initialize global Codex and Claude documentation guidance",
+      "Initialize repository project bindings",
+      "Retrieve and maintain task-relevant documentation"
     ],
     "defaultPrompt": [
       "Capture durable decisions only after I approve them."

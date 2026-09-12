@@ -18,6 +18,22 @@ contract.
    schema version `1`.
 5. Run `kos lint`, `kos index`, and tests after changes.
 
+The `knowledge-os-documentation` skill has two explicit initialization modes.
+`kos documentation init-global` writes user-level Codex and Claude guidance plus
+`~/.knowledge-os/config.toml`, so it requires direct user authorization.
+`kos documentation init-repo` writes `.knowledge-os-project.toml` with project
+IDs and repository-relative paths. The longest matching path selects a project;
+missing or ambiguous bindings are safe no-ops outside explicit initialization.
+After setup, search before inspection or context export and write only when the
+current request or repository policy authorizes the change. Search results are
+not automatically verified. The capture skill owns conversational memory.
+
+Project records are physically contained by scope at
+`projects/<project-id>/`. The required project overview is that directory's
+`README.md`. Below it, safe folder names and nesting depth are unrestricted;
+any folder may have a metadata-bearing `README.md` root record. Non-root
+records retain `<id>.md` filenames.
+
 The discovery return path is `kos discovery add PATH`, `kos discovery review ID`,
 and exactly one explicit `retain`, `reject`, or `promote` decision. Retain is
 project-scoped reviewed memory, reject and promote are terminal, and promotion
@@ -26,7 +42,7 @@ only target provenance plus the promote review target; it does not add
 redundant `sources` or `related` links.
 
 After a user approves a complete candidate record, the safe write primitive is
-`kos --root PATH capture CANDIDATE.md [--json]`. Capture is create-only for
+`kos --root PATH capture CANDIDATE.md [--project-path PATH] [--json]`. Capture is create-only for
 `knowledge`, `project`, and `memory` records, requires `draft` or `active`
 status and non-empty provenance, rejects `verified`, maps the type to its
 canonical managed root, validates the whole staged corpus, and rebuilds the
@@ -34,12 +50,29 @@ disposable indexes. Cross-chat integrations must pass the explicit configured
 workspace root; capture does not change cwd discovery semantics or perform
 detection, proposal, approval, or background saving.
 
+Decision capture is draft-only. `kos decision accept` is the only direct
+draft-to-active decision transition and records explicit `decision-acceptance`
+provenance. `kos update` requires the exact SHA-256 read by the caller, keeps
+identity, lifecycle, supersession, and system lineage immutable, and requires
+an explicit non-material confirmation plus change reference before changing an
+accepted decision body. Material decision changes use a new draft followed by
+`kos supersede OLD_ID NEW_ID`, which checks both revisions and activates the
+replacement together with retiring the prior decision.
+
 Ingest, capture, discovery mutations, and index replacement share one workspace
 advisory lock. Mutations validate the current and staged corpus, write minimal
-canonical files, then rebuild disposable indexes. The multi-file promotion is
-not crash-atomic. If a partial lineage or an index failure is reported, repair
+canonical files, then rebuild disposable indexes. The multi-file promotion and
+two-file supersession commit are not crash-atomic. Caught supersession failures
+restore both original files when possible. If a partial lineage, partial
+supersession, or index failure is reported, repair
 or inspect canonical Markdown, then run `kos lint` followed by `kos index`.
 There is no rollback or journal for derived-state failures.
+
+`kos context` accepts repeatable `--require ID` values. Required records must
+remain eligible for the requested project and either fit in full or fail the
+request. The package manifest includes workspace identity and exact content
+SHA-256 for every selected record or skill. `kos context verify PACKAGE.md`
+compares that manifest with the current workspace without rebuilding indexes.
 
 `kos index` validates the whole corpus before replacing generated indexes, and
 `kos lint` validates every skill as well as every managed record. Never

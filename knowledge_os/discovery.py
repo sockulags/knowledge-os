@@ -34,6 +34,7 @@ from .workspace import (
     Workspace,
     atomic_write,
     exclusive_write,
+    default_project_record_path,
     refresh_derived_indexes,
     stage_workspace,
     staged_documents,
@@ -634,8 +635,12 @@ def _promote_discovery_locked(
         raise DiscoveryError(f"target ID {target_id!r} already exists; promotion never overwrites records")
 
     target_type = "knowledge" if scope == "general" else "project"
-    destination_directory = "knowledge" if scope == "general" else "projects"
-    target_path = workspace.root / destination_directory / f"{target_id}.md"
+    target_relative_path = (
+        Path("knowledge") / f"{target_id}.md"
+        if scope == "general"
+        else default_project_record_path(target_id, scope)
+    )
+    target_path = workspace.root / target_relative_path
     workspace.assert_safe_path(target_path)
     if target_path.exists() or target_path.is_symlink():
         raise DiscoveryError(
@@ -663,7 +668,7 @@ def _promote_discovery_locked(
     discovery_content = _frontmatter(discovery_metadata, discovery.body)
 
     discovery_relative = f"{DISCOVERY_DIRECTORY}/{record_id}.md"
-    target_relative = f"{destination_directory}/{target_id}.md"
+    target_relative = target_relative_path.as_posix()
     with stage_workspace(workspace) as stage:
         atomic_write(stage.root / discovery_relative, discovery_content)
         atomic_write(stage.root / target_relative, target_content)

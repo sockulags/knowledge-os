@@ -34,6 +34,35 @@ PATH`. Try `kos ingest examples/sample.md`, then `kos search xylophone --json`,
 and `kos inspect <id>`. `inbox/` is intentionally outside the managed record
 contract.
 
+## Documentation skill
+
+The automatically discoverable `knowledge-os-documentation` skill supports one-time setup and
+normal documentation retrieval. Global setup requires direct authorization because it writes the
+managed blocks in the user-level Codex and Claude files and `~/.knowledge-os/config.toml`:
+
+```text
+kos documentation init-global --workspace PATH [--host codex] [--host claude] [--user-home PATH] [--replace] [--json]
+```
+
+Repository setup writes `.knowledge-os-project.toml` with one or more project bindings:
+
+```text
+kos documentation init-repo --repo PATH --project ID[=RELATIVE_PATH] [--project ...] [--user-home PATH] [--replace] [--json]
+```
+
+After setup, the skill searches before inspection or context export, reads each affected project's
+overview and nearest relevant folder `README.md`, and keeps current behavior, decisions, drafts,
+raw sources, and discoveries distinct. Search results are not automatically verified. Writes need
+authorization from the current request or repository policy. See
+[`skills/knowledge-os-documentation/references/init.md`](skills/knowledge-os-documentation/references/init.md)
+and [`skills/knowledge-os-documentation/references/documentation-workflow.md`](skills/knowledge-os-documentation/references/documentation-workflow.md).
+
+Project documentation is contained by project directory. The required project
+overview is `projects/<project-id>/README.md`; arbitrary folders may be nested
+below it, and each folder may have its own metadata-bearing `README.md` root
+record. Other records use `<id>.md`. Create a record at a chosen nested path
+with `kos capture CANDIDATE.md --project-path architecture/decisions/README.md`.
+
 ## Capture an approved record
 
 The cross-chat integration writes only after approval by passing a complete
@@ -47,18 +76,76 @@ py -3.11 -m knowledge_os --root $env:KNOWLEDGE_OS_ROOT capture .\approved-candid
 
 Capture accepts only `knowledge`, `project`, and `memory` records with valid
 schema/frontmatter, a non-empty body and provenance, `draft` or `active`
-status, and no `verified` field. It maps the type to `knowledge/`, `projects/`,
-or `memory/`, derives `<id>.md`, refuses duplicate IDs and overwrites, checks
+status, and no `verified` field. It maps the type to `knowledge/`, a scoped
+project directory, or `memory/`, refuses duplicate IDs and overwrites, checks
 project overview invariants in a staged whole-corpus validation, and refreshes
-the indexes on success. `--json` reports the exact captured `id`, `type`,
-`scope`, canonical relative `path`, and `status`. The bundled `knowledge-os`
+the indexes on success. Project records default to
+`projects/<project-id>/<id>.md`, while the overview defaults to
+`projects/<project-id>/README.md`; `--project-path` chooses any safe nested
+Markdown path below that project directory. `--json` reports the exact captured
+`id`, `type`, `scope`, canonical relative `path`, and `status`. The bundled `knowledge-os`
 Codex plugin owns detection, natural-pause proposal batching, and approval
 handling; it invokes this CLI only after approval. There is no Agent OS
 dependency and no background saving.
 
+Decision records are always captured as `draft`. Activate an accepted decision
+with the exact hash returned by `kos inspect ID`:
+
+```powershell
+$hash = (kos inspect decision-id | ConvertFrom-Json).content_sha256
+kos decision accept decision-id --expected-sha256 $hash --acceptance-reference conversation:approval
+```
+
+The transition adds explicit `decision-acceptance` provenance. Ordinary capture
+or update cannot make a decision active.
+
+## Update and supersede records safely
+
+`kos update` uses optimistic concurrency. Supply a complete candidate and the
+SHA-256 of the exact canonical bytes it was based on:
+
+```powershell
+kos update .\updated-record.md --expected-sha256 $hash
+```
+
+A stale hash fails without changing Markdown or indexes. Identity, lifecycle,
+`supersedes`, discovery lineage, and decision acceptance lineage cannot be
+changed through this operation. Changing the body of an accepted decision is
+reserved for an explicitly non-material correction:
+
+```powershell
+kos update .\editorial-correction.md --expected-sha256 $hash `
+  --confirm-non-material --change-reference conversation:editorial-approval
+```
+
+A material decision change is a new draft. It declares exactly one prior
+decision in `supersedes`; the prior decision remains active while the draft is
+reviewed. Acceptance uses the coordinated operation:
+
+```powershell
+kos supersede old-decision new-decision `
+  --expected-old-sha256 $oldHash `
+  --expected-new-sha256 $newHash `
+  --acceptance-reference conversation:replacement-approval
+```
+
+This makes the replacement active and the prior decision superseded under one
+workspace lock. Caught write failures restore both original records when
+possible. Abrupt process termination is still not crash-atomic; inspect both
+records and run `kos lint` followed by `kos index` when partial-state recovery
+is reported.
+
 The plugin is distributed from this repository through
-`.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json`. Its
-`knowledge-os-capture` skill remains automatically discoverable. Standalone
+`.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json` for Codex,
+and through `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`
+for Claude Code. Install the Claude Code plugin with:
+
+```
+/plugin marketplace add sockulags/knowledge-os
+/plugin install knowledge-os
+```
+
+Its `knowledge-os-capture` skill remains automatically discoverable. Standalone
 means the skill and its companion CLI source are owned and distributed here;
 the CLI package still needs one explicit, one-time local setup when it is not
 already importable. The skill derives the plugin root from its loaded
@@ -120,6 +207,22 @@ kos --root examples/context-workspace index
 kos --root examples/context-workspace context --project knowledge-os --task "Add URL ingestion while preserving provenance" --budget 12000 > context.md
 ```
 
+Use repeatable `--require ID` options for governing records that must be present
+regardless of lexical ranking. Required IDs still obey the requested project's
+scope, lifecycle, type, and trust policy; they cannot import another project's
+records. All mandatory items must fit in full or generation fails.
+
+Each package manifest records workspace name/schema marker and the exact content
+SHA-256 of every selected record and skill. Check later drift with:
+
+```powershell
+kos context verify .\context.md --json
+```
+
+The verifier reports each item as `unchanged`, `changed`, `missing`, or
+`ineligible`, and separately reports whether the workspace identity still
+matches.
+
 Context includes the exact project overview, eligible general/project durable
 records, retained discoveries from that project, and relevant skills. Raw
 sources, other project scopes, and non-eligible lifecycle states are excluded.
@@ -156,6 +259,16 @@ optional `verified` ISO date independently produces the `verified durable`
 classification. `record_kind` is optional only for `knowledge` and `project`
 records, with `ordinary` (the default) or `decision`.
 
+For decisions, `draft` means proposed, `active` means explicitly accepted and
+current, and `superseded` means replaced by an accepted successor. Active and
+superseded decisions require `decision-acceptance` provenance. Acceptance does
+not imply implementation or verification.
+
+Existing version-1 workspaces with older active decision records need one
+explicit, reviewable metadata correction: add `decision-acceptance` provenance
+that references the real acceptance basis, or return the record to `draft` when
+no such acceptance exists. Do not invent acceptance merely to satisfy lint.
+
 `knowledge-os.toml` must contain `[workspace].version = 1`. `kos lint` validates
 the workspace version, all managed records, cross-record provenance and
 relationship invariants, managed paths, and every skill. Skills use
@@ -163,10 +276,11 @@ relationship invariants, managed paths, and every skill. Skills use
 
 ## Recovery and disposable indexes
 
-Ingest, discovery mutations, and `kos index` share one workspace advisory
+Ingest, capture, update, decision acceptance, supersession, discovery mutations,
+and `kos index` share one workspace advisory
 lock. Mutations validate the current and intended corpus, write only minimal
 canonical files, then rebuild `indexes/catalog.md` and
-`indexes/catalog.sqlite3`. Promotion is not crash-atomic and no journal or
+`indexes/catalog.sqlite3`. Promotion and supersession are not crash-atomic and no journal or
 rollback system is used. If a partial lineage or index failure occurs, repair
 or inspect canonical Markdown and run:
 

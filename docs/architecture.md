@@ -20,8 +20,8 @@ orchestration; this repository has no runtime dependency on either Agent OS or
 Agentic Work OS.
 
 The product does not include URLs, PDFs, embeddings, semantic search or
-reranking, LLM trust decisions, contradiction or backlink subsystems, merge or
-supersession automation, MCP/API, GUI, cloud or multi-user behavior, a database
+reranking, LLM trust decisions, contradiction or backlink subsystems, arbitrary
+record merging, MCP/API, GUI, cloud or multi-user behavior, a database
 as canonical storage, WAL/journal/transaction infrastructure, or background
 workers. The Codex plugin is a thin distribution surface for the conversational
 capture skill, not a second storage or execution system.
@@ -55,10 +55,17 @@ The managed roots are:
 
 Every managed record is one UTF-8 `.md` or `.markdown` file directly or
 recursively below the directory matching its `type`; its filename stem equals
-its globally unique lowercase kebab-case `id`. `README.md` files at managed
-root level are documentation, not records. Managed files and directories,
+its globally unique lowercase kebab-case `id`, except for project folder root
+records named `README.md`. `README.md` files at managed root level are
+documentation, not records. Managed files and directories,
 including skill paths, must not be symlinks, and resolved managed paths must
 remain below the workspace root.
+
+Each project scope is physically contained at `projects/<project-id>/`. Its
+required overview is `projects/<project-id>/README.md`. All other `project`
+records with that scope must remain below the same directory. Descendant folder
+names and nesting depth are not prescribed. Any descendant folder may contain
+a metadata-bearing `README.md` root record; ordinary files retain `<id>.md`.
 
 ## Record metadata
 
@@ -83,6 +90,14 @@ records. Its values are `ordinary` and `decision`; absence means `ordinary`.
 A decision is still an ordinary durable record with an explicit body stating
 the chosen rule and rationale. `record_kind` on any other type, unknown values,
 and unknown metadata fields are rejected.
+
+For a decision, `draft` means proposed and not governing, `active` means
+explicitly accepted and governing, and `superseded` means replaced by an
+accepted successor. Active and superseded decisions require a provenance entry
+with `kind: decision-acceptance`; a draft decision must not contain one.
+Acceptance records the basis for authority. It does not mean that the decision
+was implemented or that any factual claim was verified. Capture creates
+decisions only as drafts, and ordinary update cannot change lifecycle status.
 
 Every `project:<slug>` scope present in the corpus must have exactly one usable
 overview with `type: project`, `id: <slug>`, and that same scope. The overview
@@ -136,10 +151,11 @@ promoted discovery's `related` contains its promote review target. Unrelated
 `sources` and `related` relationships remain valid.
 
 Approved conversational candidates use the separate capture path
-`kos --root PATH capture CANDIDATE.md [--json]`. Capture accepts only
+`kos --root PATH capture CANDIDATE.md [--project-path PATH] [--json]`. Capture accepts only
 `knowledge`, `project`, and `memory` records, maps each type to its canonical
-managed root, derives the filename from the ID, and refuses existing IDs or
-destination paths. Candidates must have valid metadata, a non-empty body and
+managed location, and refuses existing IDs or destination paths. Project
+records default inside their scoped project directory; `--project-path`
+selects a safe relative nested location there. Candidates must have valid metadata, a non-empty body and
 provenance, `draft` or `active` lifecycle status, and no `verified` field.
 Project scope and overview invariants are checked by whole-corpus staged
 validation before the canonical exclusive create. Capture does not infer
@@ -169,7 +185,9 @@ context even when their body matches task terms. Only ordinary durable types
 `knowledge`, `project`, `memory`, and `synthesis` with status `draft` or
 `active`, plus retained discoveries in the requested project, can be selected.
 Every selected item exposes type, record kind where applicable, scope, status,
-trust classification, path, provenance, and selection evidence.
+trust classification, path, provenance, exact content SHA-256, and selection
+evidence. The manifest also identifies the workspace by configured name,
+workspace schema version, and exact marker hash.
 
 For `kos context --project ID`, the only eligible ordinary scopes are
 `general` and `project:ID`. FTS and one-hop relationship expansion use this
@@ -184,6 +202,14 @@ request terms match their name, description, or tags; skill bodies do not
 activate selection. Whole items are greedily fitted to the configured budget
 using `ceil(Unicode character count / 4)`. The UTF-8/LF package contract is
 `kos-context/v1`, emitted to stdout, read-only, and non-canonical.
+
+Repeatable `--require ID` values add governing records to the mandatory
+envelope after the project overview. Required records do not use lexical
+ranking, but they must pass the same type, lifecycle, trust, and scope policy;
+an ID from another project remains ineligible. Every mandatory item is rendered
+whole or package generation fails. `kos context verify PACKAGE.md` compares the
+manifest with the current workspace and reports each selected item as
+`unchanged`, `changed`, `missing`, or `ineligible`.
 
 Discovery review is also deterministic lexical matching and explicit links,
 not semantic contradiction detection or fact checking. Review output is
@@ -222,8 +248,9 @@ context.
 
 ## Mutation and recovery contract
 
-Ingest, capture, discovery add/retain/reject/promote, and index replacement all use one
-workspace-scoped advisory mutation lock owned by workspace infrastructure.
+Ingest, capture, conflict-safe update, decision acceptance, decision
+supersession, discovery add/retain/reject/promote, and index replacement all use
+one workspace-scoped advisory mutation lock owned by workspace infrastructure.
 Each mutation follows this order:
 
 1. acquire the lock and validate the current canonical corpus and skills;
@@ -233,17 +260,46 @@ Each mutation follows this order:
 4. keep canonical Markdown as authoritative and rebuild disposable indexes;
 5. release the lock.
 
-There is no WAL, journal, multi-file transaction, or rollback of canonical
-truth to preserve a cache. Promotion is not crash-atomic. If a process stops
-between its two canonical writes, the resulting partial lineage is detected
-by `kos lint`; repair the affected Markdown, then run `kos lint` and `kos
-index`. If canonical writes succeed but index rebuilding fails, the canonical
+There is no WAL, journal, or multi-file transaction. Promotion and supersession
+are not crash-atomic, although a caught supersession write failure attempts to
+restore both original records. If a process stops between canonical writes,
+the resulting partial lineage or replacement is detected by `kos lint`; repair
+the affected Markdown, then run `kos lint` and `kos index`. If canonical writes
+succeed but index rebuilding fails, the canonical
 records remain; the command reports recovery instructions to run `kos lint`
 and then `kos index`.
 
 Deleting `indexes/catalog.md` and `indexes/catalog.sqlite3` does not affect
 corpus validity. `kos lint` remains usable and `kos index` recreates both
 derived files from Markdown.
+
+`kos update` requires the SHA-256 of the exact current canonical bytes and
+rejects stale writers before staging. It preserves ID, type, scope, creation
+date, record kind, lifecycle status, supersession, discovery lineage, and
+decision-acceptance lineage. An accepted decision body may change only with an
+explicit non-material confirmation and a recorded change reference. Material
+changes use a new draft decision.
+
+A draft decision may declare exactly one active decision in `supersedes`; this
+is only a proposed replacement and does not retire the target. `kos supersede`
+checks both exact revisions and the acceptance reference, then stages the new
+decision as active and the old decision as superseded before writing either.
+It writes the active replacement first so an abrupt stop does not remove the
+last governing decision. Caught write failures restore both original byte
+snapshots when possible. Lint detects effective replacements without a matching
+superseded target and superseded decisions without exactly one effective
+successor. Partial-state errors name the affected repair targets and require
+canonical inspection followed by `kos lint` and `kos index`.
+
+Documentation initialization writes integration configuration, not canonical
+records. `kos documentation init-global` validates the selected workspace,
+writes `~/.knowledge-os/config.toml`, and maintains a delimited block in the
+user-level Codex and Claude instruction files. This command requires direct
+user authorization. `kos documentation init-repo` validates the global config,
+project overviews, and repository-relative project paths before writing
+`.knowledge-os-project.toml`. Both commands are idempotent, refuse conflicting
+configuration unless `--replace` is supplied, use atomic file replacement, and
+attempt to restore writes after a caught failure.
 
 ## CLI contract
 
@@ -254,13 +310,28 @@ derived files from Markdown.
 - `kos index` validates the corpus and rebuilds `catalog.md` and SQLite FTS5.
 - `kos search QUERY` reads the existing cache for compact audit results,
   including type, record kind, status, scope, path, and snippet.
-- `kos inspect ID` provides compact record metadata; `--full` adds the body.
-- `kos context` emits bounded, trust-aware, project-scoped generated context.
-- `kos capture PATH` creates one approved, create-only `knowledge`, `project`,
+- `kos inspect ID` provides compact record metadata and exact content SHA-256;
+  `--full` adds the body.
+- `kos context` emits bounded, trust-aware, project-scoped generated context;
+  repeatable `--require ID` values form a scope-safe mandatory envelope.
+- `kos context verify PACKAGE.md` reports workspace and selected-item drift.
+- `kos capture PATH [--project-path PATH]` creates one approved, create-only `knowledge`, `project`,
   or `memory` record after staged whole-corpus validation; `--json` reports
-  its exact ID, type, scope, canonical path, and status.
+  its exact ID, type, scope, canonical path, and status. `--project-path` is a
+  safe path relative to `projects/<project-id>/` and may create arbitrary nested
+  folders or a folder root `README.md`.
+- `kos update PATH --expected-sha256 HASH` performs a conflict-safe,
+  lifecycle-preserving replacement.
+- `kos decision accept ID` activates a draft decision with explicit acceptance
+  provenance.
+- `kos supersede OLD_ID NEW_ID` activates an accepted draft replacement and
+  retires the prior decision as one coordinated mutation.
 - `kos discovery add PATH`, `review ID`, `retain ID`, `reject ID`, and
   `promote ID` implement the explicit discovery return path.
+- `kos documentation init-global --workspace PATH` installs user-level host
+  guidance and the global workspace location after direct authorization.
+- `kos documentation init-repo --repo PATH --project ID[=RELATIVE_PATH]`
+  writes one portable repository binding for one or more project scopes.
 
 Read-only context and review require a current SQLite cache and never rebuild
 it implicitly. `kos index` is always safe to run as the derived-state repair
