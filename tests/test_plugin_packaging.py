@@ -21,16 +21,89 @@ class PluginPackagingTests(unittest.TestCase):
         self.assertEqual(manifest["name"], "knowledge-os")
         self.assertEqual(manifest["version"], package["project"]["version"])
         self.assertEqual(manifest["skills"], "./skills/")
+        self.assertIn("repository documentation", manifest["description"])
         self.assertNotIn("hooks", manifest)
 
         skill_path = ROOT / "skills" / "knowledge-os-capture" / "SKILL.md"
         skill = parse_skill(skill_path, root=ROOT)
         self.assertEqual(skill.name, "knowledge-os-capture")
 
+        documentation_skill_path = ROOT / "skills" / "knowledge-os-documentation" / "SKILL.md"
+        documentation_skill = parse_skill(documentation_skill_path, root=ROOT)
+        self.assertEqual(documentation_skill.name, "knowledge-os-documentation")
+        self.assertTrue(
+            (documentation_skill_path.parent / "references" / "init.md").is_file()
+        )
+        self.assertTrue(
+            (documentation_skill_path.parent / "references" / "documentation-workflow.md").is_file()
+        )
+        self.assertEqual(list(documentation_skill_path.parent.glob("scripts/*")), [])
+
+        self.assertIn("documentation", manifest["description"])
+        self.assertIn("Capture approved Knowledge OS records", manifest["interface"]["capabilities"])
+        self.assertIn(
+            "Initialize global Codex and Claude documentation guidance",
+            manifest["interface"]["capabilities"],
+        )
+        self.assertIn(
+            "Initialize repository project bindings",
+            manifest["interface"]["capabilities"],
+        )
+        self.assertIn(
+            "Retrieve and maintain task-relevant documentation",
+            manifest["interface"]["capabilities"],
+        )
+
+        documentation_body = documentation_skill_path.read_text(encoding="utf-8")
+        init_body = (documentation_skill_path.parent / "references" / "init.md").read_text(
+            encoding="utf-8"
+        )
+        workflow_body = (
+            documentation_skill_path.parent / "references" / "documentation-workflow.md"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "direct user authorization",
+            "Missing or ambiguous project bindings are safe no-ops",
+            "Never capture conversational memory",
+            "kos search",
+            "kos context",
+            "kos capture",
+            "kos inspect",
+            "kos update",
+        ):
+            self.assertIn(required, documentation_body + init_body + workflow_body)
+        self.assertIn("~/.knowledge-os/config.toml", init_body)
+        self.assertIn(".knowledge-os-project.toml", init_body)
+        self.assertIn("[[knowledge_os.projects]]", init_body)
+        self.assertIn("longest matching path", init_body)
+        for required in (
+            "init-global --workspace PATH",
+            "--host codex",
+            "--host claude",
+            "init-repo --repo PATH",
+            "--project ID[=RELATIVE_PATH]",
+            "--user-home PATH",
+            "--replace",
+            "--json",
+        ):
+            self.assertIn(required, init_body)
+        self.assertIn("Search relevance is not", workflow_body)
+        self.assertIn("kos lint", workflow_body)
+        self.assertIn("kos index", workflow_body)
+
         marketplace = json.loads(
             (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
         )
         self.assertEqual(marketplace["name"], "knowledge-os")
+        self.assertIn("documentation", marketplace["interface"]["description"])
+        self.assertIn(
+            "Capture approved Knowledge OS records",
+            marketplace["interface"]["capabilities"],
+        )
+        self.assertIn(
+            "Retrieve and maintain task-relevant documentation",
+            marketplace["interface"]["capabilities"],
+        )
         self.assertEqual(len(marketplace["plugins"]), 1)
         entry = marketplace["plugins"][0]
         self.assertEqual(entry["name"], "knowledge-os")
@@ -40,6 +113,25 @@ class PluginPackagingTests(unittest.TestCase):
             {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
         )
         self.assertEqual(entry["category"], "Productivity")
+
+    def test_claude_code_plugin_manifest_and_marketplace_keep_the_root_skill_packaged(self) -> None:
+        manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        package = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["name"], "knowledge-os")
+        self.assertEqual(manifest["version"], package["project"]["version"])
+        self.assertEqual(manifest["skills"], "./skills/")
+
+        marketplace = json.loads(
+            (ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(marketplace["name"], "knowledge-os")
+        self.assertEqual(len(marketplace["plugins"]), 1)
+        entry = marketplace["plugins"][0]
+        self.assertEqual(entry["name"], "knowledge-os")
+        self.assertEqual(entry["source"], "./")
+        self.assertEqual(entry["version"], manifest["version"])
+        self.assertEqual(entry["category"], "Productivity")
+        self.assertIn("repository documentation", entry["description"])
 
     def test_capture_skill_keeps_approval_and_safe_noop_contract(self) -> None:
         body = (ROOT / "skills" / "knowledge-os-capture" / "SKILL.md").read_text(encoding="utf-8")

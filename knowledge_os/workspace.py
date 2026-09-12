@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import dataclass
 import hashlib
 import os
-from pathlib import Path
 import shutil
 import tempfile
 import tomllib
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Iterator
 
 from .model import ID_PATTERN, RELATION_FIELDS, Document, MetadataError, parse_document
-
 
 MANAGED_DIRS = {
     "sources": "source",
@@ -23,6 +22,7 @@ MANAGED_DIRS = {
     "syntheses": "synthesis",
     "discoveries": "discovery",
 }
+PROJECT_ROOT_FILE = "README.md"
 CANONICAL_PROVENANCE_KINDS = {"record", "discovery"}
 
 
@@ -163,6 +163,18 @@ def _load_config(marker: Path) -> dict[str, object]:
     return config
 
 
+def workspace_identity(workspace: Workspace) -> dict[str, object]:
+    """Return the stable, clone-safe identity embedded in generated artifacts."""
+
+    config = workspace.config.get("workspace", {})
+    marker = workspace.root / "knowledge-os.toml"
+    return {
+        "name": config.get("name") if isinstance(config, dict) else None,
+        "schema_version": config.get("version") if isinstance(config, dict) else None,
+        "marker_sha256": hashlib.sha256(marker.read_bytes()).hexdigest(),
+    }
+
+
 def validate_workspace(workspace: Workspace) -> tuple[list[Document], list[Issue]]:
     documents: list[Document] = []
     issues: list[Issue] = []
@@ -176,14 +188,22 @@ def validate_workspace(workspace: Workspace) -> tuple[list[Document], list[Issue
         issues.append(Issue(indexes, "managed index path must be a directory"))
 
     for path in paths:
+        relative_path = path.relative_to(workspace.root)
+        expected_type = MANAGED_DIRS[relative_path.parts[0]]
+        is_project_root_file = (
+            expected_type == "project"
+            and len(relative_path.parts) >= 3
+            and path.name == PROJECT_ROOT_FILE
+        )
         try:
-            document = parse_document(path)
+            document = parse_document(path, check_filename=not is_project_root_file)
         except MetadataError as exc:
             issues.append(Issue(path, str(exc)))
             continue
-        expected_type = MANAGED_DIRS[path.relative_to(workspace.root).parts[0]]
         if document.metadata["type"] != expected_type:
             issues.append(Issue(path, f"type {document.metadata['type']!r} does not match directory ({expected_type!r})"))
+        if document.metadata["type"] == "project":
+            _validate_project_path(workspace, document, issues)
         record_id = document.metadata["id"]
         if record_id in ids:
             issues.append(Issue(path, f"duplicate id {record_id!r}; already defined at {workspace.relative(ids[record_id])}"))
@@ -246,6 +266,7 @@ def validate_workspace(workspace: Workspace) -> tuple[list[Document], list[Issue
 
     _validate_discovery_provenance_lineage(documents, documents_by_id, issues)
     _validate_supersession_cycles(documents, documents_by_id, issues)
+    _validate_decision_supersession(documents, documents_by_id, issues)
 
     return sorted(documents, key=lambda item: item.metadata["id"]), sorted(
         issues,
@@ -285,6 +306,51 @@ def _validate_project_overviews(documents: list[Document], issues: list[Issue]) 
                     exact[0].path,
                     f"project overview {project_id!r} for scope {scope!r} is not usable; "
                     "status must be draft or active",
+                )
+            )
+
+
+def project_directory(scope: str) -> Path:
+    """Return the canonical project directory for a project scope."""
+
+    return Path("projects") / scope.removeprefix("project:")
+
+
+def default_project_record_path(record_id: str, scope: str) -> Path:
+    """Return the default canonical path for a project record."""
+
+    directory = project_directory(scope)
+    if record_id == scope.removeprefix("project:"):
+        return directory / PROJECT_ROOT_FILE
+    return directory / f"{record_id}.md"
+
+
+def _validate_project_path(workspace: Workspace, document: Document, issues: list[Issue]) -> None:
+    """Keep every project record inside the directory named by its scope."""
+
+    metadata = document.metadata
+    project_id = metadata["scope"].removeprefix("project:")
+    relative = document.path.relative_to(workspace.root)
+    expected_directory = Path("projects") / project_id
+    try:
+        relative.relative_to(expected_directory)
+    except ValueError:
+        issues.append(
+            Issue(
+                document.path,
+                f"project record with scope {metadata['scope']!r} must be inside "
+                f"{expected_directory.as_posix()}/",
+            )
+        )
+        return
+
+    if metadata["id"] == project_id:
+        expected = expected_directory / PROJECT_ROOT_FILE
+        if relative != expected:
+            issues.append(
+                Issue(
+                    document.path,
+                    f"project overview {project_id!r} must be {expected.as_posix()}",
                 )
             )
 
@@ -426,6 +492,65 @@ def _validate_supersession_cycles(
     for record_id in sorted(graph):
         if state.get(record_id, 0) == 0:
             visit(record_id, [])
+
+
+def _validate_decision_supersession(
+    documents: list[Document],
+    documents_by_id: dict[str, Document],
+    issues: list[Issue],
+) -> None:
+    """Keep proposed and effective decision replacement states distinct."""
+
+    decisions = [document for document in documents if document.metadata.get("record_kind") == "decision"]
+    incoming: dict[str, list[Document]] = {}
+    for document in decisions:
+        targets = document.metadata.get("supersedes", [])
+        if len(targets) > 1:
+            issues.append(Issue(document.path, "decision records may supersede exactly one prior decision"))
+        for target_id in targets:
+            incoming.setdefault(target_id, []).append(document)
+            target = documents_by_id.get(target_id)
+            if target is None:
+                continue
+            if target.metadata.get("record_kind") != "decision":
+                issues.append(Issue(document.path, f"decision supersedes target {target_id!r} must be a decision"))
+                continue
+            if target.metadata["scope"] != document.metadata["scope"]:
+                issues.append(Issue(document.path, f"decision supersedes target {target_id!r} must use the same scope"))
+            if document.metadata["status"] == "draft" and target.metadata["status"] != "active":
+                issues.append(
+                    Issue(
+                        document.path,
+                        f"draft replacement {document.metadata['id']!r} must target an active decision; "
+                        f"{target_id!r} is {target.metadata['status']!r}",
+                    )
+                )
+            if document.metadata["status"] in {"active", "superseded"} and target.metadata["status"] != "superseded":
+                issues.append(
+                    Issue(
+                        document.path,
+                        f"effective replacement {document.metadata['id']!r} requires superseded target "
+                        f"{target_id!r}; found {target.metadata['status']!r}",
+                    )
+                )
+
+    for document in decisions:
+        if document.metadata["status"] != "superseded":
+            continue
+        effective = [
+            replacement
+            for replacement in incoming.get(document.metadata["id"], [])
+            if replacement.metadata["status"] in {"active", "superseded"}
+        ]
+        if len(effective) != 1:
+            ids = ", ".join(sorted(item.metadata["id"] for item in effective)) or "none"
+            issues.append(
+                Issue(
+                    document.path,
+                    f"superseded decision {document.metadata['id']!r} requires exactly one effective "
+                    f"replacement; found {ids}",
+                )
+            )
 
 
 @contextmanager

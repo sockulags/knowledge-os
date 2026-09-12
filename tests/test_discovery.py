@@ -68,7 +68,13 @@ def create_workspace(root: Path) -> None:
 
 
 def write_record(root: Path, directory: str, metadata: dict, body: str) -> Path:
-    path = root / directory / f"{metadata['id']}.md"
+    if directory == "projects":
+        project_id = metadata["scope"].removeprefix("project:")
+        filename = "README.md" if metadata["id"] == project_id else f"{metadata['id']}.md"
+        path = root / directory / project_id / filename
+    else:
+        path = root / directory / f"{metadata['id']}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         f"---\n{yaml.safe_dump(metadata, sort_keys=False)}---\n\n{body}",
         encoding="utf-8",
@@ -358,7 +364,7 @@ class DiscoveryWorkflowTests(unittest.TestCase):
                 "project:demo",
             )
             self.assertEqual(promoted.returncode, 0, promoted.stderr)
-            target = root / "projects" / "promoted-project-fact.md"
+            target = root / "projects" / "demo" / "promoted-project-fact.md"
             self.assertTrue(target.is_file())
             target_metadata = yaml.safe_load(target.read_text(encoding="utf-8").split("---", 2)[1])
             self.assertEqual(target_metadata["status"], "draft")
@@ -529,14 +535,14 @@ class DiscoveryWorkflowTests(unittest.TestCase):
             (
                 "self target",
                 lambda discovery, target: discovery.update(
-                    reviews=[{"decision": "promote", "date": "2026-08-29", "target": discovery["id"]}]
+                    reviews=[{"decision": "promote", "date": discovery["updated"], "target": discovery["id"]}]
                 ),
                 "must not reference itself",
             ),
             (
                 "orphan target",
                 lambda discovery, target: discovery.update(
-                    reviews=[{"decision": "promote", "date": "2026-08-29", "target": "missing-target"}]
+                    reviews=[{"decision": "promote", "date": discovery["updated"], "target": "missing-target"}]
                 ),
                 "does not exist",
             ),
@@ -567,7 +573,7 @@ class DiscoveryWorkflowTests(unittest.TestCase):
                     target_id = f"lineage-target-{index}"
                     promote_fixture(root, discovery_id, target_id)
                     discovery_path = root / "discoveries" / f"{discovery_id}.md"
-                    target_path = root / "projects" / f"{target_id}.md"
+                    target_path = root / "projects" / "demo" / f"{target_id}.md"
                     discovery = yaml.safe_load(discovery_path.read_text(encoding="utf-8").split("---", 2)[1])
                     target = yaml.safe_load(target_path.read_text(encoding="utf-8").split("---", 2)[1])
                     mutate(discovery, target)
@@ -598,7 +604,7 @@ class DiscoveryWorkflowTests(unittest.TestCase):
                     )
             self.assertIn("canonical corpus is authoritative", str(failure.exception))
             self.assertIn("kos lint", str(failure.exception))
-            self.assertTrue((root / "projects" / "faulted-target.md").is_file())
+            self.assertTrue((root / "projects" / "demo" / "faulted-target.md").is_file())
             promoted = run_kos(root, "discovery", "inspect", "faulted-promotion")
             self.assertEqual(promoted.returncode, 0, promoted.stderr)
             self.assertEqual(json.loads(promoted.stdout)["status"], "promoted")

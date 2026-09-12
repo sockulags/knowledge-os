@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
+from .capture import capture_record
 from .context import ContextRequest, build_context
 from .context_policy import trust_label
-from .capture import capture_record
+from .context_verify import verify_context_package
+from .documentation_init import DocumentationInitError, init_global, init_repo
 from .discovery import (
     add_discovery,
     inspect_discovery,
@@ -20,7 +22,8 @@ from .discovery import (
 )
 from .index import rebuild_indexes, search_index
 from .ingest import ingest_source
-from .model import MetadataError
+from .model import MetadataError, content_sha256
+from .mutations import accept_decision, supersede_decision, update_record
 from .workspace import Workspace, WorkspaceError, validate_workspace
 
 
@@ -54,17 +57,53 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--full", action="store_true")
     _root_option(inspect)
 
-    context = commands.add_parser("context", help="export a deterministic Markdown context package")
-    context.add_argument("--project", required=True, help="project ID")
-    context.add_argument("--task", required=True, help="task description")
+    context = commands.add_parser("context", help="export or verify a deterministic Markdown context package")
+    context.add_argument("context_action", nargs="?", choices=("verify",))
+    context.add_argument("package", nargs="?", type=Path, help="package path for context verify")
+    context.add_argument("--project", help="project ID")
+    context.add_argument("--task", help="task description")
     context.add_argument("--work-item", help="optional work-item description")
-    context.add_argument("--budget", required=True, type=int, help="maximum estimated tokens")
+    context.add_argument("--budget", type=int, help="maximum estimated tokens")
+    context.add_argument("--require", action="append", default=[], dest="required_ids", help="mandatory record ID")
+    context.add_argument("--json", action="store_true", dest="as_json", help="JSON output for context verify")
     _root_option(context)
 
     capture = commands.add_parser("capture", help="create one approved durable record")
     capture.add_argument("path", type=Path, help="approved candidate Markdown record")
+    capture.add_argument(
+        "--project-path",
+        type=Path,
+        help="optional path below projects/<project-id>/ for a project record",
+    )
     capture.add_argument("--json", action="store_true", dest="as_json")
     _root_option(capture)
+
+    update = commands.add_parser("update", help="conflict-safe editorial or evidence update")
+    update.add_argument("path", type=Path, help="complete replacement Markdown record")
+    update.add_argument("--expected-sha256", required=True)
+    update.add_argument("--confirm-non-material", action="store_true")
+    update.add_argument("--change-reference")
+    update.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(update)
+
+    decision = commands.add_parser("decision", help="accept a proposed decision")
+    _root_option(decision)
+    decision_commands = decision.add_subparsers(dest="decision_command", required=True)
+    decision_accept = decision_commands.add_parser("accept", help="make a draft decision active")
+    decision_accept.add_argument("id")
+    decision_accept.add_argument("--expected-sha256", required=True)
+    decision_accept.add_argument("--acceptance-reference", required=True)
+    decision_accept.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(decision_accept)
+
+    supersede = commands.add_parser("supersede", help="activate a draft replacement and retire its prior decision")
+    supersede.add_argument("old_id")
+    supersede.add_argument("new_id")
+    supersede.add_argument("--expected-old-sha256", required=True)
+    supersede.add_argument("--expected-new-sha256", required=True)
+    supersede.add_argument("--acceptance-reference", required=True)
+    supersede.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(supersede)
 
     discovery = commands.add_parser("discovery", help="record, review, and promote discoveries")
     _root_option(discovery)
@@ -104,6 +143,23 @@ def build_parser() -> argparse.ArgumentParser:
     discovery_promote.add_argument("--acknowledge-related", action="store_true")
     discovery_promote.add_argument("--allow-scope-broadening", action="store_true")
     _root_option(discovery_promote)
+
+    documentation = commands.add_parser("documentation", help="initialize Knowledge OS documentation integration")
+    documentation_commands = documentation.add_subparsers(dest="documentation_command", required=True)
+
+    init_global_parser = documentation_commands.add_parser("init-global", help="initialize global harness configuration")
+    init_global_parser.add_argument("--workspace", required=True, type=Path)
+    init_global_parser.add_argument("--host", action="append", choices=("codex", "claude"))
+    init_global_parser.add_argument("--user-home", type=Path)
+    init_global_parser.add_argument("--replace", action="store_true")
+    init_global_parser.add_argument("--json", action="store_true", dest="as_json")
+
+    init_repo_parser = documentation_commands.add_parser("init-repo", help="initialize a repository project binding")
+    init_repo_parser.add_argument("--repo", required=True, type=Path)
+    init_repo_parser.add_argument("--project", action="append", required=True)
+    init_repo_parser.add_argument("--user-home", type=Path)
+    init_repo_parser.add_argument("--replace", action="store_true")
+    init_repo_parser.add_argument("--json", action="store_true", dest="as_json")
     return parser
 
 
@@ -144,6 +200,7 @@ def _inspect(workspace: Workspace, record_id: str, full: bool) -> int:
         "status": document.metadata["status"],
         "scope": document.metadata["scope"],
         "path": workspace.relative(document.path),
+        "content_sha256": content_sha256(document.path),
         "provenance": document.metadata["provenance"],
         "excerpt": " ".join(document.body.strip().split())[:600],
         "trust": trust_label(document),
@@ -162,6 +219,26 @@ def _inspect(workspace: Workspace, record_id: str, full: bool) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "documentation":
+            if args.documentation_command == "init-global":
+                result = init_global(
+                    args.workspace,
+                    hosts=args.host,
+                    user_home=args.user_home,
+                    replace=args.replace,
+                )
+            else:
+                result = init_repo(
+                    args.repo,
+                    args.project,
+                    user_home=args.user_home,
+                    replace=args.replace,
+                )
+            if args.as_json:
+                print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            else:
+                print(f"Initialized {args.documentation_command}: {len(result['changed_paths'])} file(s) changed")
+            return 0
         workspace = _workspace(args)
         if args.command == "lint":
             return _lint(workspace)
@@ -192,19 +269,39 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "inspect":
             return _inspect(workspace, args.id, args.full)
         if args.command == "context":
+            if args.context_action == "verify":
+                if args.package is None:
+                    raise ValueError("context verify requires a package path")
+                if any((args.project, args.task, args.work_item, args.budget, args.required_ids)):
+                    raise ValueError("context export options are not valid with 'context verify'")
+                report = verify_context_package(workspace, args.package)
+                if args.as_json:
+                    print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(f"Workspace: {'unchanged' if report['workspace']['matches'] else 'changed'}")
+                    for item in report["items"]:
+                        print(f"{item['id']}\t{item['status']}")
+                return 0 if report["ok"] else 1
+            if args.package is not None:
+                raise ValueError("context package path is only valid with 'context verify'")
+            if args.as_json:
+                raise ValueError("--json is only valid with 'context verify'")
+            if args.project is None or args.task is None or args.budget is None:
+                raise ValueError("context export requires --project, --task, and --budget")
             package = build_context(
                 ContextRequest(
                     project=args.project,
                     task=args.task,
                     work_item=args.work_item,
                     budget=args.budget,
+                    required_ids=tuple(args.required_ids),
                 ),
                 workspace,
             )
             _write_stdout(package)
             return 0
         if args.command == "capture":
-            result = capture_record(workspace, args.path)
+            result = capture_record(workspace, args.path, project_path=args.project_path)
             if args.as_json:
                 print(
                     json.dumps(
@@ -221,6 +318,70 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 print(f"Captured {result.id} ({result.type}, {result.scope}, {result.status})")
+                print(f"Index refreshed: {result.index_count} record(s)")
+            return 0
+        if args.command == "update":
+            result = update_record(
+                workspace,
+                args.path,
+                expected_sha256=args.expected_sha256,
+                confirm_non_material=args.confirm_non_material,
+                change_reference=args.change_reference,
+            )
+            payload = {
+                "id": result.id,
+                "path": result.path,
+                "sha256": result.sha256,
+                "status": result.status,
+            }
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                print(f"Updated {result.id} ({result.status})")
+                print(f"SHA-256: {result.sha256}")
+                print(f"Index refreshed: {result.index_count} record(s)")
+            return 0
+        if args.command == "decision" and args.decision_command == "accept":
+            result = accept_decision(
+                workspace,
+                args.id,
+                expected_sha256=args.expected_sha256,
+                acceptance_reference=args.acceptance_reference,
+            )
+            payload = {
+                "id": result.id,
+                "path": result.path,
+                "sha256": result.sha256,
+                "status": result.status,
+            }
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                print(f"Accepted decision {result.id}")
+                print(f"SHA-256: {result.sha256}")
+                print(f"Index refreshed: {result.index_count} record(s)")
+            return 0
+        if args.command == "supersede":
+            result = supersede_decision(
+                workspace,
+                args.old_id,
+                args.new_id,
+                expected_old_sha256=args.expected_old_sha256,
+                expected_new_sha256=args.expected_new_sha256,
+                acceptance_reference=args.acceptance_reference,
+            )
+            payload = {
+                "new_id": result.new_id,
+                "new_sha256": result.new_sha256,
+                "new_status": result.new_status,
+                "old_id": result.old_id,
+                "old_sha256": result.old_sha256,
+                "old_status": result.old_status,
+            }
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                print(f"Superseded {result.old_id} with accepted decision {result.new_id}")
                 print(f"Index refreshed: {result.index_count} record(s)")
             return 0
         if args.command == "discovery":
@@ -273,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Acknowledged related records: {', '.join(related_ids)}")
                 print(f"Index refreshed: {count} record(s)")
                 return 0
-    except (MetadataError, WorkspaceError, ValueError) as exc:
+    except (DocumentationInitError, MetadataError, WorkspaceError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     return 2

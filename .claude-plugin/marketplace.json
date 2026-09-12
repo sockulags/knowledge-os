@@ -1,0 +1,16 @@
+{
+  "name": "knowledge-os",
+  "owner": {
+    "name": "Sockulags",
+    "url": "https://github.com/sockulags"
+  },
+  "plugins": [
+    {
+      "name": "knowledge-os",
+      "source": "./",
+      "description": "Approval-gated conversational capture and task-relevant repository documentation with explicit global and repository initialization.",
+      "version": "0.0.1",
+      "category": "Productivity"
+    }
+  ]
+}

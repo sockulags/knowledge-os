@@ -8,7 +8,7 @@ created: '2026-08-29'
 updated: '2026-08-29'
 provenance:
   - kind: fixture
-    reference: examples/context-workspace/projects/knowledge-os.md
+    reference: examples/context-workspace/projects/knowledge-os/README.md
 related:
   - url-ingestion-provenance
 ---

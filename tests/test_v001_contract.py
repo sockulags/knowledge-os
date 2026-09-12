@@ -76,7 +76,13 @@ def create_workspace(root: Path, *, project: str = "demo") -> None:
 
 
 def write_record(root: Path, directory: str, metadata: dict, body: str = "body\n") -> Path:
-    path = root / directory / f"{metadata['id']}.md"
+    if directory == "projects":
+        project_id = metadata["scope"].removeprefix("project:")
+        filename = "README.md" if metadata["id"] == project_id else f"{metadata['id']}.md"
+        path = root / directory / project_id / filename
+    else:
+        path = root / directory / f"{metadata['id']}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         f"---\n{yaml.safe_dump(metadata, sort_keys=False)}---\n\n{body}",
         encoding="utf-8",
@@ -120,6 +126,50 @@ def index_workspace(root: Path) -> None:
 
 
 class V001ContractTests(unittest.TestCase):
+    def test_project_records_are_contained_by_scope_and_overview_is_folder_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+
+            nested = write_record(
+                root,
+                "projects",
+                {
+                    "id": "nested-area-overview",
+                    "title": "Nested area overview",
+                    "type": "project",
+                    "status": "active",
+                    "scope": "project:demo",
+                    "created": "2026-09-12",
+                    "updated": "2026-09-12",
+                    "provenance": [{"kind": "fixture", "reference": "nested"}],
+                },
+            )
+            nested_target = root / "projects" / "demo" / "free" / "deep" / "README.md"
+            nested_target.parent.mkdir(parents=True)
+            nested.replace(nested_target)
+            self.assertEqual(run_kos(root, "lint").returncode, 0)
+
+            misplaced = root / "projects" / "misplaced.md"
+            misplaced.write_text(
+                "---\n"
+                "id: misplaced\n"
+                "title: Misplaced\n"
+                "type: project\n"
+                "status: active\n"
+                "scope: project:demo\n"
+                "created: '2026-09-12'\n"
+                "updated: '2026-09-12'\n"
+                "provenance:\n"
+                "  - kind: fixture\n"
+                "    reference: misplaced\n"
+                "---\n\nMisplaced project record.\n",
+                encoding="utf-8",
+            )
+            lint = run_kos(root, "lint")
+            self.assertNotEqual(lint.returncode, 0)
+            self.assertIn("must be inside projects/demo/", lint.stderr)
+
     def test_raw_source_task_match_is_excluded_and_included_states_are_labeled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -216,7 +266,7 @@ class V001ContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             create_workspace(root)
-            (root / "projects" / "demo.md").unlink()
+            (root / "projects" / "demo" / "README.md").unlink()
             write_record(
                 root,
                 "projects",
@@ -356,7 +406,7 @@ class V001ContractTests(unittest.TestCase):
                     "record_kind": "decision",
                     "created": "2026-08-29",
                     "updated": "2026-08-29",
-                    "provenance": [{"kind": "fixture", "reference": "decision"}],
+                    "provenance": [{"kind": "decision-acceptance", "reference": "decision"}],
                 },
                 "decision-index-token\n",
             )
@@ -370,6 +420,22 @@ class V001ContractTests(unittest.TestCase):
             self.assertEqual(context.returncode, 0, context.stderr)
             item = next(item for item in manifest(context.stdout)["items"] if item["id"] == "architecture-decision")
             self.assertEqual(item["record_kind"], "decision")
+
+            decision_path = root / "knowledge" / "architecture-decision.md"
+            decision_metadata = yaml.safe_load(decision_path.read_text(encoding="utf-8").split("---", 2)[1])
+            decision_metadata["provenance"] = [{"kind": "fixture", "reference": "proposal-only"}]
+            write_record(root, "knowledge", decision_metadata)
+            missing_acceptance = run_kos(root, "lint")
+            self.assertNotEqual(missing_acceptance.returncode, 0)
+            self.assertIn("active decisions require provenance kind 'decision-acceptance'", missing_acceptance.stderr)
+            decision_metadata["status"] = "draft"
+            decision_metadata["provenance"] = [{"kind": "decision-acceptance", "reference": "too-early"}]
+            write_record(root, "knowledge", decision_metadata)
+            premature_acceptance = run_kos(root, "lint")
+            self.assertNotEqual(premature_acceptance.returncode, 0)
+            self.assertIn("draft decisions must not contain decision-acceptance", premature_acceptance.stderr)
+            decision_metadata["status"] = "active"
+            write_record(root, "knowledge", decision_metadata)
 
             cases = (
                 ("verified", "status for type 'knowledge'"),
@@ -459,7 +525,7 @@ class V001ContractTests(unittest.TestCase):
                 "project:demo",
             )
             self.assertEqual(promoted.returncode, 0, promoted.stderr)
-            target = yaml.safe_load((root / "projects" / "promotion-target.md").read_text(encoding="utf-8").split("---", 2)[1])
+            target = yaml.safe_load((root / "projects" / "demo" / "promotion-target.md").read_text(encoding="utf-8").split("---", 2)[1])
             self.assertEqual(target["provenance"], [{"kind": "discovery", "reference": "promotion-signal"}])
             self.assertNotIn("sources", target)
             discovery = yaml.safe_load((root / "discoveries" / "promotion-signal.md").read_text(encoding="utf-8").split("---", 2)[1])
@@ -501,7 +567,9 @@ class V001ContractTests(unittest.TestCase):
             self.assertIn("discovery provenance 'promotion-signal'", lint.stderr)
 
             discovery["status"] = "promoted"
-            discovery["reviews"] = [{"decision": "promote", "date": "2026-08-29", "target": "missing-target"}]
+            discovery["reviews"] = [
+                {"decision": "promote", "date": discovery["updated"], "target": "missing-target"}
+            ]
             write_record(root, "discoveries", discovery, "promotion-lineage-token\n")
             lint = run_kos(root, "lint")
             self.assertNotEqual(lint.returncode, 0)
@@ -738,7 +806,7 @@ class V001ContractTests(unittest.TestCase):
                         scope="project:demo",
                     )
             self.assertIn("kos lint", str(failure.exception))
-            self.assertTrue((root / "projects" / "lock-target.md").is_file())
+            self.assertTrue((root / "projects" / "demo" / "lock-target.md").is_file())
             self.assertEqual(run_kos(root, "lint").returncode, 0)
 
 

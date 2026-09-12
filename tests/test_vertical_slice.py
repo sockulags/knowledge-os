@@ -36,7 +36,13 @@ def create_workspace(root: Path) -> None:
 
 
 def write_record(root: Path, directory: str, record_id: str, metadata: dict, body: str = "body\n") -> Path:
-    path = root / directory / f"{record_id}.md"
+    if directory == "projects":
+        project_id = metadata["scope"].removeprefix("project:")
+        filename = "README.md" if record_id == project_id else f"{record_id}.md"
+        path = root / directory / project_id / filename
+    else:
+        path = root / directory / f"{record_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
     rendered = yaml.safe_dump(metadata, sort_keys=False)
     path.write_text(f"---\n{rendered}---\n\n{body}", encoding="utf-8")
     return path
