@@ -3,13 +3,16 @@ id: knowledge-os-reader
 title: Read-only reader for Knowledge OS
 type: project
 record_kind: decision
-status: draft
+status: active
 scope: project:knowledge-os
 created: '2026-09-12'
 updated: '2026-09-12'
 provenance:
 - kind: user-approved-conversation
   reference: conversation:2026-09-12:knowledge-os-reader-planning
+- kind: decision-acceptance
+  reference: conversation:2026-09-12:knowledge-os-reader-batch-approval
+  captured: '2026-09-12T17:25:26.389843Z'
 ---
 
 ## Decision
