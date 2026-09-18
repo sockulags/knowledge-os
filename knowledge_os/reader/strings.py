@@ -369,3 +369,39 @@ PROJECT_DETAILS_SCOPE = "Scope"
 PROJECT_DETAILS_PATH = "Path"
 PROJECT_DETAILS_CONTENT_HASH = "Content hash"
 PROJECT_DETAILS_TRUST = "Trust"
+# Start view — additional strings (unit 3)
+#
+# START_RECENTLY_CHANGED, START_OPEN_DECISIONS, START_PROJECTS, and
+# START_HEALTH_LINE already exist above (unit 0). These fill in the
+# remaining copy views/start.py needs: per-section empty sentences (Sec.6
+# "Empty project group" applies the same "never hidden, explain instead"
+# rule to the start page's own groups), the skills group, the one labelled
+# entry point into the unmanaged repo-document tier (acceptance criterion
+# 2; the tier's own browsing surface belongs to a different unit), and the
+# index-health/broken-record lines the health rail reports (Library.index
+# already carries user-facing text for "stale"/"absent"/"unreadable"; only
+# the healthy case and the broken-record count need copy here).
+# ---------------------------------------------------------------------------
+
+START_SKILLS = "Skills"
+
+#: Empty-section sentences, shown instead of hiding the section (mirrors
+#: PROJECT_GROUP_EMPTY's rule, kept separate because these are the start
+#: page's own groups, not a project's meaning-groups).
+START_NO_RECENT_CHANGES = "Nothing has changed yet."
+START_NO_OPEN_DECISIONS = "No decision is waiting on a position."
+START_NO_PROJECTS = "No project exists yet."
+START_NO_SKILLS = "No skill is installed yet."
+
+#: The start page's one entry point into the unmanaged repo-document tier
+#: (acceptance criterion 2). UNMANAGED_TIER_LABEL is reused underneath it.
+START_REPO_DOCUMENT_HEADER = "Repository documentation"
+
+#: Shown in the health rail when Library.index.available is True and not
+#: stale (Library.index.message is None in that case, unlike the
+#: stale/absent/unreadable cases, which already carry their own message).
+START_SEARCH_AVAILABLE = "Search is up to date."
+
+#: {count} is len(Library.broken); shown in the health rail only when
+#: non-empty, alongside whatever Library.index already says.
+START_BROKEN_RECORDS = "{count} broken record(s) could not be read."
