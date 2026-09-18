@@ -405,3 +405,99 @@ START_SEARCH_AVAILABLE = "Search is up to date."
 #: {count} is len(Library.broken); shown in the health rail only when
 #: non-empty, alongside whatever Library.index already says.
 START_BROKEN_RECORDS = "{count} broken record(s) could not be read."
+# Search view — filters and results (unit 4)
+#
+# The search view (views/search.py) offers filters on five dimensions:
+# type, status, scope, record_kind, and trust (docs/plans/reader-v1.md
+# Sec.4). Every value shown below is plain language, never the raw contract
+# token: in particular the word "draft" and the word "scope" never appear on
+# screen (both are named explicitly in the forbidden vocabulary list), so
+# the on-screen dimension label for scope is "Applies to" rather than
+# "Scope", and the status option for the raw value "draft" reads "Not yet
+# decided" rather than "Draft". Filter *values* (the raw strings used as
+# <option value="..."> and read back from the query string) stay exact,
+# since they round-trip through library.search()'s own row fields and are
+# never displayed as prose.
+# ---------------------------------------------------------------------------
+
+#: On-screen label for each filter dimension, keyed by the query-string
+#: parameter name the search view reads (see views/search.py).
+SEARCH_FILTER_DIMENSIONS: dict[str, str] = {
+    "type": "Type",
+    "status": "Status",
+    "scope": "Applies to",
+    "record_kind": "Kind",
+    "trust": "Confidence",
+}
+
+#: "Any value" option shown first in every filter <select>.
+SEARCH_FILTER_ANY_LABEL = "Any"
+
+SEARCH_SUBMIT_LABEL = "Search"
+SEARCH_CLEAR_LABEL = "Clear filters"
+
+#: {count} is the number of results shown after filtering.
+SEARCH_RESULT_COUNT = "{count} matching record(s)"
+
+#: The type dimension: the six record types the contract allows in the FTS
+#: index (skills are never indexed, so no seventh option is offered here).
+SEARCH_TYPE_FILTER: dict[str, str] = {
+    "source": "Source",
+    "knowledge": "Knowledge",
+    "project": "Project",
+    "memory": "Memory",
+    "synthesis": "Synthesis",
+    "discovery": "Discovery",
+}
+
+#: The status dimension, covering both the five non-discovery statuses and
+#: the four discovery-only statuses in one flat list (a record's own type
+#: decides which of these are reachable; the filter itself does not couple
+#: status to type). Deliberately reworded so the raw token never surfaces:
+#: "draft" -> "Not yet decided", not "Draft".
+SEARCH_STATUS_FILTER: dict[str, str] = {
+    "draft": "Not yet decided",
+    "active": "Currently active",
+    "deprecated": "Discouraged",
+    "archived": "Archived",
+    "superseded": "Replaced",
+    "proposed": "Unconfirmed observation",
+    "retained": "Reviewed observation",
+    "rejected": "Dismissed observation",
+    "promoted": "Promoted",
+}
+
+#: The record_kind dimension. "ordinary" covers every non-decision record
+#: (knowledge, project, and every other type, which never carries a
+#: record_kind at all); the filter still offers it as the complement of
+#: "decision" so the choice reads as a binary in plain language.
+SEARCH_RECORD_KIND_FILTER: dict[str, str] = {
+    "ordinary": "Not a decision",
+    "decision": "Decision",
+}
+
+#: The trust dimension: a short filter-option label for each of the seven
+#: strings context_policy.trust_label() can return (see library.py's
+#: _SKILL_TRUST_LABEL comment — skills carry an eighth label but are never
+#: in search results, so it is not offered here). Shorter than TRUST_LABELS
+#: above (no {date} to fill; this is a filter option, not a record's own
+#: rail entry).
+SEARCH_TRUST_FILTER: dict[str, str] = {
+    "raw source; not established knowledge": "Raw material",
+    "reviewed observation; not established knowledge": "Reviewed observation",
+    "discovery observation; not default context": "Unreviewed observation",
+    "draft durable; not verified": "Not yet confirmed",
+    "active durable; not verified": "In use, not confirmed",
+    "verified durable": "Confirmed",
+    "unusable durable record": "No longer in effect",
+}
+
+#: Fallback for the "scope" filter's project options when the project's own
+#: overview record cannot be resolved (a stale index pointing at a renamed
+#: or deleted project). {slug} is the scope's "project:<slug>" suffix.
+SEARCH_SCOPE_PROJECT_FALLBACK = "Project {slug}"
+
+#: Heading shown in place of the search form when Library.index.available
+#: is False (Sec.6 "Missing index"); the reason and the `kos index` command
+#: itself come from library.IndexHealth.message (see INDEX_HEALTH above).
+SEARCH_UNAVAILABLE_TITLE = "Search is unavailable"
