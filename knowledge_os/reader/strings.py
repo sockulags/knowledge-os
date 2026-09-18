@@ -273,3 +273,56 @@ SKILL_TRUST_LABEL = TRUST_LABELS["operational guidance"]
 # ---------------------------------------------------------------------------
 
 REPODOC_LABEL = UNMANAGED_TIER_LABEL
+
+# ---------------------------------------------------------------------------
+# Unit 2 -- Project view (views/project.py, grouping.py, templates/project.html)
+#
+# The five meaning-group headers/empty sentences already live above
+# (PROJECT_GROUP_HEADERS, PROJECT_GROUP_EMPTY); this section covers the
+# project page's remaining strings: the ordinary-content directory tree
+# (which is navigation, not a sixth meaning group), short status badges, and
+# the technical-details field labels for a project's overview record.
+# ---------------------------------------------------------------------------
+
+#: Header and empty sentence for the project's own directory tree of
+#: ordinary (non-decision) content -- distinct from PROJECT_GROUP_HEADERS
+#: because this is the directory-tree navigation described in the accepted
+#: project-directory-layout decision, not one of the five meaning groups.
+PROJECT_TREE_HEADER = "Project documents"
+PROJECT_TREE_EMPTY = "This project has no other documents yet."
+
+#: The project root's own overview node has no directory name to show;
+#: PROJECT_TREE_ROOT_LABEL stands in for it in the tree when the root itself
+#: also holds plain records alongside its subdirectories.
+PROJECT_TREE_ROOT_LABEL = "Project root"
+
+#: Short pill text for the four accent badges (see static/reader.css's
+#: token comment for what each accent means), used on a project's record
+#: cards. The longer sentence next to the card (DECISION_STATUS,
+#: LIFECYCLE_STATUS, DISCOVERY_STATUS, or TRUST_LABELS) always carries the
+#: full meaning; the badge is a glance-only echo of the same signal.
+PROJECT_BADGE_LABELS: dict[str, str] = {
+    "proposed": "Proposed",
+    "unverified": "Unconfirmed",
+    "retired": "Replaced",
+    "raw": "Raw",
+}
+
+#: Shown when a project id in the URL matches no project overview.
+#: {project_id} is the raw path segment, already URL-decoded by the router.
+PROJECT_NOT_FOUND = 'No project named "{project_id}" was found in this workspace.'
+
+#: Defensive fallback when a record's status is not one of the values this
+#: view's mapping tables expect (unreachable for a corpus that passed
+#: validate_workspace, kept only so a genuinely unexpected value degrades to
+#: a plain sentence rather than leaking the raw status string).
+PROJECT_STATUS_UNKNOWN = "Status information is not available for this record."
+
+#: Field labels for the project overview's "technical details" disclosure
+#: (see TECHNICAL_DETAILS_LABEL above). Exact contract vocabulary values are
+#: filled in by the view; these are only the field names.
+PROJECT_DETAILS_STATUS = "Status"
+PROJECT_DETAILS_SCOPE = "Scope"
+PROJECT_DETAILS_PATH = "Path"
+PROJECT_DETAILS_CONTENT_HASH = "Content hash"
+PROJECT_DETAILS_TRUST = "Trust"
