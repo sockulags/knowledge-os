@@ -273,6 +273,46 @@ a {
 }
 
 /* ------------------------------------------------------------------- */
+/* Rail toggle (document view): a manual desktop switch for              */
+/* single-column deep reading (Sec.5, "the rail can be switched off").   */
+/* Below ~900px the native <details> disclosure above already collapses  */
+/* the rail with no script, so this toggle only appears at desktop       */
+/* widths and leaves that responsive behaviour untouched.                */
+/* ------------------------------------------------------------------- */
+
+.doc__rail-toggle {
+  display: none;
+}
+
+@media (min-width: 901px) {
+  .doc__rail-toggle {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: var(--space-4);
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: none;
+    color: var(--ink-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+
+  .doc__rail-toggle:hover {
+    color: var(--ink);
+    border-color: var(--ink-muted);
+  }
+
+  body.rail-hidden .shell {
+    grid-template-columns: var(--nav-width) minmax(0, 1fr);
+  }
+
+  body.rail-hidden .shell__rail {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------- */
 /* Shared class vocabulary                                              */
 /* ------------------------------------------------------------------- */
 

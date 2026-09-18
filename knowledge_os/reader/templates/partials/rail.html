@@ -1,0 +1,99 @@
+{#
+  The document view's metadata rail: everything Sec.4 assigns to it (status,
+  trust, provenance, scope, relations in both directions) in plain language,
+  then the exact contract values behind the technical-details disclosure.
+  Included only from templates/document.html, with `record` and the
+  precomputed sentences from views/document.py._build_context already in
+  scope.
+
+  Two top-level pieces sit side by side here: the metadata group
+  (data-rail-metadata) and, only for a document with headings, a table of
+  contents (data-rail-toc). static/reader.js swaps which one is visible as
+  the reader scrolls past the title (Sec.6 "Long document"); with
+  JavaScript disabled both simply stay visible, which still leaves the
+  document fully readable and navigable by hand.
+#}
+<div data-rail-metadata>
+  <div class="group">
+    <div class="group__header">{{ strings.DOCUMENT_STATUS_HEADER }}</div>
+    <p class="doc-rail__sentence{% if status_accent %} doc-rail__sentence--{{ status_accent }}{% endif %}">
+      {{ status_sentence }}
+    </p>
+  </div>
+
+  <div class="group">
+    <div class="group__header">{{ strings.DOCUMENT_TRUST_HEADER }}</div>
+    <p class="doc-rail__sentence{% if trust_accent %} doc-rail__sentence--{{ trust_accent }}{% endif %}">
+      {{ trust_sentence }}
+    </p>
+  </div>
+
+  <div class="group">
+    <div class="group__header">{{ strings.DOCUMENT_PROVENANCE_HEADER }}</div>
+    <ul class="doc-rail__list">
+      {% for sentence in provenance_shown %}
+        <li>{{ sentence }}</li>
+      {% endfor %}
+    </ul>
+    {% if provenance_rest %}
+      <details class="doc-rail__more">
+        <summary>{{ strings.DOCUMENT_PROVENANCE_MORE.format(count=provenance_rest|length) }}</summary>
+        <ul class="doc-rail__list">
+          {% for sentence in provenance_rest %}
+            <li>{{ sentence }}</li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+  </div>
+
+  <div class="group">
+    <div class="group__header">{{ strings.DOCUMENT_SCOPE_HEADER }}</div>
+    <p>{{ scope_sentence }}</p>
+  </div>
+
+  <div class="group">
+    <div class="group__header">{{ strings.DOCUMENT_RELATED_HEADER }}</div>
+    {% if outbound %}
+      <ul class="doc-rail__list">
+        {% for relation in outbound %}
+          <li>
+            {% if relation.href %}<a href="{{ relation.href }}">{{ relation.title }}</a>{% else %}{{ relation.title }}{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="group__empty">{{ strings.DOCUMENT_RELATED_EMPTY }}</p>
+    {% endif %}
+  </div>
+
+  <div class="group">
+    <div class="group__header">{{ strings.DOCUMENT_INBOUND_HEADER }}</div>
+    {% if inbound %}
+      <ul class="doc-rail__list">
+        {% for relation in inbound %}
+          <li>
+            {% if relation.href %}<a href="{{ relation.href }}">{{ relation.title }}</a>{% else %}{{ relation.title }}{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="group__empty">{{ strings.DOCUMENT_INBOUND_EMPTY }}</p>
+    {% endif %}
+  </div>
+
+  {% include "partials/tech_details.html" %}
+</div>
+
+{% if toc %}
+  <nav class="group doc-rail__toc" data-rail-toc aria-label="{{ strings.DOCUMENT_TOC_HEADER }}">
+    <div class="group__header">{{ strings.DOCUMENT_TOC_HEADER }}</div>
+    <ul class="doc-rail__list">
+      {% for level, text, anchor in toc %}
+        <li class="doc-rail__toc-item doc-rail__toc-item--{{ level }}">
+          <a href="#{{ anchor }}">{{ text }}</a>
+        </li>
+      {% endfor %}
+    </ul>
+  </nav>
+{% endif %}
