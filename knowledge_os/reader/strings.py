@@ -273,3 +273,40 @@ SKILL_TRUST_LABEL = TRUST_LABELS["operational guidance"]
 # ---------------------------------------------------------------------------
 
 REPODOC_LABEL = UNMANAGED_TIER_LABEL
+
+# ---------------------------------------------------------------------------
+# Document view — unit 1 additions (docs/plans/reader-v1.md Sec.4 "Document")
+#
+# The status/trust/scope/relation sentences the document view itself
+# composes (from DECISION_STATUS, LIFECYCLE_STATUS, DISCOVERY_STATUS,
+# TRUST_LABELS, PROVENANCE_KIND and SCOPE_GENERAL above) already cover the
+# reusable vocabulary; the labels below are this view's own rail section
+# headers and the small set of states those tables don't reach: a decision
+# resolved via a supersession relation with no known successor, an empty
+# relation list, and an unknown record id.
+# ---------------------------------------------------------------------------
+
+DOCUMENT_STATUS_HEADER = "Status"
+DOCUMENT_TRUST_HEADER = "Trust"
+DOCUMENT_SCOPE_HEADER = "Scope"
+
+#: {count} is the number of provenance entries held back behind the
+#: <details> overflow (see views/document.py) so a record with many
+#: repository-file entries does not dominate the rail.
+DOCUMENT_PROVENANCE_MORE = "{count} more"
+
+#: Fallback for LIFECYCLE_STATUS["superseded"] / DECISION_STATUS["superseded"]
+#: when no inbound "supersedes" relation resolves to a successor record
+#: (a possible but unusual data state: the plan does not give exact copy for
+#: it, so this is an extrapolation in the same voice as the rest of Sec.5).
+DOCUMENT_SUPERSEDED_UNKNOWN = "Replaced, but the replacement could not be found."
+
+DOCUMENT_RELATED_EMPTY = "This record points at nothing else."
+DOCUMENT_INBOUND_EMPTY = "No other record points here yet."
+
+DOCUMENT_NOT_FOUND_TITLE = "Record not found"
+#: {record_id} is the unmatched path segment from GET /r/{record_id}.
+DOCUMENT_NOT_FOUND_BODY = 'No record with id "{record_id}" exists in this workspace.'
+
+RAIL_TOGGLE_HIDE = "Hide metadata"
+RAIL_TOGGLE_SHOW = "Show metadata"
