@@ -273,3 +273,19 @@ SKILL_TRUST_LABEL = TRUST_LABELS["operational guidance"]
 # ---------------------------------------------------------------------------
 
 REPODOC_LABEL = UNMANAGED_TIER_LABEL
+
+# ---------------------------------------------------------------------------
+# Unit 9: Degradation and health states (states.py, partials/broken.html,
+# partials/health.html). See docs/plans/reader-v1.md Sec.6.
+# ---------------------------------------------------------------------------
+
+#: Header word for states.Diagnostic built from a repo-document read failure
+#: (Sec.6 "Unreadable content"). Distinct from BROKEN_RECORD_LABEL: that one
+#: is a managed record that failed metadata validation, this one is a plain
+#: read failure on unmanaged content. REPO_DOCUMENT_* above already supplies
+#: the full sentence, used as-is for the diagnostic's detail.
+UNREADABLE_CONTENT_LABEL = "Unreadable"
+
+#: Header above states.HealthSummary.issues in partials/health.html
+#: (Sec.6 "Lint failing globally": "links to the affected records").
+HEALTH_ISSUES_HEADER = "Affected records"
