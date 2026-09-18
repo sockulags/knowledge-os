@@ -1,0 +1,45 @@
+{#
+  Shared "outside the record contract" banner for the unmanaged
+  repo-document tier (docs/plans/reader-v1.md Sec.5: "the unmanaged tier is
+  visually separated by a dashed rule and an explicit label on every page it
+  appears on, and never merges into a validated group"; acceptance
+  criterion 11).
+
+  Self-contained: styled entirely from the shared class vocabulary
+  documented at the top of static/reader.css (`.tier-unmanaged` for the
+  dashed rule, `.record-card__title` / `.record-card__meta` for the list),
+  so any page that includes this partial looks right without also loading
+  this unit's own static/views/repodoc.css.
+
+  Context (all optional — Jinja's default Undefined makes a missing
+  `unmanaged_entries` behave exactly like an empty one, i.e. the label
+  alone, with no list):
+    unmanaged_entries: iterable of repodocs.RepoDocumentEntry
+      (path, title, readable, detail) to list under the label, in the order
+      given. Leave unset (or pass an empty tuple) on a page that is itself
+      the single entry — views/repodoc.py does this, since the document
+      rendered above the banner already names itself and does not need to
+      also appear as a self-link here.
+
+  Usage from a sibling view's own template, after setting
+  `unmanaged_entries` in that view's render() context (e.g. via
+  `repodocs.list_repo_documents(workspace)`, or a filtered subset of it):
+      {% include "partials/unmanaged.html" %}
+#}
+<section class="tier-unmanaged">
+  <p class="record-card__meta">{{ strings.UNMANAGED_TIER_LABEL }}</p>
+  {% if unmanaged_entries %}
+    <ul class="unmanaged-list">
+      {% for entry in unmanaged_entries %}
+        <li>
+          {% if entry.readable %}
+            <a href="/f/{{ entry.path }}"><span class="record-card__title">{{ entry.title }}</span></a>
+          {% else %}
+            <span class="record-card__title">{{ entry.title }}</span>
+            <span class="record-card__meta"> — {{ entry.detail }}</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</section>

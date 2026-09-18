@@ -1,0 +1,61 @@
+{#
+  GET /f/{path:path} — one file from the unmanaged repo-document tier.
+
+  Context (see views/repodoc.py):
+    page_title: str — the document's title, or the fallback repodoc label
+      when `document` is None.
+    document: repodocs.RepoDocumentEntry | None — None means the path was
+      refused or unreadable; `error` explains why.
+    document_html: str | None — pre-rendered HTML for `document.body`
+      (repodocs.render_document), with anchors matching `toc`.
+    toc: tuple[tuple[int, str, str], ...] — (level, text, anchor) headings,
+      in document order; empty for a short document or a refused path.
+    error: str | None — set exactly when `document` is None.
+    unmanaged_entries: always () here — this page IS the single entry, so
+      the included partial shows the label without a redundant self-link.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} · {{ strings.APP_NAME }}{% endblock %}
+
+{% block view_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='views/repodoc.css') }}">
+{% endblock %}
+
+{% block content %}
+  <article class="repodoc">
+    <p class="repodoc__eyebrow">{{ strings.PAGE_TITLES["repodoc"] }}</p>
+    {% include "partials/unmanaged.html" %}
+    {% if document %}
+      <h1 class="repodoc__title">{{ document.title }}</h1>
+      <div class="repodoc__body">{{ document_html|safe }}</div>
+    {% else %}
+      <h1 class="repodoc__title">{{ strings.PAGE_TITLES["repodoc"] }}</h1>
+      <p class="repodoc__error">{{ error }}</p>
+    {% endif %}
+  </article>
+{% endblock %}
+
+{% block rail %}
+  {% if toc %}
+    <div class="group">
+      <div class="group__header">{{ strings.DOCUMENT_TOC_HEADER }}</div>
+      <ul class="repodoc-toc">
+        {% for level, text, anchor in toc %}
+          <li class="repodoc-toc__item repodoc-toc__item--{{ level }}">
+            <a href="#{{ anchor }}">{{ text }}</a>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+  {% if document %}
+    <details class="tech-details">
+      <summary>{{ strings.TECHNICAL_DETAILS_LABEL }}</summary>
+      <dl>
+        <dt>Path</dt>
+        <dd>{{ document.path }}</dd>
+      </dl>
+    </details>
+  {% endif %}
+{% endblock %}

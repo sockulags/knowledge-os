@@ -552,3 +552,15 @@ EVERYTHING_ACCENT_BADGE: dict[str, str] = {
 #: brief's instruction to read Record.status rather than print the raw
 #: "unusable durable record" trust label.
 EVERYTHING_REPLACED_FALLBACK = "Replaced by a newer record."
+# Unit 7 additions — repo-document tier route (`GET /f/{path:path}`,
+# `knowledge_os/reader/repodocs.py` and `views/repodoc.py`)
+# ---------------------------------------------------------------------------
+
+#: Shown when the requested path is not one of the fixed
+#: ``repodocs.REPO_DOCUMENT_PATHS`` entries. Every path-traversal attempt
+#: (``../../etc/passwd``, an absolute path, an encoded variant) falls here
+#: too, since none of them can equal one of the fixed entries; the message
+#: deliberately does not say *why* a path was refused, only that this path
+#: is not part of the tier, so it stays identical for a traversal attempt
+#: and for an honest typo alike.
+REPODOC_NOT_IN_TIER = "{path} is not part of the repository-document tier."
