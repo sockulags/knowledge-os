@@ -273,3 +273,56 @@ SKILL_TRUST_LABEL = TRUST_LABELS["operational guidance"]
 # ---------------------------------------------------------------------------
 
 REPODOC_LABEL = UNMANAGED_TIER_LABEL
+
+# ---------------------------------------------------------------------------
+# Everything view — unit 5 additions
+#
+# The flat catalog is the deliberate counterweight to the project view's
+# grouping by meaning (acceptance criterion 10): every record, source, and
+# discovery the workspace holds is reachable here, sorted by what it is
+# (type), never by what it means (governing/proposed/historical). These
+# strings extend the "Everything view" section above without touching it.
+# ---------------------------------------------------------------------------
+
+EVERYTHING_INTRO = (
+    "Every record, source, and discovery the workspace holds, in one flat list. "
+    "Nothing here is grouped by what it means, only by what it is and how much "
+    "to trust it."
+)
+
+#: Group headers for the two lists this view renders. Deliberately not named
+#: after any meaning-group in PROJECT_GROUP_HEADERS.
+EVERYTHING_RECORDS_HEADER = "Records, sources, and discoveries"
+EVERYTHING_SKILLS_HEADER = "Skills"
+
+EVERYTHING_NO_SKILLS = "No skill is installed in this workspace."
+
+#: Record.type -> reader-facing noun, for the meta line next to each entry.
+#: Falls back to Record.type.capitalize() for any type not listed here.
+EVERYTHING_TYPE_LABELS: dict[str, str] = {
+    "project": "Project",
+    "knowledge": "Knowledge",
+    "memory": "Memory",
+    "synthesis": "Synthesis",
+    "source": "Source material",
+    "discovery": "Observation",
+}
+
+#: Short pill text for the four colour-carrying states (see reader.css
+#: .badge--proposed/--unverified/--retired/--raw); everything else renders
+#: with no badge at all (Sec.5: colour only on these four states).
+EVERYTHING_ACCENT_BADGE: dict[str, str] = {
+    "proposed": "Proposed",
+    "unverified": "Unverified",
+    "retired": "Retired",
+    "raw": "Raw",
+}
+
+#: Fallback for a superseded record (decision or ordinary) whose replacement
+#: cannot be resolved to a title and date (DECISION_STATUS["superseded"] and
+#: LIFECYCLE_STATUS["superseded"] both need both placeholders filled, and a
+#: flat catalog entry should never show a literal unfilled "{title}"). Still
+#: distinguishes "replaced" from "archived"/"discouraged", per the unit
+#: brief's instruction to read Record.status rather than print the raw
+#: "unusable durable record" trust label.
+EVERYTHING_REPLACED_FALLBACK = "Replaced by a newer record."
