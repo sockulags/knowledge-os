@@ -273,3 +273,13 @@ SKILL_TRUST_LABEL = TRUST_LABELS["operational guidance"]
 # ---------------------------------------------------------------------------
 
 REPODOC_LABEL = UNMANAGED_TIER_LABEL
+
+# ---------------------------------------------------------------------------
+# Markdown rendering (knowledge_os/reader/markdown.py)
+# ---------------------------------------------------------------------------
+
+#: Title/tooltip for a relative record-to-record link that render() could
+#: not place (a bare directory, or a path outside the corpus). The link
+#: itself degrades to plain, non-clickable text rather than a link that
+#: would 404; this is the one hint of why, on hover.
+MARKDOWN_LINK_UNRESOLVED = "This link could not be resolved to a record."
