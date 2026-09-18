@@ -1,0 +1,24 @@
+{#
+  One states.Diagnostic (knowledge_os/reader/states.py), rendered as a
+  clearly-framed diagnostic call-out. Used for both Sec.6 "Broken record"
+  (states.diagnostic_for_broken) and "Unreadable content"
+  (states.diagnostic_for_unreadable) — the same shape, a label, an optional
+  path, and one pre-formatted detail sentence, so one partial covers both.
+
+  Expects a variable named `diagnostic` in scope wherever this is included.
+  A caller listing several (e.g. the Everything view mixing broken entries
+  into its record list) should `{% include %}` this once per entry inside
+  its own loop, setting `diagnostic` via `{% with diagnostic = item %}` or an
+  equivalent per-iteration binding, since Jinja's `{% include %}` reads
+  whatever `diagnostic` currently resolves to in the surrounding context.
+
+  Deliberately outside `.record-card`: a broken entry is a diagnostic, not
+  an ordinary reading surface, and must never look like one (see the
+  contract note in docs/plans/reader-v1.md and the module docstring in
+  states.py).
+#}
+<div class="diagnostic">
+  <p class="diagnostic__label">{{ diagnostic.label }}</p>
+  {% if diagnostic.path %}<p class="diagnostic__path"><code>{{ diagnostic.path }}</code></p>{% endif %}
+  <p class="diagnostic__detail">{{ diagnostic.detail }}</p>
+</div>
