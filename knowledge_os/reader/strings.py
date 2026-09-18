@@ -624,3 +624,42 @@ UNREADABLE_CONTENT_LABEL = "Unreadable"
 #: Header above states.HealthSummary.issues in partials/health.html
 #: (Sec.6 "Lint failing globally": "links to the affected records").
 HEALTH_ISSUES_HEADER = "Affected records"
+# Unit 10 additions: lineage / compare view (GET /r/{record_id}/compare)
+#
+# The pre-seeded LINEAGE_SUPERSEDES / LINEAGE_SUPERSEDED_BY / LINEAGE_NO_
+# COMPARISON strings above (Sec. "Lineage / compare view") cover the happy
+# path and the no-lineage-at-all case. These cover the degradation states a
+# corpus that fails `kos lint` can still put in front of a person: a
+# supersession pointing at an id that does not exist, a supersession target
+# that exists but is not itself a decision, and an "active" decision with no
+# resolvable acceptance date or replacement.
+# ---------------------------------------------------------------------------
+
+#: {record_id} is the path segment for a `/r/{record_id}/compare` request
+#: whose record_id is not in Library.records_by_id at all (never parsed, or
+#: never existed).
+LINEAGE_NOT_FOUND = 'No record with id "{record_id}" was found in this workspace.'
+
+#: A resolved decision's own supersedes/superseded-by edge points at an id
+#: with no parsed record behind it (Sec.6 "Broken relation": shown, never
+#: silently dropped). {record_id} is Relation.record_id.
+LINEAGE_MISSING_TARGET = "{record_id} is referenced here but does not exist in this workspace."
+
+#: The edge resolves to a real record, but that record is not a decision (a
+#: corpus that fails `kos lint` can still have this shape). {title} is the
+#: resolved record's title.
+LINEAGE_TARGET_NOT_DECISION = "{title} exists but is not a decision, so it cannot be compared as a supersession."
+
+#: An "active" decision with no decision-acceptance provenance to date it.
+#: In a valid corpus this never happens (is_decision and status == "draft" is
+#: exactly the no-acceptance case); shown only if a corpus is invalid.
+LINEAGE_ACCEPTED_UNKNOWN = "In force, though no acceptance date is recorded."
+
+#: A "superseded" decision with no resolvable effective replacement (the
+#: supersession invariant guarantees exactly one in a valid corpus).
+LINEAGE_REPLACEMENT_UNKNOWN = "No longer in effect; the record was superseded, but the replacement could not be found."
+
+#: Paragraph-level diff summary, above the side-by-side comparison body.
+LINEAGE_SUMMARY_UNCHANGED = "The wording is unchanged between these two versions."
+#: {added}, {removed}, {changed} are paragraph counts from the comparison.
+LINEAGE_SUMMARY = "{added} section(s) added, {removed} removed, {changed} reworded."
