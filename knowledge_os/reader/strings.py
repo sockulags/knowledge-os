@@ -273,3 +273,51 @@ SKILL_TRUST_LABEL = TRUST_LABELS["operational guidance"]
 # ---------------------------------------------------------------------------
 
 REPODOC_LABEL = UNMANAGED_TIER_LABEL
+
+# ---------------------------------------------------------------------------
+# Skill view (unit 8: GET /s/{skill_name})
+#
+# A skill is not a record: its frontmatter contract has exactly three fields
+# (name, description, tags), no lifecycle, no status, no supersession, and it
+# is absent from the search index. These strings exist so the skill page
+# never borrows record vocabulary ("status", "current", a title it does not
+# have) for something that is not a record.
+# ---------------------------------------------------------------------------
+
+#: Eyebrow label distinguishing a skill page from a record page.
+SKILL_EYEBROW = "Skill"
+
+#: Shown when a skill has no tags at all (two of the four skills in this
+#: workspace have none); a tag row must handle this rather than render empty.
+SKILL_NO_TAGS = "No tags recorded."
+
+#: Header for the secondary-material block listing a skill's plain-Markdown
+#: reference files (e.g. skills/knowledge-os-documentation/references/*.md).
+#: These files have no frontmatter, are outside the record contract, and are
+#: reached through library.read_repo_document; the block also carries
+#: strings.UNMANAGED_TIER_LABEL (acceptance criterion 11).
+SKILL_REFERENCES_HEADER = "Supporting references"
+
+#: One reference file could not be read (Sec.6 "Unreadable content"); {path}
+#: is its repository-relative path, {detail} the library.LibraryError text.
+SKILL_REFERENCE_UNREADABLE = "{path} could not be opened here: {detail}"
+
+#: A requested skill name matches nothing in Library.skills or Library.issues.
+SKILL_NOT_FOUND_TITLE = "No such skill"
+#: {name} is the requested path segment, exactly as typed in the URL.
+SKILL_NOT_FOUND_BODY = 'No skill named "{name}" exists in this workspace.'
+
+#: A skill directory exists but its SKILL.md failed to parse (it appears in
+#: Library.issues, never in Library.skills); say so rather than a 404 or a
+#: silent empty page (Sec.6 "Broken record", applied to the skill contract).
+SKILL_BROKEN_TITLE = "This skill could not be read"
+#: {message} is the exact issue message from library.Library.issues.
+SKILL_BROKEN_BODY = "skills/{name}/SKILL.md failed validation: {message}"
+
+#: Tech-details labels (dl in the metadata rail); the raw contract vocabulary
+#: (path, trust label string) belongs one click away, never in the reading
+#: path itself.
+SKILL_LABEL_NAME = "Name"
+SKILL_LABEL_TAGS = "Tags"
+SKILL_LABEL_PATH = "Path"
+SKILL_LABEL_TRUST = "Trust"
