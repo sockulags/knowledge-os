@@ -1,0 +1,160 @@
+{#
+  GET /p/{project_id} -- the project overview read in full, then its content
+  grouped by meaning (governing now / proposed / historical / observations /
+  raw material), a side group of general knowledge, memory, and skills that
+  does not belong to the project, and the project's own ordinary content
+  reached through a directory tree (accepted project-directory-layout
+  decision). See views/project.py for how each group's entries and the tree
+  are built; this template only lays them out.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} · {{ strings.APP_NAME }}{% endblock %}
+
+{% block view_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='views/project.css') }}">
+{% endblock %}
+
+{% macro record_group(slug, entries) %}
+  <section class="group">
+    <h2 class="group__header">{{ strings.PROJECT_GROUP_HEADERS[slug] }}</h2>
+    {% if entries %}
+      <ul class="group__list">
+        {% for entry in entries %}
+          <li>
+            <a class="record-card" href="/r/{{ entry.record.id }}">
+              <span class="record-card__title">
+                {{ entry.record.title }}
+                {% if entry.badge_class %}<span class="badge {{ entry.badge_class }}">{{ entry.badge_label }}</span>{% endif %}
+              </span>
+              <span class="record-card__meta">{{ entry.text }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="group__empty">{{ strings.PROJECT_GROUP_EMPTY[slug] }}</p>
+    {% endif %}
+  </section>
+{% endmacro %}
+
+{% macro side_group(record_entries, skill_entries) %}
+  <section class="group group--side">
+    <h2 class="group__header">{{ strings.PROJECT_GROUP_HEADERS["related_general"] }}</h2>
+    {% if record_entries or skill_entries %}
+      <ul class="group__list">
+        {% for entry in record_entries %}
+          <li>
+            <a class="record-card" href="/r/{{ entry.record.id }}">
+              <span class="record-card__title">
+                {{ entry.record.title }}
+                {% if entry.badge_class %}<span class="badge {{ entry.badge_class }}">{{ entry.badge_label }}</span>{% endif %}
+              </span>
+              <span class="record-card__meta">{{ entry.text }}</span>
+            </a>
+          </li>
+        {% endfor %}
+        {% for skill in skill_entries %}
+          <li>
+            <a class="record-card" href="/s/{{ skill.name }}">
+              <span class="record-card__title">{{ skill.name }}</span>
+              <span class="record-card__meta">{{ strings.SKILL_TRUST_LABEL }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="group__empty">{{ strings.PROJECT_GROUP_EMPTY["related_general"] }}</p>
+    {% endif %}
+  </section>
+{% endmacro %}
+
+{% macro tree_children(node) %}
+  {% for record in node.records %}
+    <li><a class="project-tree__record" href="/r/{{ record.id }}">{{ record.title }}</a></li>
+  {% endfor %}
+  {% for item in node.broken %}
+    <li class="project-tree__broken">
+      <span class="badge badge--retired">{{ strings.BROKEN_RECORD_LABEL }}</span>
+      <span class="project-tree__path">{{ item.path }}</span>
+      <p class="project-tree__message">{{ strings.BROKEN_RECORD_DETAIL.format(message=item.message) }}</p>
+    </li>
+  {% endfor %}
+  {% for child in node.children %}
+    <li class="project-tree__dir">
+      <span class="project-tree__dir-name">
+        {% if child.overview %}
+          <a href="/r/{{ child.overview.id }}">{{ child.overview.title }}</a>
+        {% else %}
+          {{ child.name }}
+        {% endif %}
+      </span>
+      {% if child.records or child.broken or child.children %}
+        <ul class="project-tree__list">
+          {{ tree_children(child) }}
+        </ul>
+      {% endif %}
+    </li>
+  {% endfor %}
+{% endmacro %}
+
+{% block content %}
+  {% if not found %}
+    <article class="project project--missing">
+      <p class="stub__eyebrow">{{ strings.PAGE_TITLES["project"] }}</p>
+      <h1>{{ project_id }}</h1>
+      <p>{{ strings.PROJECT_NOT_FOUND.format(project_id=project_id) }}</p>
+    </article>
+  {% else %}
+    <article class="project">
+      <header class="project__header">
+        <p class="project__eyebrow">{{ strings.PAGE_TITLES["project"] }}</p>
+        <h1>{{ overview.title }}</h1>
+        <p class="project__status">{{ overview_status_text }}</p>
+      </header>
+
+      <div class="project__overview">
+        {{ overview.body|markdown|safe }}
+      </div>
+
+      <details class="tech-details">
+        <summary>{{ strings.TECHNICAL_DETAILS_LABEL }}</summary>
+        <p>{{ strings.TECHNICAL_DETAILS_HINT }}</p>
+        <dl>
+          <dt>{{ strings.PROJECT_DETAILS_STATUS }}</dt><dd>{{ overview_details.status }}</dd>
+          <dt>{{ strings.PROJECT_DETAILS_SCOPE }}</dt><dd>{{ overview_details.scope }}</dd>
+          <dt>{{ strings.PROJECT_DETAILS_TRUST }}</dt><dd>{{ overview_details.trust_label }}</dd>
+          <dt>{{ strings.PROJECT_DETAILS_PATH }}</dt><dd>{{ overview_details.path }}</dd>
+          <dt>{{ strings.PROJECT_DETAILS_CONTENT_HASH }}</dt><dd>{{ overview_details.content_sha256 }}</dd>
+        </dl>
+      </details>
+
+      {{ record_group("governing", governing) }}
+      {{ record_group("proposed", proposed) }}
+      {{ record_group("historical", historical) }}
+      {{ record_group("observations", observations) }}
+      {{ record_group("raw_material", raw_material) }}
+      {{ side_group(related_general, related_skills) }}
+
+      <section class="group project-tree">
+        <h2 class="group__header">{{ strings.PROJECT_TREE_HEADER }}</h2>
+        {% if tree_has_content %}
+          <ul class="project-tree__list project-tree__list--root">
+            {{ tree_children(tree) }}
+          </ul>
+        {% else %}
+          <p class="group__empty">{{ strings.PROJECT_TREE_EMPTY }}</p>
+        {% endif %}
+      </section>
+    </article>
+  {% endif %}
+{% endblock %}
+
+{% block rail %}
+  <div class="group">
+    <div class="group__header">{{ strings.APP_NAME }}</div>
+    <p>{{ strings.START_HEALTH_LINE.format(records=library.records|length, skills=library.skills|length, issues=library.issues|length) }}</p>
+    {% if library.workspace_name %}<p>{{ library.workspace_name }}</p>{% endif %}
+    {% if library.index.message %}<p>{{ library.index.message }}</p>{% endif %}
+  </div>
+{% endblock %}
