@@ -100,10 +100,10 @@ class StripLeadingH1Tests(unittest.TestCase):
 class HeadingIdInjectionTests(unittest.TestCase):
     def test_ids_assigned_in_document_order(self) -> None:
         body = "## One\n\nText.\n\n## Two\n\nMore text.\n"
-        headings = document.markdown.headings(body)
-        html = document._with_heading_ids(document.markdown.render(body), headings)
-        self.assertIn('<h2 id="one">One</h2>', html)
-        self.assertIn('<h2 id="two">Two</h2>', html)
+        html = document.markdown.render(body)
+        anchors = [anchor for _level, _text, anchor in document.markdown.headings(body)]
+        for anchor in anchors:
+            self.assertEqual(html.count(f'id="{anchor}"'), 1)
 
 
 class StatusAndTrustSentenceTests(unittest.TestCase):

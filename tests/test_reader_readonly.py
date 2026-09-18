@@ -546,7 +546,7 @@ def _build_serving_workspace(root: Path) -> None:
         "---\nname: demo-skill\ndescription: A demo skill for the read-only e2e test.\n---\n\nBody.\n",
         encoding="utf-8",
     )
-    (root / "NOTES.md").write_text("# Notes\n\nUnmanaged tier content.\n", encoding="utf-8")
+    (root / "SYSTEM.md").write_text("# Notes\n\nUnmanaged tier content.\n", encoding="utf-8")
 
 
 def _git(*arguments: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -595,7 +595,7 @@ class ServeReadOnlyTests(unittest.TestCase):
                     "/r/accepted",
                     "/r/accepted/compare",
                     "/s/demo-skill",
-                    "/f/NOTES.md",
+                    "/f/SYSTEM.md",
                     "/search?q=note",
                     "/everything",
                     "/static/reader.css",

@@ -121,31 +121,6 @@ def _strip_leading_h1(body: str) -> str:
 _HEADING_TAG = re.compile(r"<h([1-6])((?:\s[^>]*)?)>")
 
 
-def _with_heading_ids(html: str, headings: list[tuple[int, str, str]]) -> str:
-    """Inject the anchors ``markdown.headings()`` computed into the matching
-    rendered ``<hN>`` tags, in document order.
-
-    ``markdown.render`` does not emit ids (unit 0's baseline renderer; see
-    its module docstring), so the table of contents built from
-    ``markdown.headings()`` would otherwise link to anchors that do not
-    exist. Both functions parse the same source through the same tokenizer,
-    so a heading-open tag appears in the same order and count in the
-    rendered HTML as in the heading list; this walks both in lockstep rather
-    than reimplementing any Markdown parsing here.
-    """
-
-    remaining = iter(headings)
-
-    def _inject(match: re.Match[str]) -> str:
-        try:
-            _level, _text, anchor = next(remaining)
-        except StopIteration:
-            return match.group(0)
-        return f'<h{match.group(1)}{match.group(2)} id="{anchor}">'
-
-    return _HEADING_TAG.sub(_inject, html)
-
-
 def _successor(library: Library, record: Record) -> Record | None:
     """The record that supersedes ``record``, if one resolves.
 
@@ -253,7 +228,7 @@ def _build_context(library: Library, record: Record) -> dict[str, object]:
 
     body = _strip_leading_h1(record.body)
     headings = [h for h in markdown.headings(body) if h[0] <= 3]
-    body_html = _with_heading_ids(markdown.render(body), markdown.headings(body))
+    body_html = markdown.render(body)
 
     return {
         "record": record,
