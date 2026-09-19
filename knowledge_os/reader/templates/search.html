@@ -15,16 +15,12 @@
 {% block content %}
   <h1>{{ strings.NAV_SEARCH }}</h1>
 
-  {% if not index.available %}
+  {% if not search_available %}
     <div class="search-unavailable">
       <p class="search-unavailable__title">{{ strings.SEARCH_UNAVAILABLE_TITLE }}</p>
-      <p>{{ index.message }}</p>
+      <p>{{ search_disabled_reason }}</p>
     </div>
   {% else %}
-    {% if index.stale %}
-      <p class="search-notice">{{ index.message }}</p>
-    {% endif %}
-
     <form class="search-form" method="get" action="/search">
       <div class="search-form__query">
         <label class="search-form__query-label" for="search-q">{{ strings.SEARCH_PLACEHOLDER }}</label>
@@ -86,14 +82,10 @@
 {% block rail %}
   <div class="group">
     <div class="group__header">{{ strings.NAV_SEARCH }}</div>
-    {% if index.available %}
-      {% if index.stale %}
-        <p>{{ index.message }}</p>
-      {% else %}
-        <p>{{ strings.LINT_OK if library.issues|length == 0 else strings.LINT_ISSUES.format(count=library.issues|length) }}</p>
-      {% endif %}
+    {% if search_available %}
+      <p>{{ strings.LINT_OK if library.issues|length == 0 else strings.LINT_ISSUES.format(count=library.issues|length) }}</p>
     {% else %}
-      <p>{{ index.message }}</p>
+      <p>{{ search_disabled_reason }}</p>
     {% endif %}
   </div>
 {% endblock %}

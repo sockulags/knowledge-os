@@ -176,7 +176,11 @@ class SearchUnavailableTests(unittest.TestCase):
                     self.assertIn("Search is unavailable", body)
                     self.assertIn("kos index", body)
 
-    def test_stale_index_shows_notice_but_search_still_works(self) -> None:
+    def test_stale_index_disables_search_like_a_missing_one(self) -> None:
+        """A stale index follows the same rule Sec.6 gives a missing one:
+        search is disabled with the reason and the `kos index` command,
+        while browsing (the rest of the reader) still works."""
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             _build_searchable_workspace(root)
@@ -184,12 +188,18 @@ class SearchUnavailableTests(unittest.TestCase):
             path.write_text(path.read_text(encoding="utf-8") + "\nExtra content.\n", encoding="utf-8")
 
             with serve(root, PORT) as base_url:
+                status, home_body = _get(base_url, "/")
+                self.assertEqual(status, 200)
+
                 status, body = _get(base_url, "/search?q=xylophone")
                 self.assertEqual(status, 200)
+                self.assertIn("Search is unavailable", body)
                 self.assertIn("Run", body)
                 self.assertIn("kos index", body)
-                self.assertIn("search-filters", body)
-                self.assertIn("matching record", body)
+                # No filter form or results markup renders while disabled,
+                # matching the missing-index state exactly.
+                self.assertNotIn("search-filters", body)
+                self.assertNotIn("matching record", body)
 
 
 class SearchResultsTests(unittest.TestCase):
