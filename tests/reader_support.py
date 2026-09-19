@@ -95,9 +95,19 @@ def serve(root: Path, port: int, *, timeout: float = 15.0) -> Iterator[str]:
     environment["PYTHONPATH"] = str(REPOSITORY) + os.pathsep + environment.get("PYTHONPATH", "")
     base_url = f"http://127.0.0.1:{port}"
     log = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+    # No `cwd=root`: `--root` is always passed explicitly above, so
+    # Workspace.discover() never falls back to the process's current
+    # directory (see workspace.py) and the subprocess has no need to run
+    # with `root` as its working directory. On Windows, a child process's
+    # current directory is held open as a live directory handle for as
+    # long as the process runs it; setting it to the caller's own
+    # tempfile.TemporaryDirectory() raced that directory's cleanup against
+    # the OS finishing release of the handle after `process.wait()`
+    # returned, intermittently raising PermissionError: [WinError 32] from
+    # the temp directory's own removal. Leaving `cwd` at the parent's
+    # default avoids taking that handle on `root` at all.
     process = subprocess.Popen(
         [sys.executable, "-m", "knowledge_os.reader", "--root", str(root), "--port", str(port)],
-        cwd=root,
         env=environment,
         stdout=log,
         stderr=subprocess.STDOUT,
