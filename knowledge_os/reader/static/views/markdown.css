@@ -1,0 +1,137 @@
+/*
+ * Markdown rendering — code blocks, tables, anchored headings, and
+ * unresolved links produced by knowledge_os/reader/markdown.py.
+ *
+ * Owned by the same unit as markdown.py. Every rule below is scoped under
+ * `.reading` (the measured reading column defined in ../reader.css) so it
+ * only ever affects rendered record/document bodies, never chrome shared
+ * with other views.
+ *
+ * The syntax-highlighting palette deliberately does not invent a second
+ * colour system: it reuses --ink / --ink-muted / --ink-faint (already
+ * flipped for dark mode by reader.css) and separates token kinds through
+ * weight and style (bold, italic) rather than hue. reader.css reserves the
+ * four --accent-* tokens for the states that change what the reader should
+ * believe (proposed / unverified / retired / raw); a lexer error token is
+ * the one case here that borrows --accent-raw, because unparsable source
+ * inside a fenced block is exactly "raw, unchecked material" in the same
+ * sense.
+ */
+
+/* ------------------------------------------------------------------- */
+/* Fenced code blocks                                                   */
+/* ------------------------------------------------------------------- */
+
+.reading pre {
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--ground-raised);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.reading pre code {
+  background: none;
+  padding: 0;
+  border: none;
+  font-size: inherit;
+}
+
+.reading :not(pre) > code {
+  background: var(--ground-raised);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+  font-size: 0.875em;
+}
+
+/* Pygments token classes (nowrap output, see markdown.py _highlight_code).
+   Grouped by the standard short-form prefixes; unlisted token classes (for
+   example plain whitespace, "w") inherit the surrounding text colour. */
+
+.reading pre .c, .reading pre .c1, .reading pre .cm, .reading pre .cp, .reading pre .cs {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.reading pre .k, .reading pre .kc, .reading pre .kd, .reading pre .kn,
+.reading pre .kp, .reading pre .kr, .reading pre .kt {
+  font-weight: 600;
+}
+
+.reading pre .s, .reading pre .s1, .reading pre .s2, .reading pre .sb,
+.reading pre .sc, .reading pre .sd, .reading pre .se, .reading pre .sh,
+.reading pre .si, .reading pre .sx, .reading pre .sr, .reading pre .ss {
+  color: var(--ink-muted);
+}
+
+.reading pre .n, .reading pre .na, .reading pre .nb, .reading pre .nc,
+.reading pre .nd, .reading pre .ne, .reading pre .nf, .reading pre .ni,
+.reading pre .nl, .reading pre .nn, .reading pre .no, .reading pre .nt,
+.reading pre .nv, .reading pre .vc, .reading pre .vg, .reading pre .vi {
+  color: var(--ink);
+}
+
+.reading pre .o, .reading pre .ow, .reading pre .p {
+  color: var(--ink-muted);
+}
+
+.reading pre .m, .reading pre .mf, .reading pre .mh, .reading pre .mi,
+.reading pre .mo, .reading pre .il {
+  color: var(--ink);
+}
+
+.reading pre .err {
+  color: var(--accent-raw);
+  text-decoration: underline wavy;
+}
+
+/* ------------------------------------------------------------------- */
+/* Pipe tables                                                          */
+/* ------------------------------------------------------------------- */
+
+/* A wide table scrolls inside this box; the reading column itself never
+   gains horizontal scroll from a document's own content. */
+.reading .table-scroll {
+  margin: var(--space-4) 0;
+  overflow-x: auto;
+}
+
+.reading table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9375rem;
+}
+
+.reading th, .reading td {
+  border: 1px solid var(--rule);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.reading th {
+  background: var(--ground-raised);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------- */
+/* Anchored headings                                                    */
+/* ------------------------------------------------------------------- */
+
+.reading h1[id], .reading h2[id], .reading h3[id],
+.reading h4[id], .reading h5[id], .reading h6[id] {
+  scroll-margin-top: var(--space-4);
+}
+
+/* ------------------------------------------------------------------- */
+/* Unresolved relative links (a directory, or a path outside the corpus)*/
+/* ------------------------------------------------------------------- */
+
+.reading .md-link-unresolved {
+  color: var(--ink-faint);
+  text-decoration: underline dotted;
+  cursor: default;
+}

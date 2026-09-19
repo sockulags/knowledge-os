@@ -1,0 +1,75 @@
+{#
+  GET /everything — flat catalog of the whole corpus (docs/plans/reader-v1.md
+  Sec.4, acceptance criterion 10). Every record the adapter loaded is listed
+  once here, sorted by type and title, never grouped by meaning: this page is
+  the deliberate counterweight to the project view's governing/proposed/
+  historical grouping. Skills have no id/type/status/scope, so they render as
+  their own labelled group below the records, never as record cards.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ strings.EVERYTHING_TITLE }} · {{ strings.APP_NAME }}{% endblock %}
+
+{% block view_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='views/everything.css') }}">
+{% endblock %}
+
+{% block content %}
+  <article class="everything">
+    <h1>{{ strings.EVERYTHING_TITLE }}</h1>
+    <p class="everything__intro">{{ strings.EVERYTHING_INTRO }}</p>
+
+    <section class="group">
+      <h2 class="group__header">{{ strings.EVERYTHING_RECORDS_HEADER }}</h2>
+      {% if entries or broken %}
+        {% for entry in entries %}
+          <a class="record-card" href="/r/{{ entry.record.id }}">
+            <div class="record-card__title">
+              {{ entry.record.title }}
+              {% if entry.badge_word %}<span class="badge badge--{{ entry.accent }}">{{ entry.badge_word }}</span>{% endif %}
+            </div>
+            <div class="record-card__meta">{{ entry.type_label }} &middot; {{ entry.trust_phrase }}</div>
+          </a>
+        {% endfor %}
+        {% for item in broken %}
+          <div class="record-card record-card--broken">
+            <div class="record-card__title">
+              {{ strings.BROKEN_RECORD_LABEL }}
+              <span class="badge badge--raw">{{ strings.EVERYTHING_ACCENT_BADGE["raw"] }}</span>
+            </div>
+            <div class="record-card__meta">{{ item.path }}</div>
+            <p class="everything__broken-message">{{ strings.BROKEN_RECORD_DETAIL.format(message=item.message) }}</p>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="group__empty">{{ strings.EVERYTHING_EMPTY }}</p>
+      {% endif %}
+    </section>
+
+    <section class="group">
+      <h2 class="group__header">{{ strings.EVERYTHING_SKILLS_HEADER }}</h2>
+      {% if skills %}
+        {% for skill in skills %}
+          <div class="skill-entry">
+            <div class="skill-entry__title">
+              <a class="skill-entry__name" href="/s/{{ skill.name }}">{{ skill.name }}</a>
+              <span class="badge">{{ strings.SKILL_TRUST_LABEL }}</span>
+            </div>
+            {% if skill.description %}<p class="skill-entry__description">{{ skill.description }}</p>{% endif %}
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="group__empty">{{ strings.EVERYTHING_NO_SKILLS }}</p>
+      {% endif %}
+    </section>
+  </article>
+{% endblock %}
+
+{% block rail %}
+  <div class="group">
+    <div class="group__header">Workspace</div>
+    <p>{{ strings.START_HEALTH_LINE.format(records=library.records|length, skills=library.skills|length, issues=library.issues|length) }}</p>
+    {% if library.workspace_name %}<p>{{ library.workspace_name }}</p>{% endif %}
+    {% if library.index.message %}<p>{{ library.index.message }}</p>{% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,93 @@
+{#
+  GET /s/{skill_name} — one operational-guidance skill.
+
+  A skill is not a record: no status, no scope, no provenance, no lifecycle.
+  This template never renders a field the skill contract does not have. See
+  knowledge_os/reader/views/skill.py for the three states this handles
+  (found / broken / not found).
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} · {{ strings.APP_NAME }}{% endblock %}
+
+{% block view_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='views/markdown.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='views/skill.css') }}">
+{% endblock %}
+
+{% block content %}
+  {% if skill is none %}
+    <article class="skill skill--missing">
+      <p class="skill__eyebrow">{{ strings.SKILL_EYEBROW }}</p>
+      {% if broken_message %}
+        <h1>{{ strings.SKILL_BROKEN_TITLE }}</h1>
+        <p>{{ strings.SKILL_BROKEN_BODY.format(name=skill_name, message=broken_message) }}</p>
+      {% else %}
+        <h1>{{ strings.SKILL_NOT_FOUND_TITLE }}</h1>
+        <p>{{ strings.SKILL_NOT_FOUND_BODY.format(name=skill_name) }}</p>
+      {% endif %}
+    </article>
+  {% else %}
+    <article class="skill">
+      <p class="skill__eyebrow">
+        {{ strings.SKILL_EYEBROW }}
+        <span class="badge">{{ strings.SKILL_TRUST_LABEL }}</span>
+      </p>
+      <p class="skill__description">{{ skill.description }}</p>
+      <div class="skill__tags">
+        {% if skill.tags %}
+          {% for tag in skill.tags %}
+            <span class="badge skill__tag">{{ tag }}</span>
+          {% endfor %}
+        {% else %}
+          <span class="skill__no-tags">{{ strings.SKILL_NO_TAGS }}</span>
+        {% endif %}
+      </div>
+
+      <div class="skill__body">
+        {{ skill.body|markdown|safe }}
+      </div>
+
+      {% if references %}
+        <section class="tier-unmanaged skill__references">
+          <p class="tier-unmanaged__label">{{ strings.UNMANAGED_TIER_LABEL }}</p>
+          <h2>{{ strings.SKILL_REFERENCES_HEADER }}</h2>
+          <ul class="skill__reference-list">
+            {% for reference in references %}
+              <li>
+                {% if reference.readable %}
+                  <a href="/f/{{ reference.path }}">{{ reference.title }}</a>
+                {% else %}
+                  <span class="skill__reference-unreadable">
+                    {{ reference.title }}
+                    <br>
+                    <small>{{ strings.SKILL_REFERENCE_UNREADABLE.format(path=reference.path, detail=reference.detail) }}</small>
+                  </span>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+    </article>
+  {% endif %}
+{% endblock %}
+
+{% block rail %}
+  {% if skill is not none %}
+    <details class="tech-details" open>
+      <summary>{{ strings.TECHNICAL_DETAILS_LABEL }}</summary>
+      <p>{{ strings.TECHNICAL_DETAILS_HINT }}</p>
+      <dl>
+        <dt>{{ strings.SKILL_LABEL_NAME }}</dt>
+        <dd>{{ skill.name }}</dd>
+        <dt>{{ strings.SKILL_LABEL_TRUST }}</dt>
+        <dd>{{ trust_label_raw }}</dd>
+        <dt>{{ strings.SKILL_LABEL_TAGS }}</dt>
+        <dd>{{ skill.tags|join(', ') if skill.tags else strings.SKILL_NO_TAGS }}</dd>
+        <dt>{{ strings.SKILL_LABEL_PATH }}</dt>
+        <dd>{{ skill.path }}</dd>
+      </dl>
+    </details>
+  {% endif %}
+{% endblock %}

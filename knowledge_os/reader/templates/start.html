@@ -1,0 +1,105 @@
+{#
+  GET / — "back in". See knowledge_os/reader/views/start.py for how each
+  context variable is built. Nothing here needs a technical-details
+  disclosure: this is a listing page, not a document, so no contract
+  vocabulary (status, scope, provenance kind, path, content_sha256) is
+  handled here beyond the already-user-facing strings the view passes in.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ strings.APP_NAME }}{% endblock %}
+
+{% block view_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='views/states.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='views/start.css') }}">
+{% endblock %}
+
+{% block content %}
+  {% if is_empty %}
+    <article class="start-empty">
+      <h1>{{ strings.EMPTY_WORKSPACE_TITLE }}</h1>
+      <p>{{ strings.EMPTY_WORKSPACE_BODY }}</p>
+    </article>
+  {% else %}
+    <h1 class="start__title">{{ strings.APP_NAME }}</h1>
+
+    <section class="group">
+      <div class="group__header">{{ strings.START_OPEN_DECISIONS }}</div>
+      {% if open_decisions %}
+        {% for record in open_decisions %}
+          <a class="record-card" href="/r/{{ record.id }}">
+            <div class="record-card__title">{{ record.title }}</div>
+            <div class="record-card__meta">{{ strings.DECISION_STATUS["draft"] }}</div>
+          </a>
+        {% endfor %}
+      {% else %}
+        <p class="group__empty">{{ strings.START_NO_OPEN_DECISIONS }}</p>
+      {% endif %}
+    </section>
+
+    <section class="group">
+      <div class="group__header">{{ strings.START_PROJECTS }}</div>
+      {% if project_entries %}
+        {% for project_id, title in project_entries %}
+          <a class="record-card" href="/p/{{ project_id }}">
+            <div class="record-card__title">{{ title }}</div>
+          </a>
+        {% endfor %}
+      {% else %}
+        <p class="group__empty">{{ strings.START_NO_PROJECTS }}</p>
+      {% endif %}
+    </section>
+
+    <section class="group">
+      <div class="group__header">{{ strings.START_RECENTLY_CHANGED }}</div>
+      {% if recently_changed %}
+        {% for record in recently_changed %}
+          <a class="record-card" href="/r/{{ record.id }}">
+            <div class="record-card__title">{{ record.title }}</div>
+            <div class="record-card__meta">{{ updated_display[record.id] }}</div>
+          </a>
+        {% endfor %}
+      {% else %}
+        <p class="group__empty">{{ strings.START_NO_RECENT_CHANGES }}</p>
+      {% endif %}
+    </section>
+
+    <section class="group">
+      <div class="group__header">{{ strings.START_SKILLS }}</div>
+      {% if skills %}
+        {% for skill in skills %}
+          <a class="record-card" href="/s/{{ skill.name }}">
+            <div class="record-card__title">{{ skill.name }}</div>
+            {% if skill.description %}
+              <div class="record-card__meta">{{ skill.description }}</div>
+            {% endif %}
+          </a>
+        {% endfor %}
+      {% else %}
+        <p class="group__empty">{{ strings.START_NO_SKILLS }}</p>
+      {% endif %}
+    </section>
+
+    {% if repo_document %}
+      <section class="group tier-unmanaged">
+        <div class="group__header">{{ strings.START_REPO_DOCUMENT_HEADER }}</div>
+        <p class="start__unmanaged-note">{{ strings.UNMANAGED_TIER_LABEL }}</p>
+        <a class="record-card" href="/f/{{ repo_document.path }}">
+          <div class="record-card__title">{{ repo_document.title }}</div>
+        </a>
+      </section>
+    {% endif %}
+  {% endif %}
+{% endblock %}
+
+{% block rail %}
+  <div class="group">
+    <div class="group__header">{{ strings.RAIL_TOGGLE_LABEL }}</div>
+    <p>{{ strings.START_HEALTH_LINE.format(records=library.records|length, skills=library.skills|length, issues=library.issues|length) }}</p>
+    {% if library.workspace_name %}<p>{{ library.workspace_name }}</p>{% endif %}
+    {% if health.lint_ok and not health.search_disabled %}
+      <p>{{ strings.START_SEARCH_AVAILABLE }}</p>
+    {% endif %}
+    {% include "partials/health.html" %}
+  </div>
+{% endblock %}

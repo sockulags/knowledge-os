@@ -1,0 +1,154 @@
+/*
+ * Lineage / compare view (GET /r/{record_id}/compare).
+ *
+ * Loaded after reader.css (see base.html's view_styles block); reuses its
+ * tokens and never redefines them. Deliberately does not reach for
+ * --accent-proposed/--accent-unverified/--accent-retired/--accent-raw here:
+ * those four are the only places colour carries meaning (Sec.5 of
+ * docs/plans/reader-v1.md), and "this paragraph was added/removed/changed"
+ * is not one of the four states that changes what the reader should
+ * believe. Diff state is instead carried by a text label, a neutral left
+ * rule, and opacity for unchanged paragraphs receding behind changed ones.
+ *
+ * Both comparison columns stay inside the reading column's own measure
+ * (--measure, 68-72ch) rather than escaping it for a wider layout; below
+ * the breakpoint they stack to one column instead of scrolling
+ * horizontally.
+ */
+
+.lineage__eyebrow {
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+}
+
+.lineage__status {
+  color: var(--ink-muted);
+  font-weight: 600;
+  margin-top: var(--space-1);
+}
+
+.lineage__empty {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.lineage__summary {
+  color: var(--ink-muted);
+  font-size: 0.875rem;
+  margin: 0 0 var(--space-4);
+}
+
+.lineage__comparison {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--rule);
+}
+
+.lineage__comparison h2 {
+  margin-bottom: var(--space-3);
+}
+
+.compare-heads {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--rule);
+}
+
+.compare-heads__side {
+  min-width: 0;
+}
+
+.compare-heads__title {
+  display: block;
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: break-word;
+}
+
+.compare-heads__title:hover {
+  text-decoration: underline;
+}
+
+.compare-heads__meta {
+  color: var(--ink-muted);
+  font-size: 0.8125rem;
+  margin-top: var(--space-1);
+}
+
+.compare-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.diff-block__label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  margin-bottom: var(--space-1);
+}
+
+.diff-block--equal {
+  opacity: 0.62;
+}
+
+.diff-block--equal .diff-block__label {
+  display: none;
+}
+
+.diff-block--added,
+.diff-block--removed,
+.diff-block--changed {
+  border-left: 2px solid var(--ink-muted);
+  padding-left: var(--space-3);
+}
+
+.diff-block__sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.diff-block__side {
+  min-width: 0;
+  font-size: 0.9rem;
+  overflow-wrap: break-word;
+}
+
+.diff-block__side > *:first-child {
+  margin-top: 0;
+}
+
+.diff-block__side > *:last-child {
+  margin-bottom: 0;
+}
+
+.diff-block__side pre {
+  overflow-x: auto;
+}
+
+.diff-block__empty {
+  color: var(--ink-faint);
+}
+
+/* Below this width the reading column itself is narrow enough that two
+   comparison columns no longer have room to breathe; stack instead of
+   forcing horizontal scroll (see the file header note). */
+@media (max-width: 640px) {
+  .compare-heads,
+  .diff-block__sides {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-block__side + .diff-block__side {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px dashed var(--rule);
+  }
+}

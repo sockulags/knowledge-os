@@ -1,0 +1,32 @@
+/*
+ * Start view ("back in", GET /) — layered after static/reader.css.
+ *
+ * Only two things are specific to this page: the empty-workspace state
+ * (.start-empty) and the muted note under the repo-document tier's header
+ * (.start__unmanaged-note). Everything else (.group, .record-card, .badge,
+ * .tier-unmanaged, ...) is the shared vocabulary documented at the top of
+ * reader.css and is deliberately reused as-is, not overridden here.
+ */
+
+.start__title {
+  margin-bottom: var(--space-5);
+}
+
+.start-empty {
+  max-width: var(--measure);
+}
+
+.start-empty h1 {
+  margin-bottom: var(--space-3);
+}
+
+.start-empty p {
+  color: var(--ink-muted);
+}
+
+.start__unmanaged-note {
+  color: var(--ink-faint);
+  font-style: italic;
+  margin-top: 0;
+  margin-bottom: var(--space-2);
+}
