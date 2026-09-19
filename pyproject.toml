@@ -9,8 +9,15 @@ description = "Local-first filesystem-native durable knowledge tools"
 requires-python = ">=3.11"
 dependencies = ["PyYAML>=6,<7"]
 
+[project.optional-dependencies]
+reader = ["starlette>=0.37", "uvicorn>=0.30", "jinja2>=3.1", "markdown-it-py>=3", "pygments>=2.17"]
+
 [project.scripts]
 kos = "knowledge_os.cli:main"
+kos-read = "knowledge_os.reader.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["knowledge_os*"]
+
+[tool.setuptools.package-data]
+"knowledge_os.reader" = ["templates/*.html", "templates/partials/*.html", "static/*.css", "static/*.js", "static/views/*.css"]

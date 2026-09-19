@@ -84,13 +84,24 @@ Missing, and added inside the reader without touching the core:
 - **Grouping by meaning.** No core surface groups a project's content into
   governing, proposed, historical, observed, and raw. The reader derives that
   from `status`, `record_kind`, and `type`.
-- **Repo documents.** `docs/`, `SYSTEM.md`, and `README.md` are outside the
-  record contract. The reader reads them as a separate, clearly labelled tier.
+- **Repo documents.** Most project documentation now lives in the corpus under
+  `projects/knowledge-os/`. What remains outside the record contract is
+  `docs/architecture.md`, `docs/architecture-audit-v0.1.md`,
+  `docs/openknowledge-governance-compatibility.md`, `docs/decisions/`,
+  `docs/plans/`, `SYSTEM.md`, and `README.md`. The reader shows them as a
+  separate, clearly labelled tier. The tier is smaller than when this plan was
+  first written and may shrink further.
 
 Explicitly not added: no new record type, no new status, no new metadata field,
 no cache of its own, no write path.
 
 ## 4. Information architecture
+
+The project directory tree is the navigation, following the accepted
+`project-directory-layout` decision: each project owns
+`projects/<project-id>/`, directories nest freely, and any directory may carry a
+root `README.md` record. Grouping by meaning applies within a project and
+primarily to decisions.
 
 Three zones, but the middle zone changes nature by location rather than always
 being a document list. Type is a filter dimension, not a navigation axis:
@@ -239,9 +250,12 @@ existing diagrams are fenced `text` blocks that render correctly as code.
 
 1. `kos-read --root .` serves the library and the workspace is byte-identical
    afterwards; `git status` stays clean and no file mtime changes.
-2. The start page lists the 3 records, the 3 skills, and the repo-document tier.
-3. The `knowledge-os` project view shows `conversational-memory-capture` under
-   governing now and `openknowledge-pivot` under proposed, with historical,
+2. The start page lists every record in the corpus, the skills, and the
+   repo-document tier.
+3. The `knowledge-os` project view reproduces the directory tree under
+   `projects/knowledge-os/`, and its decisions group as in force now
+   (`conversational-memory-capture`, `project-directory-layout`) and waiting on
+   you (`openknowledge-pivot`, `knowledge-os-reader`), with replaced decisions,
    observations, and raw material rendered as explained empty groups.
 4. The document view for `openknowledge-pivot` reads as a proposal nobody has
    taken a position on, sourced from an approved conversation on 30 August 2026,
@@ -268,11 +282,11 @@ existing diagrams are fenced `text` blocks that render correctly as code.
 
 ## 9. Open decisions and experiments
 
-1. **A decision record allowing a read-only GUI.** The frozen contract excludes a
-   GUI. Capture a `draft` decision stating that a read-only, backend-independent
-   reader is permitted and that editing, sync, and shared hosting remain out of
-   scope, then accept it with `kos decision accept` before implementation starts.
-   This is also the first real non-plugin use of the capture path.
+1. **Accepting the reader decision.** `knowledge-os-reader` now exists in the
+   corpus as a draft, with the direction recorded separately as
+   `knowledge-os-reader-design`. The draft governs nothing until it is accepted
+   with `kos decision accept`, which must happen before implementation starts,
+   since the frozen contract still excludes a GUI.
 2. **Distribution after a pivot.** Whether the reader stays in this repository or
    moves to its own package is deferred; the adapter boundary makes it cheap
    either way.
