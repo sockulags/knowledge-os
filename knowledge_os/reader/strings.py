@@ -112,11 +112,28 @@ PROVENANCE_KIND: dict[str, str] = {
     "user-approved-conversation": "A conversation you approved on {date}",  # verbatim, Sec.5
     "decision-acceptance": "Accepted in {reference}",  # verbatim, Sec.5
     "discovery": "Came from the observation {title}",  # verbatim, Sec.5
+    # These four are not in the plan's own language table, but are common
+    # in the real corpus (``repository-file`` and ``project-definition``
+    # especially: a third of the workspace's records carry a repository-file
+    # entry per managed root, ten on some). Deliberately reference-free: the
+    # React reader's design brief bars a file path from the primary reading
+    # path ("No contract vocabulary ... file paths ... outside the
+    # Technical details toggle"), and ``repository-file``'s own reference
+    # *is* a workspace-relative path -- showing it plainly here would leak
+    # exactly that. The exact reference stays one click away, in the
+    # Technical details table's raw provenance rows.
+    "repository-file": "Copied from a file already in the repository",
+    "project-definition": "Defined when this project was created",
+    "repository-documentation": "Populated from the repository's own documentation",
+    "user-request": "Requested directly by you",
 }
 
-#: Fallback for every other provenance kind, known or not (see module
-#: docstring): show the raw kind and reference rather than guess at prose.
-PROVENANCE_KIND_FALLBACK = "{kind}: {reference}"
+#: Fallback for every other provenance kind (see module docstring):
+#: reference-free on purpose, for the same reason the four entries above
+#: are -- a provenance ``reference`` is an open vocabulary that can itself
+#: be a file path, and the reading path never shows one. The exact kind and
+#: reference stay one click away, in Technical details.
+PROVENANCE_KIND_FALLBACK = "Recorded provenance, not otherwise described here"
 
 # ---------------------------------------------------------------------------
 # Index health (library.IndexHealth.message; see Sec.6 "Stale index" /
@@ -210,9 +227,9 @@ START_HEALTH_LINE = "{records} record(s) · {skills} skill(s) · {issues} issue(
 #: Group header, keyed by group slug. Grouping logic (which record lands in
 #: which group) belongs to views/project.py, not here.
 PROJECT_GROUP_HEADERS: dict[str, str] = {
-    "governing": "Governing now",
-    "proposed": "Proposed",
-    "historical": "Historical",
+    "governing": "In force now",
+    "proposed": "Waiting on you",
+    "historical": "Replaced",
     "observations": "Observations",
     "raw_material": "Raw material",
     "related_general": "Related general knowledge, memory, and skills",
@@ -651,3 +668,70 @@ LINEAGE_ACCEPTED_UNKNOWN = "In force, though no acceptance date is recorded."
 LINEAGE_SUMMARY_UNCHANGED = "The wording is unchanged between these two versions."
 #: {added}, {removed}, {changed} are paragraph counts from the comparison.
 LINEAGE_SUMMARY = "{added} section(s) added, {removed} removed, {changed} reworded."
+
+# ---------------------------------------------------------------------------
+# JSON API (knowledge_os/reader/api/) — the React SPA's data source.
+#
+# The React frontend renders finished sentences only; every one of them is
+# composed here or in language.py, never assembled from raw contract values
+# in TypeScript. This section holds the strings unique to the API layer
+# (pill badge words, the home page subtitle, lineage callouts phrased for a
+# document header rather than a rail row); the sentence tables above
+# (DECISION_STATUS, TRUST_LABELS, PROVENANCE_KIND, ...) are reused as-is.
+# ---------------------------------------------------------------------------
+
+#: Short pill-badge words, keyed by the five colour-carrying UI states the
+#: design brief defines (in_force/waiting/unconfirmed/replaced/raw), plus
+#: two refinements of "replaced" (discouraged, dismissed) that share its
+#: grey tone but read more precisely next to their own record.
+PILL_LABELS: dict[str, str] = {
+    "in_force": "In force",
+    "waiting": "Waiting on you",
+    "unconfirmed": "Unconfirmed",
+    "replaced": "Replaced",
+    "discouraged": "Discouraged",
+    "archived": "Archived",
+    "dismissed": "Dismissed",
+    "raw": "Raw material",
+}
+
+#: Home page subtitle. {count} is the number of decisions currently in
+#: force (accepted, not superseded) across the whole workspace.
+HOME_SUBTITLE = "{count} decision(s) currently govern this workspace."
+HOME_SUBTITLE_NONE = "No decision governs this workspace yet."
+
+HOME_WAITING_HEADER = "Waiting on you"
+HOME_IN_FORCE_HEADER = "In force"
+HOME_RECENT_HEADER = "Recently changed"
+HOME_PROJECTS_HEADER = "Projects"
+HOME_NO_WAITING = "Nothing is waiting on a decision."
+HOME_NO_IN_FORCE = "No decision is in force yet."
+HOME_NO_RECENT = "Nothing has changed yet."
+
+#: A decision's lineage callout at the top of its document page ("Document"
+#: view). {title} is the other decision's title, {date} its effective date.
+LINEAGE_CALLOUT_SUPERSEDED_BY = "Replaced by {title} on {date}."
+LINEAGE_CALLOUT_SUPERSEDES = "Supersedes {title}."
+LINEAGE_COMPARE_LINK = "Compare"
+
+DOCUMENT_LINKED_FROM_HEADER = "Linked from"
+DOCUMENT_LINKS_TO_HEADER = "Links to"
+
+#: Everything view — Notion-database-style table column headers.
+EVERYTHING_COLUMN_TITLE = "Title"
+EVERYTHING_COLUMN_KIND = "Kind"
+EVERYTHING_COLUMN_STATUS = "Status"
+EVERYTHING_COLUMN_TRUST = "Trust"
+EVERYTHING_COLUMN_PROJECT = "Project"
+EVERYTHING_COLUMN_UPDATED = "Updated"
+
+#: Repository-document callout (Document layout, "Repository doc" page).
+REPODOC_CALLOUT = UNMANAGED_TIER_LABEL
+
+#: Skill page eyebrow sentence, in place of a record's Status/Trust rows.
+SKILL_OPERATIONAL_GUIDANCE = "Operational guidance for agents."
+
+#: Not-found empty state, used for every unknown id/name/path.
+NOT_FOUND_TITLE = "Not found"
+NOT_FOUND_BODY = "Nothing lives at this address any more, or it never did."
+NOT_FOUND_HOME_LINK = "Back home"

@@ -102,9 +102,18 @@ class ServeRealWorkspaceByteIdenticalTests(unittest.TestCase):
                 "/f/README.md",
                 "/search?q=reader",
                 "/everything",
-                "/static/reader.css",
+                "/api/workspace",
+                "/api/nav",
+                "/api/home",
+                "/api/projects/knowledge-os",
+                "/api/records/knowledge-os-reader",
+                "/api/records/knowledge-os-reader/compare",
+                "/api/skills/ingest-source",
+                "/api/docs/README.md",
+                "/api/search?q=reader",
+                "/api/everything",
             ]
-            self.assertEqual(len(routes), 9, "the reader has nine routes; exercise all of them")
+            self.assertEqual(len(routes), 18, "nine client routes plus their nine JSON API counterparts")
             for route in routes:
                 with self.subTest(route=route):
                     with urllib.request.urlopen(base_url + route, timeout=5) as response:
