@@ -64,6 +64,13 @@ def write_record(root: Path, rel_path: str, metadata: dict, body: str = "Body.\n
 
 
 def _poll_until_serving(base_url: str, process: subprocess.Popen, timeout: float) -> None:
+    """Poll ``/api/workspace``, not ``/``: the bare root serves the built
+    React app's ``index.html`` and answers 503 before ``npm run build`` has
+    ever run (see ``app.py``'s SPA fallback), which would make every test
+    that only needs the JSON API wait out the full timeout in a checkout
+    with no frontend build. The API route is always live once the process
+    accepts connections at all."""
+
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
     while time.monotonic() < deadline:
@@ -71,7 +78,7 @@ def _poll_until_serving(base_url: str, process: subprocess.Popen, timeout: float
         if exit_code is not None:
             raise RuntimeError(f"kos-read exited early with code {exit_code} before serving {base_url}")
         try:
-            with urllib.request.urlopen(base_url, timeout=1):
+            with urllib.request.urlopen(base_url + "/api/workspace", timeout=1):
                 return
         except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
             last_error = exc

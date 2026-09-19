@@ -38,7 +38,10 @@ from knowledge_os.workspace import Workspace
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 READER_PACKAGE = REPOSITORY / "knowledge_os" / "reader"
-VIEWS_PACKAGE = READER_PACKAGE / "views"
+#: The JSON API package replaces the old Jinja "views" package one-for-one:
+#: every endpoint module in it is a non-adapter module, exactly like the
+#: HTML views were (see api/__init__.py's own docstring).
+API_PACKAGE = READER_PACKAGE / "api"
 LIBRARY_MODULE = READER_PACKAGE / "library.py"
 
 #: The reader's assigned end-to-end port for this unit. Ten sibling agents
@@ -217,14 +220,14 @@ class ImportCheckerSelfTest(unittest.TestCase):
 
 class OneAdapterRuleTests(unittest.TestCase):
     """``library.py`` is the only module in the package permitted to import
-    ``knowledge_os.*`` beyond the bare workspace handle. Every ``views/*.py``
-    module must be completely clean; ``app.py`` and ``cli.py`` may carry the
-    handle only."""
+    ``knowledge_os.*`` beyond the bare workspace handle. Every ``api/*.py``
+    endpoint module must be completely clean; ``app.py`` and ``cli.py`` may
+    carry the handle only."""
 
-    def test_every_view_module_is_free_of_knowledge_os_imports(self) -> None:
-        view_files = sorted(VIEWS_PACKAGE.glob("*.py"))
-        self.assertGreater(len(view_files), 0, "expected view modules to exist")
-        for path in view_files:
+    def test_every_api_module_is_free_of_knowledge_os_imports(self) -> None:
+        api_files = sorted(API_PACKAGE.glob("*.py"))
+        self.assertGreater(len(api_files), 0, "expected API endpoint modules to exist")
+        for path in api_files:
             with self.subTest(module=path.name):
                 violations = knowledge_os_imports(_parse(path))
                 self.assertEqual(violations, set(), f"{path.name} imports knowledge_os directly: {violations}")
@@ -598,7 +601,16 @@ class ServeReadOnlyTests(unittest.TestCase):
                     "/f/SYSTEM.md",
                     "/search?q=note",
                     "/everything",
-                    "/static/reader.css",
+                    "/api/workspace",
+                    "/api/nav",
+                    "/api/home",
+                    "/api/projects/demo",
+                    "/api/records/accepted",
+                    "/api/records/accepted/compare",
+                    "/api/skills/demo-skill",
+                    "/api/docs/SYSTEM.md",
+                    "/api/search?q=note",
+                    "/api/everything",
                 ]
                 for route in routes:
                     with self.subTest(route=route):
