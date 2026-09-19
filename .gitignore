@@ -8,3 +8,4 @@ indexes/catalog.sqlite3
 indexes/catalog.sqlite3-*
 reader-ui/node_modules/
 reader-ui/dist/
+reader-ui/*.tsbuildinfo
