@@ -6,12 +6,15 @@ The path parameter is caller-supplied, so this route is refused-by-default:
 a request only reaches ``repodocs.read_text_entry`` (and, through it,
 ``library.read_repo_document`` and ``Workspace.assert_safe_path``) at all
 when the normalized path exactly matches one of
-``repodocs.REPO_DOCUMENT_PATHS`` — the fixed, closed list this tier
-actually contains. Anything else, including every path-traversal shape, an
-absolute path, or a path into the managed corpus itself, is refused before
-touching the filesystem. ``assert_safe_path`` is still the layer of last
-resort underneath that allowlist (it also catches a symlink swapped in
-after the server started), never re-implemented here.
+``repodocs.REPO_DOCUMENT_PATHS`` (the fixed, closed list of eight named
+documents) or ``repodocs.is_skill_reference_path`` accepts it (a skill's own
+``references/*.md`` files, task 8 -- see that function's docstring for
+exactly how narrow the pattern is). Anything else, including every
+path-traversal shape, an absolute path, or a path into the managed corpus
+itself, is refused before touching the filesystem. ``assert_safe_path`` is
+still the layer of last resort underneath both admission rules (it also
+catches a symlink swapped in after the server started), never
+re-implemented here.
 
 A missing file, a file deleted mid-session, and non-UTF-8 content are all
 caught by ``read_text_entry`` (which never raises) and render the same
@@ -27,7 +30,7 @@ from starlette.responses import Response
 from .. import strings
 from ..app import get_library, render
 from ..library import path_index
-from ..repodocs import REPO_DOCUMENT_PATHS, read_text_entry, render_document
+from ..repodocs import REPO_DOCUMENT_PATHS, is_skill_reference_path, read_text_entry, render_document
 
 #: Every refusal (not in the tier, not found, not UTF-8, or rejected by
 #: assert_safe_path) answers the same status code and the same template
@@ -59,7 +62,7 @@ async def view(request: Request) -> Response:
     # exact-match check below refuses the path either way.
     rel_path = raw_path.lstrip("/")
 
-    if rel_path not in REPO_DOCUMENT_PATHS:
+    if rel_path not in REPO_DOCUMENT_PATHS and not is_skill_reference_path(rel_path):
         return _refused(request, strings.REPODOC_NOT_IN_TIER.format(path=raw_path))
 
     document, text = read_text_entry(workspace, rel_path)

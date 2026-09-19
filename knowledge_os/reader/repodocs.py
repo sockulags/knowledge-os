@@ -48,6 +48,41 @@ REPO_DOCUMENT_PATHS: tuple[str, ...] = (
 )
 
 
+def is_skill_reference_path(rel_path: str) -> bool:
+    """Whether ``rel_path`` is a Markdown file under a skill's own
+    ``references/`` directory (``skills/<skill-name>/references/<file>.md``).
+
+    A second, pattern-based admission rule alongside the fixed
+    ``REPO_DOCUMENT_PATHS`` list above: the skill view (unit 8) links a
+    skill's own ``references/*.md`` files through ``/f/...``, and those
+    files live outside the eight named repo documents. This stays a closed
+    rule rather than turning ``/f/{path:path}`` into a way to browse
+    ``skills/`` generally: exactly four workspace-relative POSIX segments,
+    a literal ``skills`` root, a literal ``references`` third segment, and a
+    plain ``.md`` filename with no further path -- no nested subdirectory
+    under ``references/``, and no other directory under ``skills/`` at all
+    (a skill's ``SKILL.md`` itself is a managed record, reached at
+    ``/s/<name>``, not through this route).
+    ``views/repodoc.py`` still reaches every path admitted here through
+    ``library.read_repo_document``, so ``Workspace.assert_safe_path``
+    remains the layer of last resort underneath this rule exactly as it
+    does for the fixed list -- this function only decides which literal
+    shape of path is worth asking that layer about at all.
+    """
+
+    parts = rel_path.split("/")
+    if len(parts) != 4:
+        return False
+    root, skill_name, references, filename = parts
+    if root != "skills" or references != "references":
+        return False
+    if not skill_name or skill_name in (".", ".."):
+        return False
+    if not filename.endswith(".md") or filename in (".md", ".", ".."):
+        return False
+    return True
+
+
 @dataclass(frozen=True)
 class RepoDocumentEntry:
     """One unmanaged-tier file, read (or attempted) for display.
