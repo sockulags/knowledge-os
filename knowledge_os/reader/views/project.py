@@ -15,13 +15,10 @@ template.
 
 from __future__ import annotations
 
-import calendar
-from typing import Mapping
-
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .. import strings
+from .. import language, strings
 from ..app import get_library, render
 from ..grouping import (
     ProjectGroups,
@@ -32,58 +29,19 @@ from ..grouping import (
 )
 from ..library import Library, Record, content_sha256
 
-
-def _format_date(value: str | None) -> str | None:
-    """"2026-08-30" or "2026-08-30T00:00:00Z" -> "30 August" (Sec.5's own
-    example: "accepted 30 August"). Returns None unchanged so a caller can
-    decide how to degrade when a record has no date to show."""
-
-    if value is None:
-        return None
-    date_part = value[:10]
-    try:
-        year, month, day = date_part.split("-")
-        return f"{int(day)} {calendar.month_name[int(month)]}"
-    except (ValueError, IndexError):
-        return date_part
+#: Thin wrappers over ``language.py``'s consolidated translation rules
+#: (task 3): the meaning-facing status sentence for a decision or an
+#: ordinary durable record, and the single accent badge a record card
+#: shows. ``language.record_accent`` also folds this view's own discovery
+#: rule ("raw unless retained") into the one rule ``language.py`` settled
+#: on (see that module's docstring) -- a deliberate behaviour change, but
+#: not one any test in this suite pinned.
+_badge_class = language.record_accent
 
 
-def _find_replacement(record: Record, records_by_id: Mapping[str, Record]) -> Record | None:
-    """The record that superseded ``record``, found through the reversed
-    ``supersedes`` edge on ``record.inbound`` (the contract has no backlink
-    subsystem, so library.py already built this inbound map)."""
-
-    for relation in record.inbound:
-        if relation.field == "supersedes" and relation.resolved:
-            return records_by_id.get(relation.record_id)
-    return None
-
-
-def _status_text(record: Record, records_by_id: Mapping[str, Record]) -> str:
-    """The meaning-facing status sentence for a decision or an ordinary
-    durable record (DECISION_STATUS / LIFECYCLE_STATUS in strings.py share
-    the same shape: a plain sentence, or one with a {date} or {title}+{date}
-    template), never the raw status string itself."""
-
-    if record.record_kind == "decision":
-        table = strings.DECISION_STATUS
-        key = "draft" if record.accepted_at is None else record.status
-    else:
-        table = strings.LIFECYCLE_STATUS
-        key = record.status
-    template = table.get(key)
-    if template is None:
-        return strings.PROJECT_STATUS_UNKNOWN
-    if "{title}" in template:
-        replacement = _find_replacement(record, records_by_id)
-        if replacement is None:
-            return strings.TRUST_LABELS["unusable durable record"]
-        date = _format_date(replacement.accepted_at) or _format_date(replacement.updated)
-        return template.format(title=replacement.title, date=date)
-    if "{date}" in template:
-        date = _format_date(record.accepted_at) or _format_date(record.verified) or _format_date(record.updated)
-        return template.format(date=date)
-    return template
+def _status_text(record: Record, library: Library) -> str:
+    sentence, _accent = language.status_sentence(library, record)
+    return sentence
 
 
 def _observation_text(record: Record) -> str:
@@ -91,30 +49,12 @@ def _observation_text(record: Record) -> str:
 
 
 def _raw_material_text(record: Record) -> str:
-    return strings.TRUST_LABELS.get(record.trust_label, strings.PROJECT_STATUS_UNKNOWN)
-
-
-def _badge_class(record: Record) -> str | None:
-    """Which of the four restrained accent badges (see static/reader.css's
-    token comment) applies, if any -- most records stay neutral on purpose.
-    Mirrors the module docstring's grouping rules: type and record_kind
-    decide this, never directory."""
-
-    if record.type == "source":
-        return "raw"
-    if record.type == "discovery":
-        return None if record.status == "retained" else "raw"
-    if record.record_kind == "decision":
-        if record.accepted_at is None:
-            return "proposed"
-        if record.status == "superseded":
-            return "retired"
-        return None
-    if record.status in {"superseded", "deprecated", "archived"}:
-        return "retired"
-    if record.verified is None and record.status in {"draft", "active"}:
-        return "unverified"
-    return None
+    # Goes through language.trust_sentence rather than a bare
+    # strings.TRUST_LABELS lookup so a verified raw-material record's
+    # "{date}" placeholder is filled in (sources are never verified in
+    # practice, so this previously latent gap never surfaced).
+    sentence, _accent = language.trust_sentence(record)
+    return sentence
 
 
 def _entry(record: Record, text: str) -> dict[str, object]:
@@ -127,8 +67,8 @@ def _entry(record: Record, text: str) -> dict[str, object]:
     }
 
 
-def _decision_entries(records: tuple[Record, ...], records_by_id: Mapping[str, Record]) -> list[dict[str, object]]:
-    return [_entry(record, _status_text(record, records_by_id)) for record in records]
+def _decision_entries(records: tuple[Record, ...], library: Library) -> list[dict[str, object]]:
+    return [_entry(record, _status_text(record, library)) for record in records]
 
 
 def _observation_entries(records: tuple[Record, ...]) -> list[dict[str, object]]:
@@ -159,21 +99,20 @@ async def view(request: Request) -> Response:
             status_code=404,
         )
 
-    records_by_id = library.records_by_id
     overview = groups.overview
 
-    governing = _decision_entries(groups.governing, records_by_id)
-    proposed = _decision_entries(groups.proposed, records_by_id)
-    historical = _decision_entries(groups.historical, records_by_id)
+    governing = _decision_entries(groups.governing, library)
+    proposed = _decision_entries(groups.proposed, library)
+    historical = _decision_entries(groups.historical, library)
     observations = _observation_entries(groups.observations)
     raw_material = _raw_material_entries(groups.raw_material)
 
     general_records = related_general_records(library.records)
-    related_general = [_entry(record, _status_text(record, records_by_id)) for record in general_records]
+    related_general = [_entry(record, _status_text(record, library)) for record in general_records]
 
     tree = build_project_tree(project_id, groups.ordinary, library.broken)
 
-    overview_status_text = _status_text(overview, records_by_id)
+    overview_status_text = _status_text(overview, library)
     # Sec.5: the technical-details disclosure holds *exact* contract
     # vocabulary (status, scope, trust label, path, content_sha256) -- the
     # friendly overview_status_text above is what the reading path shows.

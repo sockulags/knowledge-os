@@ -30,7 +30,7 @@ from starlette.templating import Jinja2Templates
 
 from knowledge_os.workspace import Workspace
 
-from . import markdown, strings
+from . import markdown, states, strings
 from .library import Library, load_library
 
 #: Package-relative asset locations, shared by the app factory and by
@@ -54,6 +54,12 @@ def _build_templates() -> Jinja2Templates:
     templates.env.globals["strings"] = strings
     templates.env.globals["markdown"] = markdown
     templates.env.filters["markdown"] = markdown.render
+    # Lets a template turn a library.BrokenRecord into a states.Diagnostic
+    # in place (e.g. the project view's directory tree, one broken file
+    # per node) and render it through partials/broken.html, instead of
+    # every view precomputing a diagnostic for a structure the template
+    # itself builds recursively (see states.py's module docstring, point 2).
+    templates.env.globals["states"] = states
     return templates
 
 

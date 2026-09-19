@@ -401,10 +401,6 @@ START_REPO_DOCUMENT_HEADER = "Repository documentation"
 #: stale (Library.index.message is None in that case, unlike the
 #: stale/absent/unreadable cases, which already carry their own message).
 START_SEARCH_AVAILABLE = "Search is up to date."
-
-#: {count} is len(Library.broken); shown in the health rail only when
-#: non-empty, alongside whatever Library.index already says.
-START_BROKEN_RECORDS = "{count} broken record(s) could not be read."
 # Search view — filters and results (unit 4)
 #
 # The search view (views/search.py) offers filters on five dimensions:
@@ -544,14 +540,6 @@ EVERYTHING_ACCENT_BADGE: dict[str, str] = {
     "raw": "Raw",
 }
 
-#: Fallback for a superseded record (decision or ordinary) whose replacement
-#: cannot be resolved to a title and date (DECISION_STATUS["superseded"] and
-#: LIFECYCLE_STATUS["superseded"] both need both placeholders filled, and a
-#: flat catalog entry should never show a literal unfilled "{title}"). Still
-#: distinguishes "replaced" from "archived"/"discouraged", per the unit
-#: brief's instruction to read Record.status rather than print the raw
-#: "unusable durable record" trust label.
-EVERYTHING_REPLACED_FALLBACK = "Replaced by a newer record."
 # Unit 7 additions — repo-document tier route (`GET /f/{path:path}`,
 # `knowledge_os/reader/repodocs.py` and `views/repodoc.py`)
 # ---------------------------------------------------------------------------
@@ -652,12 +640,12 @@ LINEAGE_TARGET_NOT_DECISION = "{title} exists but is not a decision, so it canno
 
 #: An "active" decision with no decision-acceptance provenance to date it.
 #: In a valid corpus this never happens (is_decision and status == "draft" is
-#: exactly the no-acceptance case); shown only if a corpus is invalid.
+#: exactly the no-acceptance case); shown only if a corpus is invalid. Used
+#: from language.py's status_sentence, shared by every view (the reader
+#: previously had a second, differently-worded fallback for "superseded,
+#: replacement not found" here too; that copy is gone, and every view now
+#: uses DOCUMENT_SUPERSEDED_UNKNOWN for that case instead).
 LINEAGE_ACCEPTED_UNKNOWN = "In force, though no acceptance date is recorded."
-
-#: A "superseded" decision with no resolvable effective replacement (the
-#: supersession invariant guarantees exactly one in a valid corpus).
-LINEAGE_REPLACEMENT_UNKNOWN = "No longer in effect; the record was superseded, but the replacement could not be found."
 
 #: Paragraph-level diff summary, above the side-by-side comparison body.
 LINEAGE_SUMMARY_UNCHANGED = "The wording is unchanged between these two versions."

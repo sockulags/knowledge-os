@@ -194,7 +194,7 @@ class TrustPhraseHelperTests(unittest.TestCase):
 
         self.assertEqual(
             everything._trust_phrase(active, lib),
-            strings.DECISION_STATUS["active"].format(date="30 August"),
+            strings.DECISION_STATUS["active"].format(date="30 August 2026"),
         )
         # An accepted (governing) decision is neutral, not "unverified":
         # a decision is confirmed by acceptance, not by the verified field.

@@ -10,6 +10,7 @@
 {% block title %}{{ strings.APP_NAME }}{% endblock %}
 
 {% block view_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='views/states.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='views/start.css') }}">
 {% endblock %}
 
@@ -96,9 +97,9 @@
     <div class="group__header">{{ strings.RAIL_TOGGLE_LABEL }}</div>
     <p>{{ strings.START_HEALTH_LINE.format(records=library.records|length, skills=library.skills|length, issues=library.issues|length) }}</p>
     {% if library.workspace_name %}<p>{{ library.workspace_name }}</p>{% endif %}
-    <p>{{ library.index.message or strings.START_SEARCH_AVAILABLE }}</p>
-    {% if library.broken %}
-      <p>{{ strings.START_BROKEN_RECORDS.format(count=library.broken|length) }}</p>
+    {% if health.lint_ok and not health.search_disabled %}
+      <p>{{ strings.START_SEARCH_AVAILABLE }}</p>
     {% endif %}
+    {% include "partials/health.html" %}
   </div>
 {% endblock %}

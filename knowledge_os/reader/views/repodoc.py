@@ -25,7 +25,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from .. import strings
-from ..app import render
+from ..app import get_library, render
+from ..library import path_index
 from ..repodocs import REPO_DOCUMENT_PATHS, read_text_entry, render_document
 
 #: Every refusal (not in the tier, not found, not UTF-8, or rejected by
@@ -50,6 +51,7 @@ def _refused(request: Request, error: str) -> Response:
 
 async def view(request: Request) -> Response:
     workspace = request.app.state.workspace
+    library = get_library(request)
     raw_path = request.path_params["path"]
     # A request like `/f//etc/passwd` carries a leading slash in the path
     # parameter; strip it before comparing so the message names the same
@@ -67,7 +69,11 @@ async def view(request: Request) -> Response:
         assert document.detail is not None
         return _refused(request, document.detail)
 
-    html, toc = render_document(text)
+    # A repo document can itself link to another repo document by relative
+    # path (e.g. docs/architecture.md linking to another docs/ file); resolve
+    # against the corpus the same way a managed record's body does (task 4),
+    # via the same path-to-id lookup views/document.py builds.
+    html, toc = render_document(text, source_path=rel_path, resolve_link=path_index(library).get)
     return render(
         request,
         "repodoc.html",
