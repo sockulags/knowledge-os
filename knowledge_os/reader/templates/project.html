@@ -12,6 +12,8 @@
 {% block title %}{{ page_title }} · {{ strings.APP_NAME }}{% endblock %}
 
 {% block view_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='views/markdown.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='views/states.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='views/project.css') }}">
 {% endblock %}
 
@@ -75,9 +77,9 @@
   {% endfor %}
   {% for item in node.broken %}
     <li class="project-tree__broken">
-      <span class="badge badge--retired">{{ strings.BROKEN_RECORD_LABEL }}</span>
-      <span class="project-tree__path">{{ item.path }}</span>
-      <p class="project-tree__message">{{ strings.BROKEN_RECORD_DETAIL.format(message=item.message) }}</p>
+      {% with diagnostic = states.diagnostic_for_broken(item) %}
+        {% include "partials/broken.html" %}
+      {% endwith %}
     </li>
   {% endfor %}
   {% for child in node.children %}

@@ -20,7 +20,6 @@ partial's own header comment for its exact contract.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -48,7 +47,40 @@ REPO_DOCUMENT_PATHS: tuple[str, ...] = (
     "docs/plans/reader-v1.md",
 )
 
-_HEADING_OPEN = re.compile(r"<h([1-6])>")
+
+def is_skill_reference_path(rel_path: str) -> bool:
+    """Whether ``rel_path`` is a Markdown file under a skill's own
+    ``references/`` directory (``skills/<skill-name>/references/<file>.md``).
+
+    A second, pattern-based admission rule alongside the fixed
+    ``REPO_DOCUMENT_PATHS`` list above: the skill view (unit 8) links a
+    skill's own ``references/*.md`` files through ``/f/...``, and those
+    files live outside the eight named repo documents. This stays a closed
+    rule rather than turning ``/f/{path:path}`` into a way to browse
+    ``skills/`` generally: exactly four workspace-relative POSIX segments,
+    a literal ``skills`` root, a literal ``references`` third segment, and a
+    plain ``.md`` filename with no further path -- no nested subdirectory
+    under ``references/``, and no other directory under ``skills/`` at all
+    (a skill's ``SKILL.md`` itself is a managed record, reached at
+    ``/s/<name>``, not through this route).
+    ``views/repodoc.py`` still reaches every path admitted here through
+    ``library.read_repo_document``, so ``Workspace.assert_safe_path``
+    remains the layer of last resort underneath this rule exactly as it
+    does for the fixed list -- this function only decides which literal
+    shape of path is worth asking that layer about at all.
+    """
+
+    parts = rel_path.split("/")
+    if len(parts) != 4:
+        return False
+    root, skill_name, references, filename = parts
+    if root != "skills" or references != "references":
+        return False
+    if not skill_name or skill_name in (".", ".."):
+        return False
+    if not filename.endswith(".md") or filename in (".md", ".", ".."):
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -117,37 +149,26 @@ def list_repo_documents(workspace: Any) -> tuple[RepoDocumentEntry, ...]:
     return tuple(read_entry(workspace, path) for path in REPO_DOCUMENT_PATHS)
 
 
-def render_document(text: str) -> tuple[str, tuple[tuple[int, str, str], ...]]:
+def render_document(
+    text: str,
+    *,
+    source_path: str | None = None,
+    resolve_link: markdown.ResolveLink | None = None,
+) -> tuple[str, tuple[tuple[int, str, str], ...]]:
     """Render one document's Markdown body together with its table of
     contents.
 
-    ``markdown.render`` does not emit ``id`` attributes on headings (see its
-    module docstring); this pairs its output with ``markdown.headings`` by
-    injecting the Nth heading's anchor onto the Nth ``<hN>`` opening tag in
-    document order. That pairing is safe because both functions parse the
-    same text through the same commonmark parser in a single pass, so the
-    heading-tag order in the rendered HTML and the heading order
-    ``headings()`` returns always agree (verified against both
-    ``docs/architecture.md``, 10 headings, and
-    ``docs/architecture-audit-v0.1.md``, 52 headings). If that invariant is
-    ever violated by a future markdown.py change, the injection falls back
-    to the plain, unannotated HTML rather than raising, so a rendering
-    mismatch degrades to "no anchor links" instead of a 500.
+    ``markdown.render`` assigns every heading a stable, unique ``id`` itself
+    (one pass, one place: see that module's docstring), and
+    ``markdown.headings`` derives the same anchors from the same parse, so
+    the two always agree without this module re-deriving or re-pairing
+    anchors of its own. ``source_path`` and ``resolve_link`` are optional
+    and forwarded as-is to ``markdown.render``; passing both rewrites a
+    relative record-to-record link inside this document into a ``/r/<id>``
+    permalink (``views/repodoc.py`` passes the requested path and a lookup
+    built from ``library.path_index``).
     """
 
     toc = tuple(markdown.headings(text))
-    html = markdown.render(text)
-    if not toc:
-        return html, toc
-
-    remaining = iter(toc)
-
-    def _inject(match: re.Match[str]) -> str:
-        _level, _text, anchor = next(remaining)
-        return f'<h{match.group(1)} id="{anchor}">'
-
-    try:
-        annotated = _HEADING_OPEN.sub(_inject, html)
-    except StopIteration:
-        return html, toc
-    return annotated, toc
+    html = markdown.render(text, source_path=source_path, resolve_link=resolve_link)
+    return html, toc

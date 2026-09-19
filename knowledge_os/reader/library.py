@@ -40,6 +40,7 @@ __all__ = [
     "load_library",
     "search",
     "read_repo_document",
+    "path_index",
     # Record has no content_sha256 field (not part of the frozen contract);
     # a view that needs one for its technical-details disclosure (acceptance
     # criterion 4) computes it on demand via this re-export, since views may
@@ -364,6 +365,21 @@ def load_library(workspace: Workspace) -> Library:
         workspace_root=workspace.root,
         workspace_name=_workspace_name(workspace),
     )
+
+
+def path_index(library: Library) -> Mapping[str, str]:
+    """Workspace-relative POSIX path -> record id, built fresh from
+    ``Library.records``.
+
+    The one shared lookup ``markdown.render``'s ``resolve_link`` needs to
+    rewrite a relative record-to-record link into a ``/r/<id>`` permalink
+    (see that function's docstring): a link's target, once resolved against
+    its source document's own directory, is compared against every record's
+    ``path`` here. Never cached beyond one request, matching
+    ``load_library``'s own contract of a fresh scan per request.
+    """
+
+    return {record.path: record.id for record in library.records}
 
 
 def search(workspace: Workspace, query: str, limit: int = 50) -> list[dict[str, str]]:

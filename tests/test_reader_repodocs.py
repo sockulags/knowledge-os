@@ -69,6 +69,39 @@ class RepoDocumentPathsTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# repodocs.is_skill_reference_path — task 8's second, pattern-based
+# admission rule
+# ---------------------------------------------------------------------------
+
+
+class IsSkillReferencePathTests(unittest.TestCase):
+    def test_admits_a_reference_file_under_a_skill(self) -> None:
+        self.assertTrue(
+            repodocs.is_skill_reference_path("skills/knowledge-os-documentation/references/init.md")
+        )
+
+    def test_refuses_the_skills_own_skill_md(self) -> None:
+        # SKILL.md is a managed record, reached at /s/<name>, not this route.
+        self.assertFalse(repodocs.is_skill_reference_path("skills/knowledge-os-documentation/SKILL.md"))
+
+    def test_refuses_a_nested_subdirectory_under_references(self) -> None:
+        self.assertFalse(
+            repodocs.is_skill_reference_path("skills/knowledge-os-documentation/references/sub/init.md")
+        )
+
+    def test_refuses_a_non_markdown_file(self) -> None:
+        self.assertFalse(repodocs.is_skill_reference_path("skills/knowledge-os-documentation/references/init.txt"))
+
+    def test_refuses_a_bare_skills_directory_listing(self) -> None:
+        self.assertFalse(repodocs.is_skill_reference_path("skills"))
+        self.assertFalse(repodocs.is_skill_reference_path("skills/knowledge-os-documentation"))
+
+    def test_refuses_traversal_shapes(self) -> None:
+        self.assertFalse(repodocs.is_skill_reference_path("skills/../references/x.md"))
+        self.assertFalse(repodocs.is_skill_reference_path("skills/foo/references/../../etc/passwd.md"))
+
+
+# ---------------------------------------------------------------------------
 # repodocs.read_entry / list_repo_documents
 # ---------------------------------------------------------------------------
 
@@ -306,6 +339,40 @@ class RepodocRouteTests(unittest.TestCase):
                 self.assertEqual(response.status, 404)
                 body = response.read().decode("utf-8")
                 self.assertNotIn("Traceback", body)
+
+    def test_skill_reference_file_is_served_but_another_skills_path_is_refused(self) -> None:
+        """Task 8: the allowlist grows a second, pattern-based rule for a
+        skill's own references/*.md files (linked from the skill view),
+        without turning /f/ into a general skills/ browser."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _build_real_workspace(root)
+            _write(
+                root,
+                "skills/demo-skill/SKILL.md",
+                "---\nname: demo-skill\ndescription: d\n---\n\nUses [x](references/x.md).\n",
+            )
+            _write(root, "skills/demo-skill/references/x.md", "# Reference\n\nSupporting detail.\n")
+
+            with serve(root, PORT) as base_url:
+                with urllib.request.urlopen(f"{base_url}/f/skills/demo-skill/references/x.md") as response:
+                    self.assertEqual(response.status, 200)
+                    body = response.read().decode("utf-8")
+                self.assertIn("Reference", body)
+                self.assertIn("Supporting detail.", body)
+                self.assertIn(strings.UNMANAGED_TIER_LABEL, body)
+
+                # A different path under the same skills/ tree -- the
+                # skill's own SKILL.md -- is not part of this tier at all
+                # (it is a managed record, reached at /s/demo-skill).
+                request = urllib.request.Request(f"{base_url}/f/skills/demo-skill/SKILL.md")
+                try:
+                    response = urllib.request.urlopen(request)
+                except urllib.error.HTTPError as error:
+                    response = error
+                self.assertEqual(response.status, 404)
+                self.assertNotIn("Traceback", response.read().decode("utf-8"))
 
     def test_nonexistent_path_is_refused_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

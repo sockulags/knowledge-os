@@ -28,7 +28,6 @@ signature so ``app.py`` never needs to change.
 
 from __future__ import annotations
 
-import datetime
 import difflib
 import re
 from dataclasses import dataclass
@@ -36,7 +35,7 @@ from dataclasses import dataclass
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .. import markdown, strings
+from .. import language, markdown, strings
 from ..app import get_library, render
 from ..library import Library, Record, Relation
 
@@ -82,90 +81,19 @@ class Comparison:
     summary: str | None
 
 
-def _format_date(value: str | None) -> str | None:
-    """Render an ISO date or timestamp as "30 August 2026".
-
-    Falls back to the raw value rather than hiding it if it does not parse
-    (the adapter normalizes dates, but a hand-edited or invalid corpus is
-    still served, never crashed on).
-    """
-
-    if not value:
-        return None
-    raw = value.strip()
-    try:
-        if "T" in raw:
-            candidate = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
-            parsed = datetime.datetime.fromisoformat(candidate).date()
-        else:
-            parsed = datetime.date.fromisoformat(raw)
-    except ValueError:
-        return raw
-    return f"{parsed.day} {parsed.strftime('%B')} {parsed.year}"
-
-
-def _effective_replacement(record: Record, library: Library) -> Record | None:
-    """The decision that superseded ``record``, resolved dynamically.
-
-    In a valid corpus this is unambiguous (exactly one effective inbound
-    ``supersedes`` edge). A broken corpus may have none, or more than one; the
-    first candidate whose own status is "active" or "superseded" (the two
-    *effective* replacement statuses per the supersession invariant) wins,
-    falling back to any resolved candidate rather than reporting nothing.
-    """
-
-    candidates = [
-        library.records_by_id[relation.record_id]
-        for relation in record.inbound
-        if relation.field == "supersedes" and relation.record_id in library.records_by_id
-    ]
-    for candidate in candidates:
-        if candidate.status in ("active", "superseded"):
-            return candidate
-    return candidates[0] if candidates else None
-
-
-def _replacement_date(replacement: Record) -> str | None:
-    """The date to show next to a replacement's title in "Replaced by ... on
-    ...". A decision's date is its acceptance date; an ordinary record (the
-    schema allows "superseded" outside decisions too, per LIFECYCLE_STATUS)
-    has no acceptance provenance, so its last-updated date is the closest
-    available substitute."""
-
-    if replacement.is_decision:
-        return _format_date(replacement.accepted_at)
-    return _format_date(replacement.updated)
-
-
+#: Thin wrapper over ``language.py``'s consolidated translation rules (task
+#: 3), kept under this name so this module's own unit tests
+#: (``tests/test_reader_lineage.py``) keep calling
+#: ``lineage._status_text(record, lib)`` directly, unchanged. The
+#: comparison heads (``Side.status_text``) read ``Record.status`` through
+#: the same ``language.status_sentence`` every other view now uses, rather
+#: than a lineage-specific copy: it already resolves a superseded record's
+#: replacement and dates the same way (``language.successor_of``), and
+#: reads ``Record.status`` (never the collapsed ``Record.trust_label``) for
+#: exactly the reason this module's own comment used to give.
 def _status_text(record: Record, library: Library) -> str:
-    """The reader-facing status sentence for one side of a comparison.
-
-    Reads ``Record.status`` (plus the resolved replacement, for a superseded
-    record) rather than ``Record.trust_label``: the trust label collapses
-    superseded/deprecated/archived into a single "unusable durable record"
-    string and cannot distinguish "replaced by X" from "archived". Handled
-    ahead of the decision/non-decision split below because both
-    ``DECISION_STATUS["superseded"]`` and ``LIFECYCLE_STATUS["superseded"]``
-    are "{title} on {date}" templates that need the same replacement lookup.
-    """
-
-    if record.status == "superseded":
-        replacement = _effective_replacement(record, library)
-        if replacement is None:
-            return strings.LINEAGE_REPLACEMENT_UNKNOWN
-        template = strings.DECISION_STATUS["superseded"] if record.is_decision else strings.LIFECYCLE_STATUS["superseded"]
-        date = _replacement_date(replacement) or "—"
-        return template.format(title=replacement.title, date=date)
-    if not record.is_decision:
-        return strings.LIFECYCLE_STATUS.get(record.status, record.status)
-    if record.status == "draft":
-        return strings.DECISION_STATUS["draft"]
-    if record.status == "active":
-        date = _format_date(record.accepted_at)
-        if date is None:
-            return strings.LINEAGE_ACCEPTED_UNKNOWN
-        return strings.DECISION_STATUS["active"].format(date=date)
-    return strings.LIFECYCLE_STATUS.get(record.status, record.status)
+    sentence, _accent = language.status_sentence(library, record)
+    return sentence
 
 
 def _paragraphs(body: str) -> list[str]:
@@ -332,6 +260,7 @@ async def view(request: Request) -> Response:
             status_text=None,
             comparisons=(),
             not_found_message=strings.LINEAGE_NOT_FOUND.format(record_id=record_id),
+            status_code=404,
         )
 
     return render(

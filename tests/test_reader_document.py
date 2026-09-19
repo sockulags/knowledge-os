@@ -394,6 +394,60 @@ class RelationViewTests(unittest.TestCase):
             self.assertIsNone(view["href"])
             self.assertEqual(view["title"], "points at unknown id missing")
 
+    def test_supersedes_relation_links_to_compare_in_both_directions(self) -> None:
+        """Task 7: a decision that supersedes another, or has been
+        superseded by one, links to /r/<id>/compare in the rail rather than
+        straight to the other record."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+            write_record(root, "projects/demo-project/README.md", _project_metadata())
+            write_record(
+                root,
+                "projects/demo-project/decisions/old.md",
+                _project_metadata(
+                    id="old",
+                    title="Old choice",
+                    status="superseded",
+                    record_kind="decision",
+                    provenance=[
+                        {
+                            "kind": "decision-acceptance",
+                            "reference": "conversation:x",
+                            "captured": "2026-08-01T00:00:00Z",
+                        }
+                    ],
+                ),
+            )
+            write_record(
+                root,
+                "projects/demo-project/decisions/new.md",
+                _project_metadata(
+                    id="new",
+                    title="New choice",
+                    status="active",
+                    record_kind="decision",
+                    supersedes=["old"],
+                    provenance=[
+                        {
+                            "kind": "decision-acceptance",
+                            "reference": "conversation:y",
+                            "captured": "2026-08-30T00:00:00Z",
+                        }
+                    ],
+                ),
+            )
+            lib = library.load_library(Workspace(root))
+
+            new_record = lib.records_by_id["new"]
+            [outbound_view] = [document._relation_view(relation) for relation in new_record.outbound]
+            self.assertEqual(outbound_view["href"], "/r/old/compare")
+
+            old_record = lib.records_by_id["old"]
+            [inbound_view] = [document._relation_view(relation) for relation in old_record.inbound]
+            self.assertEqual(inbound_view["href"], "/r/new/compare")
+
 
 class BuildContextTests(unittest.TestCase):
     def test_provenance_overflow_split(self) -> None:

@@ -21,13 +21,12 @@ reads or writes record content itself.
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .. import strings
+from .. import language, states, strings
 from ..app import get_library, render
 from ..library import Library, LibraryError, Record, read_repo_document
 
@@ -36,21 +35,9 @@ from ..library import Library, LibraryError, Record, read_repo_document
 #: browsing the tier itself, so this stays a single link, not a listing).
 _REPO_DOCUMENT_CANDIDATES = ("docs/architecture.md", "SYSTEM.md", "README.md")
 
-
-def _format_date(value: str) -> str:
-    """Render an ISO date or datetime string as "12 September 2026".
-
-    Record.updated/created and ProvenanceEntry.captured are already
-    normalized to plain strings by library.py, never a live date object.
-    Falls back to the raw value for anything that does not parse (never
-    raises), since this only affects display.
-    """
-
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return value
-    return f"{parsed.day} {parsed.strftime('%B %Y')}"
+#: Thin wrapper over language.py's consolidated date formatting (task 3),
+#: kept under this name for this module's own call sites.
+_format_date = language.format_date
 
 
 def _project_entries(library: Library) -> list[tuple[str, str]]:
@@ -122,6 +109,11 @@ async def view(request: Request) -> Response:
         "page_title": strings.PAGE_TITLES["start"],
         "library": library,
         "is_empty": is_empty,
+        # The rail's health line now renders through partials/health.html
+        # (unit 9), replacing this view's own ad hoc index-message and
+        # broken-record-count lines (Sec.6 "Lint failing globally" /
+        # "Stale index" / "Missing index").
+        "health": states.build_health_summary(library),
     }
 
     if not is_empty:

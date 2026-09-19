@@ -30,7 +30,7 @@ from starlette.templating import Jinja2Templates
 
 from knowledge_os.workspace import Workspace
 
-from . import markdown, strings
+from . import markdown, states, strings
 from .library import Library, load_library
 
 #: Package-relative asset locations, shared by the app factory and by
@@ -54,6 +54,12 @@ def _build_templates() -> Jinja2Templates:
     templates.env.globals["strings"] = strings
     templates.env.globals["markdown"] = markdown
     templates.env.filters["markdown"] = markdown.render
+    # Lets a template turn a library.BrokenRecord into a states.Diagnostic
+    # in place (e.g. the project view's directory tree, one broken file
+    # per node) and render it through partials/broken.html, instead of
+    # every view precomputing a diagnostic for a structure the template
+    # itself builds recursively (see states.py's module docstring, point 2).
+    templates.env.globals["states"] = states
     return templates
 
 
@@ -75,11 +81,19 @@ def get_library(request: Request) -> Library:
     return cached
 
 
-def render(request: Request, template_name: str, **context: object) -> HTMLResponse:
-    """Render one template through the app's shared Jinja2 environment."""
+def render(
+    request: Request, template_name: str, *, status_code: int = 200, **context: object
+) -> HTMLResponse:
+    """Render one template through the app's shared Jinja2 environment.
+
+    ``status_code`` defaults to 200; every view answers an unknown id or
+    name with ``status_code=404`` so the explaining page it already renders
+    also carries the correct HTTP status, instead of a view setting
+    ``response.status_code`` after the fact (or, worse, not at all).
+    """
 
     templates: Jinja2Templates = request.app.state.templates
-    return templates.TemplateResponse(request, template_name, context)
+    return templates.TemplateResponse(request, template_name, context, status_code=status_code)
 
 
 def create_app(workspace: Workspace) -> Starlette:
@@ -105,7 +119,7 @@ def create_app(workspace: Workspace) -> Starlette:
         Mount("/static", app=StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ]
 
-    app = Starlette(debug=True, routes=routes)
+    app = Starlette(debug=False, routes=routes)
     app.state.workspace = workspace
     app.state.templates = _build_templates()
     return app

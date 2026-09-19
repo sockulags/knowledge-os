@@ -243,7 +243,11 @@ class StartViewPopulatedWorkspaceTests(unittest.TestCase):
             self.assertEqual(status, 200)
             # The broken file is not a record; its neighbour still renders.
             self.assertIn("Good", body)
-            self.assertIn("1 broken record(s) could not be read.", body)
+            # The rail now renders through partials/health.html (unit 9):
+            # the lint-issue count and the affected file's own path/message,
+            # rather than this view's own former "N broken record(s)" line.
+            self.assertIn("1 issue(s) found by", body)
+            self.assertIn("knowledge/broken.md", body)
 
 
 if __name__ == "__main__":

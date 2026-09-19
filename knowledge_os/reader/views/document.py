@@ -31,15 +31,14 @@ open:
 
 from __future__ import annotations
 
-import datetime
 import re
 
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .. import markdown, strings
+from .. import language, markdown, strings
 from ..app import get_library, render
-from ..library import Library, ProvenanceEntry, Record, Relation, content_sha256
+from ..library import Library, Record, Relation, content_sha256, path_index
 
 #: How many provenance entries the rail shows before collapsing the rest
 #: behind a <details> (Sec.4: "the rail must handle a long provenance list
@@ -50,57 +49,11 @@ _PROVENANCE_VISIBLE = 3
 #: (see the module docstring for why it is stripped).
 _LEADING_H1 = re.compile(r"^#\s+\S.*$")
 
-#: context_policy.trust_label() values that change what the reader should
-#: believe (Sec.5: "colour only where it changes what the reader should
-#: believe: proposed, unverified, retired, raw"), mapped to the four accent
-#: modifiers reader.css already defines. Any trust label not listed here
-#: (verified durable, operational guidance) stays neutral on purpose.
-_TRUST_ACCENT: dict[str, str] = {
-    "draft durable; not verified": "unverified",
-    "active durable; not verified": "unverified",
-    "unusable durable record": "retired",
-    "raw source; not established knowledge": "raw",
-    "reviewed observation; not established knowledge": "raw",
-    "discovery observation; not default context": "raw",
-}
-
-#: Non-decision lifecycle statuses that read as retired (Sec.5's
-#: --accent-retired is documented as "superseded / deprecated / archived").
-#: "draft"/"active" stay neutral here: for an ordinary record (not a
-#: decision) that colour would restate the Trust row, not add information.
-_LIFECYCLE_ACCENT: dict[str, str] = {
-    "deprecated": "retired",
-    "archived": "retired",
-    "superseded": "retired",
-}
-
-#: Discovery statuses that read as raw (unreviewed or reviewed-but-not-
-#: knowledge) versus retired (a terminal outcome that is no longer live).
-_DISCOVERY_ACCENT: dict[str, str] = {
-    "proposed": "raw",
-    "retained": "raw",
-    "rejected": "retired",
-    "promoted": "retired",
-}
-
-
-def _format_date(value: str) -> str:
-    """Render an ISO date or timestamp as "30 August 2026".
-
-    Falls back to the raw value unchanged if it does not parse as either
-    shape; a reader-composed sentence should never crash the page over a
-    date it cannot format.
-    """
-
-    text = value.strip()
-    try:
-        if "T" in text:
-            parsed = datetime.datetime.fromisoformat(text.replace("Z", "+00:00")).date()
-        else:
-            parsed = datetime.date.fromisoformat(text)
-    except ValueError:
-        return text
-    return f"{parsed.day} {parsed.strftime('%B')} {parsed.year}"
+#: Thin wrapper kept for this module's own test surface
+#: (``tests/test_reader_document.py``'s ``FormatDateTests`` calls
+#: ``document._format_date`` directly); the implementation now lives in
+#: ``language.py`` so every view shares one date-formatting rule.
+_format_date = language.format_date
 
 
 def _strip_leading_h1(body: str) -> str:
@@ -120,98 +73,29 @@ def _strip_leading_h1(body: str) -> str:
 
 _HEADING_TAG = re.compile(r"<h([1-6])((?:\s[^>]*)?)>")
 
-
-def _successor(library: Library, record: Record) -> Record | None:
-    """The record that supersedes ``record``, if one resolves.
-
-    ``supersedes`` is directed from the successor to the record it replaces,
-    so "what replaced this" is an inbound relation on ``record`` (Sec.3:
-    "the reader builds an in-memory inbound map ... per request").
-    """
-
-    for relation in record.inbound:
-        if relation.field == "supersedes":
-            return library.records_by_id.get(relation.record_id)
-    return None
-
-
-def _status_sentence(library: Library, record: Record) -> tuple[str, str | None]:
-    """The plain-language sentence for the Status rail row, and its accent
-    modifier (one of "proposed"/"unverified"/"retired"/"raw", or ``None``
-    for a neutral state)."""
-
-    if record.is_decision:
-        if record.status == "draft":
-            return strings.DECISION_STATUS["draft"], "proposed"
-        if record.status == "active":
-            date = _format_date(record.accepted_at) if record.accepted_at else ""
-            return strings.DECISION_STATUS["active"].format(date=date), None
-        if record.status == "superseded":
-            successor = _successor(library, record)
-            if successor is None:
-                return strings.DOCUMENT_SUPERSEDED_UNKNOWN, "retired"
-            date = successor.accepted_at or successor.updated
-            sentence = strings.DECISION_STATUS["superseded"].format(
-                title=successor.title, date=_format_date(date)
-            )
-            return sentence, "retired"
-
-    if record.type == "discovery":
-        sentence = strings.DISCOVERY_STATUS.get(record.status, record.status)
-        return sentence, _DISCOVERY_ACCENT.get(record.status)
-
-    if record.status == "superseded":
-        successor = _successor(library, record)
-        if successor is None:
-            return strings.DOCUMENT_SUPERSEDED_UNKNOWN, "retired"
-        date = successor.accepted_at or successor.updated
-        sentence = strings.LIFECYCLE_STATUS["superseded"].format(
-            title=successor.title, date=_format_date(date)
-        )
-        return sentence, "retired"
-
-    sentence = strings.LIFECYCLE_STATUS.get(record.status, record.status)
-    return sentence, _LIFECYCLE_ACCENT.get(record.status)
-
-
-def _trust_sentence(record: Record) -> tuple[str, str | None]:
-    label = strings.TRUST_LABELS.get(record.trust_label, record.trust_label)
-    if record.trust_label == "verified durable" and record.verified:
-        label = label.format(date=_format_date(record.verified))
-    return label, _TRUST_ACCENT.get(record.trust_label)
-
-
-def _scope_sentence(library: Library, record: Record) -> str:
-    if record.scope == "general":
-        return strings.SCOPE_GENERAL
-    project_id = record.scope.split(":", 1)[1]
-    project = library.records_by_id.get(project_id)
-    return project.title if project is not None else project_id
-
-
-def _provenance_sentence(library: Library, record: Record, entry: ProvenanceEntry) -> str:
-    template = strings.PROVENANCE_KIND.get(entry.kind)
-    if template is None:
-        return strings.PROVENANCE_KIND_FALLBACK.format(kind=entry.kind, reference=entry.reference)
-    if entry.kind == "user-approved-conversation":
-        # No fixture in the corpus omits `captured`, but the record's own
-        # `created` date is the correct fallback if one ever does: it is the
-        # date the record (and so the approval it rests on) came to exist.
-        date = entry.captured or record.created
-        return template.format(date=_format_date(date))
-    if entry.kind == "decision-acceptance":
-        return template.format(reference=entry.reference)
-    if entry.kind == "discovery":
-        target = library.records_by_id.get(entry.reference)
-        title = target.title if target is not None else entry.reference
-        return template.format(title=title)
-    return template
+#: Thin wrappers over ``language.py``'s consolidated translation rules
+#: (task 3: one contract-to-language module, shared by every view), kept
+#: under these names so this module's own unit tests
+#: (``tests/test_reader_document.py``) keep calling ``document._status_
+#: sentence(lib, record)`` etc. directly, unchanged.
+_status_sentence = language.status_sentence
+_trust_sentence = language.trust_sentence
+_scope_sentence = language.scope_sentence
+_provenance_sentence = language.provenance_sentence
 
 
 def _relation_view(relation: Relation) -> dict[str, str | None]:
-    if relation.resolved:
-        return {"href": f"/r/{relation.record_id}", "title": relation.title}
-    return {"href": None, "title": strings.BROKEN_RELATION.format(record_id=relation.record_id)}
+    if not relation.resolved:
+        return {"href": None, "title": strings.BROKEN_RELATION.format(record_id=relation.record_id)}
+    # A decision that supersedes another decision, or has been superseded by
+    # one, links to the side-by-side comparison rather than straight to the
+    # other record: "supersedes" is the one relation field where "what
+    # changed between these two" is the more useful destination than "read
+    # the other record" (the third central flow, Sec.4: "decision to
+    # supersedes or superseded-by with a side-by-side comparison").
+    if relation.field == "supersedes":
+        return {"href": f"/r/{relation.record_id}/compare", "title": relation.title}
+    return {"href": f"/r/{relation.record_id}", "title": relation.title}
 
 
 def _build_context(library: Library, record: Record) -> dict[str, object]:
@@ -228,7 +112,11 @@ def _build_context(library: Library, record: Record) -> dict[str, object]:
 
     body = _strip_leading_h1(record.body)
     headings = [h for h in markdown.headings(body) if h[0] <= 3]
-    body_html = markdown.render(body)
+    # Rewrite a relative record-to-record link (e.g. "../decisions/x.md")
+    # into a /r/<id> permalink when it resolves against the corpus; see
+    # markdown.render's own docstring. The lookup is built fresh from this
+    # request's Library, matching load_library's no-caching contract.
+    body_html = markdown.render(body, source_path=record.path, resolve_link=path_index(library).get)
 
     return {
         "record": record,
@@ -253,15 +141,14 @@ async def view(request: Request) -> Response:
     record = library.records_by_id.get(record_id)
 
     if record is None:
-        response = render(
+        return render(
             request,
             "document.html",
             not_found=True,
             record_id=record_id,
             page_title=strings.DOCUMENT_NOT_FOUND_TITLE,
+            status_code=404,
         )
-        response.status_code = 404
-        return response
 
     context = _build_context(library, record)
     return render(

@@ -68,9 +68,13 @@ How a sibling view uses this module
          <li>{{ states.relation_label(relation) }}</li>
        {% endfor %}
 
-   (``states`` is not a Jinja global registered in ``app.py``; a view that
-   wants to call it from a template passes the already-computed label, or
-   passes the ``states`` module itself into its own template's context.)
+   (``states`` is also registered as a Jinja global in ``app.py``, so a
+   template that builds its own list of entries -- the project view's
+   recursive directory tree, one broken file per node -- can call
+   ``states.diagnostic_for_broken(item)`` in place and ``{% include
+   "partials/broken.html" %}`` it, instead of a view precomputing a
+   diagnostic for a structure the template itself builds. A view computing
+   a single, page-level value still passes it in directly, as above.)
 """
 
 from __future__ import annotations

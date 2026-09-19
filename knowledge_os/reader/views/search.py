@@ -24,7 +24,7 @@ from markupsafe import Markup, escape
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .. import strings
+from .. import states, strings
 from ..app import get_library, render
 from ..library import Library, search
 
@@ -171,11 +171,18 @@ def _decorate(row: dict[str, str], trust_by_id: dict[str, str]) -> dict[str, obj
 async def view(request: Request) -> Response:
     library = get_library(request)
     index = library.index
+    # Sec.6 "Stale index" disables search the same way "Missing index" does,
+    # with the reason and the `kos index` command, while browsing keeps
+    # working; states.HealthSummary already encodes exactly that rule
+    # (search_disabled is set for either an absent/unreadable index or a
+    # stale one), so this view follows it rather than only warning on stale.
+    health = states.build_health_summary(library)
+    search_available = not health.search_disabled
     query = request.query_params.get("q", "").strip()
-    filters = _read_filters(request) if index.available else {}
+    filters = _read_filters(request) if search_available else {}
 
     results: list[dict[str, str]] = []
-    if index.available and query:
+    if search_available and query:
         workspace = request.app.state.workspace
         trust_by_id = {record.id: record.trust_label for record in library.records}
         rows = search(workspace, query, limit=_FETCH_LIMIT)
@@ -196,6 +203,8 @@ async def view(request: Request) -> Response:
         page_title=strings.PAGE_TITLES["search"],
         library=library,
         index=index,
+        search_available=search_available,
+        search_disabled_reason=health.search_disabled_reason,
         query=query,
         filters=filters,
         filter_dimensions=filter_order,
