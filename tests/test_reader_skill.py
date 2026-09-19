@@ -194,7 +194,7 @@ class SkillViewHttpTests(unittest.TestCase):
                 self.assertIn("No tags recorded.", body)
 
                 status, body = self._get(base_url, "/s/does-not-exist")
-                self.assertEqual(status, 200)
+                self.assertEqual(status, 404)
                 self.assertIn("No such skill", body)
 
                 status, body = self._get(base_url, "/s/broken-skill")
@@ -254,9 +254,12 @@ class RealWorkspaceSkillViewTests(unittest.TestCase):
             )
 
             request = urllib.request.Request(f"{base_url}/s/no-such-skill-anywhere")
-            with urllib.request.urlopen(request, timeout=5) as response:
-                self.assertEqual(response.status, 200)
-                body = response.read().decode("utf-8")
+            try:
+                urllib.request.urlopen(request, timeout=5)
+                self.fail("expected HTTPError for an unknown skill name")
+            except urllib.error.HTTPError as exc:
+                self.assertEqual(exc.code, 404)
+                body = exc.read().decode("utf-8")
             self.assertIn("No such skill", body)
 
 

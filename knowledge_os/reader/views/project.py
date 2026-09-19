@@ -149,19 +149,15 @@ async def view(request: Request) -> Response:
     groups: ProjectGroups = group_project_records(library.records, project_id)
 
     if groups.overview is None:
-        # render()'s signature is fixed by app.py (never edited by a
-        # stage-B unit); set the real HTTP status after the fact rather
-        # than smuggling it through the template context.
-        response = render(
+        return render(
             request,
             "project.html",
             page_title=strings.PAGE_TITLES["project"],
             found=False,
             project_id=project_id,
             library=library,
+            status_code=404,
         )
-        response.status_code = 404
-        return response
 
     records_by_id = library.records_by_id
     overview = groups.overview

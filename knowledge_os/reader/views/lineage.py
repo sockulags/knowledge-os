@@ -332,6 +332,7 @@ async def view(request: Request) -> Response:
             status_text=None,
             comparisons=(),
             not_found_message=strings.LINEAGE_NOT_FOUND.format(record_id=record_id),
+            status_code=404,
         )
 
     return render(

@@ -75,11 +75,19 @@ def get_library(request: Request) -> Library:
     return cached
 
 
-def render(request: Request, template_name: str, **context: object) -> HTMLResponse:
-    """Render one template through the app's shared Jinja2 environment."""
+def render(
+    request: Request, template_name: str, *, status_code: int = 200, **context: object
+) -> HTMLResponse:
+    """Render one template through the app's shared Jinja2 environment.
+
+    ``status_code`` defaults to 200; every view answers an unknown id or
+    name with ``status_code=404`` so the explaining page it already renders
+    also carries the correct HTTP status, instead of a view setting
+    ``response.status_code`` after the fact (or, worse, not at all).
+    """
 
     templates: Jinja2Templates = request.app.state.templates
-    return templates.TemplateResponse(request, template_name, context)
+    return templates.TemplateResponse(request, template_name, context, status_code=status_code)
 
 
 def create_app(workspace: Workspace) -> Starlette:
@@ -105,7 +113,7 @@ def create_app(workspace: Workspace) -> Starlette:
         Mount("/static", app=StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ]
 
-    app = Starlette(debug=True, routes=routes)
+    app = Starlette(debug=False, routes=routes)
     app.state.workspace = workspace
     app.state.templates = _build_templates()
     return app

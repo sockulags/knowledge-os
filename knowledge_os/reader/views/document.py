@@ -253,15 +253,14 @@ async def view(request: Request) -> Response:
     record = library.records_by_id.get(record_id)
 
     if record is None:
-        response = render(
+        return render(
             request,
             "document.html",
             not_found=True,
             record_id=record_id,
             page_title=strings.DOCUMENT_NOT_FOUND_TITLE,
+            status_code=404,
         )
-        response.status_code = 404
-        return response
 
     context = _build_context(library, record)
     return render(

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -338,9 +339,10 @@ class EndToEndSyntheticFixtureTests(unittest.TestCase):
             root = Path(directory)
             _build_lineage_workspace(root)
             with serve(root, PORT) as base_url:
-                with urllib.request.urlopen(f"{base_url}/r/does-not-exist/compare") as response:
-                    self.assertEqual(response.status, 200)
-                    body = response.read().decode("utf-8")
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(f"{base_url}/r/does-not-exist/compare")
+                self.assertEqual(caught.exception.code, 404)
+                body = caught.exception.read().decode("utf-8")
                 self.assertIn("does-not-exist", body)
 
 

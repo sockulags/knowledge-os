@@ -119,6 +119,12 @@ async def view(request: Request) -> Response:
             skill_name=skill_name,
             broken_message=broken_message,
             references=(),
+            # A broken skill exists (its SKILL.md just failed validation),
+            # so only an outright unknown name is a 404 -- the same
+            # distinction views/document.py's Library.broken would draw for
+            # a record, applied to the skill contract (Sec.6 "Broken
+            # record").
+            status_code=200 if broken_message is not None else 404,
         )
 
     workspace = request.app.state.workspace
