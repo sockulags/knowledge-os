@@ -5,10 +5,12 @@ type: project
 status: draft
 scope: project:knowledge-os
 created: '2026-09-12'
-updated: '2026-09-12'
+updated: '2026-09-19'
 provenance:
 - kind: user-approved-conversation
   reference: conversation:2026-09-12:knowledge-os-reader-planning
+- kind: user-request
+  reference: conversation:2026-09-19:knowledge-os-reader-redesign
 related:
 - knowledge-os-reader
 ---
@@ -20,19 +22,22 @@ while: what governs now, what is only proposed, and why.
 
 ## Direction
 
-Three columns: navigation, reading surface, and a metadata rail. The reading
-column keeps a 68 to 72 character measure with generous leading, and the rail can
-be switched off for single-column reading. Status carries colour only where it
-changes what the reader should believe: proposed, unverified, retired, raw.
-Identity comes from typography and restraint, not from decorative chrome and not
-from imitating a known application.
+A calm, modern workspace in the spirit of Notion. A left sidebar holds the
+project tree, and the reading column keeps a 68 to 72 character measure with
+generous leading. A record's properties sit in a compact block under its title
+rather than in a side rail, relations appear as backlinks at the end of the page,
+and long documents get an outline on wide screens. Status carries colour only
+where it changes what the reader should believe: in force, proposed, unverified,
+retired, raw. The interface matches the feel of modern knowledge tools without
+copying any product's brand.
 
 ## Information architecture
 
 The project directory tree is the navigation, following the
 `project-directory-layout` decision. Within a project, decisions are
 additionally grouped by meaning rather than by type: in force now, waiting on
-you, replaced. Type is a filter dimension, because `status` and `record_kind` say
+you, replaced. A project page opens with that overview, before the project's
+own overview text. Type is a filter dimension, because `status` and `record_kind` say
 what the reader should believe while `type` only says where a file lives.
 
 Raw sources, observations at every review state, and retired records stay

@@ -1,10 +1,11 @@
 # Knowledge OS Reader — v1 plan
 
-Status: proposed. This plan describes a read-only human reading surface over an
-existing Knowledge OS workspace. It is not an accepted decision, and it changes
-the frozen v0.0.1 contract, which excludes a GUI
-([`docs/architecture.md`](../architecture.md)). Acceptance requires a decision
-record; see "Open decisions".
+Status: accepted. This plan describes a read-only human reading surface over an
+existing Knowledge OS workspace. It changes the frozen v0.0.1 contract, which
+excludes a GUI ([`docs/architecture.md`](../architecture.md)), and is authorized
+by the `knowledge-os-reader` decision, accepted on 12 September 2026. The visual
+direction (section 5) and the stack (section 7) were revised on 19 September 2026
+after the first server-rendered build proved hard to use.
 
 ## 1. Who it is for and what it solves
 
@@ -112,17 +113,21 @@ Five views:
 
 - **Start, "back in".** Recently changed, open decisions awaiting a position,
   entry points per project, and a health line. No invented metrics.
-- **Project.** The overview record read in full, then content grouped by meaning:
-  governing now, proposed, historical, observations, raw material, and the
-  separately marked tier outside the record contract. General knowledge, memory,
+- **Project.** Opens with the project's decisions grouped by meaning: in force
+  now, waiting on you, and replaced. Then the overview record's body, the pages in
+  the project, observations, raw material, and the separately marked tier outside
+  the record contract. General knowledge, memory,
   and skills that are relevant appear as a side group, because they do not belong
   to the project.
-- **Document.** Reading column at 68–72 characters, metadata rail on the right
-  (status, trust, provenance, scope, relations in both directions, path,
-  `content_sha256`), collapsible for deep reading. For long documents the rail
-  swaps to a table of contents on scroll.
-- **Search.** A view, not a modal. Filters on type, status, scope, `record_kind`,
-  and trust. Filter state survives navigating into a document and back.
+- **Document.** Reading column at 68–72 characters. Under the title, a compact
+  properties block: status, trust, what it applies to, when it was updated, and
+  where it came from. The exact contract values (path, `content_sha256`, raw
+  provenance) sit in a collapsed technical details toggle. Relations in both
+  directions appear at the end of the page as "Linked from" and "Links to". Long
+  documents get an "On this page" outline on wide screens.
+- **Search.** A full view with filters on type, status, scope, `record_kind`, and
+  trust. Filter state survives navigating into a document and back. A quick-find
+  palette (`Ctrl K`) jumps to any record by title, even without a search index.
 - **Everything.** Flat catalog of the whole corpus including raw sources and
   rejected discoveries, each carrying its trust label.
 
@@ -136,26 +141,27 @@ Permalinks: `/r/<record-id>` for records, `/s/<skill-name>` for skills, and
 
 ## 5. Visual direction
 
-Direction B, "the workshop": three columns, sans typography with a clear scale,
-persistent metadata rail, muted status labels, lineage visible in the reading
-surface. One adjustment borrowed from direction A: the reading column takes the
-archive's measure and leading (68–72 characters, 1.7 line-height), and the rail
-can be switched off for single-column deep reading.
+A calm, modern workspace in the spirit of Notion: a left sidebar holding the
+project tree, skills, and repository documents; a centred reading column at the
+archive's measure and leading (68–72 characters, 1.6–1.7 line-height); page
+properties under the title instead of a side rail; and relations as backlinks at
+the end of the page.
 
 Principles:
 
-- Status carries colour only where it changes what the reader should believe:
-  proposed, unverified, retired, raw. Everything else stays neutral.
-- Provenance is always one glance away and never inside the reading column.
-- The unmanaged tier is visually separated by a dashed rule and an explicit label
-  on every page it appears on, and never merges into a validated group.
-- Own identity through typography, spacing, and restraint, not by imitating a
-  known app and not through decorative chrome.
+- Status carries colour only where it changes what the reader should believe: in
+  force, proposed, unverified, retired, raw. Everything else stays neutral.
+- Provenance is always one glance away, in the properties block, and never inside
+  the body text.
+- The unmanaged tier carries an explicit label on every page it appears on and
+  never merges into a validated group.
+- Match the feel of modern knowledge tools (whitespace, soft radii, hairline
+  borders, light and dark themes) without copying any product's brand.
 - Code and tables render properly; diagrams are deferred (section 8).
 
-Responsive: desktop is the working surface. Below roughly 900 px the rail
-collapses into a disclosure under the title; below roughly 600 px navigation
-becomes a top menu. The reading column never exceeds its measure.
+Responsive: desktop is the working surface. Below roughly 768 px the sidebar
+becomes a drawer and the page is a single column. The reading column never
+exceeds its measure.
 
 ### Language and technical detail
 
@@ -199,7 +205,7 @@ Empty groups get a sentence, not a dash: "No decision has been superseded yet",
 | --- | --- |
 | Empty project group | The group header stays visible with an explaining sentence, for example "No decision has been superseded yet." Never hidden. |
 | Empty workspace | The start page explains what a record is and points at `kos capture`, instead of rendering an empty shell. |
-| Long document | The rail becomes a table of contents with anchors; `docs/architecture.md` is the real test case. |
+| Long document | An "On this page" outline with anchors appears on wide screens; `docs/architecture-audit-v0.1.md` is the real test case. |
 | Broken record | Rendered in place as broken with the exact lint message and path; neighbours stay readable. |
 | Broken relation | Shown as "points at unknown id X", flagged, never silently dropped. |
 | Stale index | The health line says so; search is disabled with the reason and the `kos index` command; browsing still works. |
@@ -209,27 +215,29 @@ Empty groups get a sentence, not a dash: "No decision has been superseded yet",
 
 ## 7. Technical recommendation
 
-Server-rendered Python, no build pipeline, no React.
+A Python backend with a React client.
 
 - Package: `knowledge_os/reader/` inside this repository, installed as an
   optional extra (`pip install -e ".[reader]"`). The core stays PyYAML-only.
 - Entry point: a separate console script `kos-read`, not a `kos` subcommand, so
   the frozen CLI contract in `docs/architecture.md` stays untouched and the
   reader remains physically detachable if the pivot is accepted.
-- Dependencies: `starlette` and `uvicorn` for the local server, `jinja2` for
-  templates, `markdown-it-py` and `pygments` for rendering. No CDN and no network
-  access at runtime.
-- Client: hand-written CSS and roughly 50 lines of vanilla JavaScript for
-  incremental search and the rail toggle. No SPA router, no node toolchain, no
-  JSON API.
+- Backend: `starlette` and `uvicorn` serve a local, read-only JSON API under
+  `/api/` and the built client. `markdown-it-py` and `pygments` render Markdown on
+  the server, so link rewriting and every contract-to-language translation stay
+  in Python. No CDN and no network access at runtime.
+- Client: React, TypeScript, Vite, and Tailwind CSS in `reader-ui/`. The built
+  bundle is committed under `knowledge_os/reader/static/app/`, so installing and
+  running the reader needs no Node toolchain; Node is only needed to change the
+  interface.
 - Binding: `127.0.0.1` only, no authentication, one workspace per process, and
   `--root` semantics identical to the CLI.
 
-Why not a thin Python API plus a React client: a JSON API becomes a second public
-surface to keep stable, a node build chain contradicts decision 0001's small
-local stack, and the reader must be cheap to discard if the pivot is accepted.
-Reading quality lives in typography and CSS, which server-rendered HTML delivers
-identically.
+The JSON API is a local interface between the reader's own server and client, not
+a public surface; it carries no stability promise beyond the reader. The first
+build was server-rendered HTML with hand-written CSS. It was correct but hard to
+use, and a component-based client makes a modern interface much cheaper to build
+and to change.
 
 ## 8. First delivery
 
@@ -254,8 +262,9 @@ existing diagrams are fenced `text` blocks that render correctly as code.
    repo-document tier.
 3. The `knowledge-os` project view reproduces the directory tree under
    `projects/knowledge-os/`, and its decisions group as in force now
-   (`conversational-memory-capture`, `project-directory-layout`) and waiting on
-   you (`openknowledge-pivot`, `knowledge-os-reader`), with replaced decisions,
+   (`conversational-memory-capture`, `project-directory-layout`,
+   `knowledge-os-reader`) and waiting on you (`openknowledge-pivot`), with
+   replaced decisions,
    observations, and raw material rendered as explained empty groups.
 4. The document view for `openknowledge-pivot` reads as a proposal nobody has
    taken a position on, sourced from an approved conversation on 30 August 2026,
@@ -272,7 +281,7 @@ existing diagrams are fenced `text` blocks that render correctly as code.
 8. After a record is edited without running `kos index`, the health line reports
    the index as stale.
 9. The reading column measures 68–72 characters at 1440 px, and the layout
-   degrades to one column below 900 px.
+   becomes a single column with the sidebar as a drawer below 768 px.
 10. Sources and rejected discoveries are reachable, carry their trust label, and
     never appear inside a governing group.
 11. The unmanaged tier is labelled as outside the record contract on every page
@@ -282,11 +291,10 @@ existing diagrams are fenced `text` blocks that render correctly as code.
 
 ## 9. Open decisions and experiments
 
-1. **Accepting the reader decision.** `knowledge-os-reader` now exists in the
-   corpus as a draft, with the direction recorded separately as
-   `knowledge-os-reader-design`. The draft governs nothing until it is accepted
-   with `kos decision accept`, which must happen before implementation starts,
-   since the frozen contract still excludes a GUI.
+1. **Accepting the reader decision.** Resolved: `knowledge-os-reader` was
+   accepted with `kos decision accept` on 12 September 2026, before
+   implementation started. The direction is recorded separately as
+   `knowledge-os-reader-design`.
 2. **Distribution after a pivot.** Whether the reader stays in this repository or
    moves to its own package is deferred; the adapter boundary makes it cheap
    either way.
