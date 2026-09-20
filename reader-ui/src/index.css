@@ -95,8 +95,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-* {
-  border-color: var(--color-border);
+/* Default border colour for any element that sets a border width but no
+   colour utility of its own. Wrapped in Tailwind's own `base` layer
+   (rather than left unlayered) so a colour utility -- `border-(--color-x)`,
+   always in `@layer utilities` -- still wins the cascade over this default:
+   unlayered CSS beats every layer regardless of selector specificity, which
+   silently defeated every colour-specific border utility in the app (the
+   danger Callout's red border, the compare page's amber "changed" rule)
+   before this was moved into a layer. */
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
 }
 
 /* Reading typography for rendered Markdown: the @tailwindcss/typography

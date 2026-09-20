@@ -263,6 +263,11 @@ export interface EverythingPayload {
   entries: EverythingEntry[];
   broken: BrokenEntry[];
   skills: { name: string; description: string }[];
+  filters: Record<string, string>;
+  filter_labels: Record<string, string>;
+  filter_options: Record<string, FilterOption[]>;
+  sort: string;
+  dir: "asc" | "desc";
 }
 
 export interface ApiError {
