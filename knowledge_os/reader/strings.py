@@ -537,6 +537,20 @@ EVERYTHING_SKILLS_HEADER = "Skills"
 
 EVERYTHING_NO_SKILLS = "No skill is installed in this workspace."
 
+#: On-screen label for each filter dimension on the Everything catalog,
+#: keyed by the same query-string parameter name SEARCH_FILTER_DIMENSIONS
+#: uses (both views share knowledge_os/reader/api/filters.py's parsing) --
+#: worded to match this page's own table headers ("Kind", "Project") rather
+#: than Search's ("Type", "Applies to"), since the two pages already used
+#: different words for the same column before server-side filtering existed.
+EVERYTHING_FILTER_DIMENSIONS: dict[str, str] = {
+    "type": "Kind",
+    "status": "Status",
+    "scope": "Project",
+    "record_kind": "Decision",
+    "trust": "Trust",
+}
+
 #: Record.type -> reader-facing noun, for the meta line next to each entry.
 #: Falls back to Record.type.capitalize() for any type not listed here.
 EVERYTHING_TYPE_LABELS: dict[str, str] = {
