@@ -31,6 +31,7 @@ from .common import (
     strip_leading_h1,
     technical_details,
 )
+from .mdtext import escape_html, strip_markdown_syntax
 
 _FENCE_PATTERN = re.compile(r"^\s*(```|~~~)")
 
@@ -97,6 +98,40 @@ def _paragraphs(body: str) -> list[str]:
     return [paragraph for paragraph in paragraphs if paragraph]
 
 
+def _word_diff_html(old_text: str, new_text: str) -> tuple[str, str]:
+    """Word-level highlight for one "changed" paragraph pair, so a reader
+    sees exactly which words moved instead of two whole paragraphs sharing
+    one flat "something changed here" tint (coordinator review of the
+    compare page against a real supersession: a paragraph-length "changed"
+    block gave no way to tell a one-word edit from a full rewrite).
+
+    Renders as escaped plain text with the differing words wrapped in
+    ``<mark>``, not as Markdown: diffing at the word level over Markdown
+    syntax risks splitting a multi-word ``**bold**``/``[link](url)`` span
+    across a match/no-match boundary, which would leave one side's markers
+    unpaired. Losing rich formatting on just the words that differ is a
+    small trade for never rendering broken markup; every paragraph that is
+    unchanged, added, or removed outright still gets full Markdown
+    rendering in ``_diff_blocks`` below."""
+
+    old_words = strip_markdown_syntax(old_text).split()
+    new_words = strip_markdown_syntax(new_text).split()
+    matcher = difflib.SequenceMatcher(None, old_words, new_words, autojunk=False)
+    left_parts: list[str] = []
+    right_parts: list[str] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            text = escape_html(" ".join(old_words[i1:i2]))
+            left_parts.append(text)
+            right_parts.append(text)
+            continue
+        if i1 != i2:
+            left_parts.append(f"<mark>{escape_html(' '.join(old_words[i1:i2]))}</mark>")
+        if j1 != j2:
+            right_parts.append(f"<mark>{escape_html(' '.join(new_words[j1:j2]))}</mark>")
+    return f"<p>{' '.join(left_parts)}</p>", f"<p>{' '.join(right_parts)}</p>"
+
+
 def _diff_blocks(old_body: str, new_body: str) -> tuple[list[_DiffBlock], dict[str, int]]:
     old_paragraphs = _paragraphs(old_body)
     new_paragraphs = _paragraphs(new_body)
@@ -122,13 +157,18 @@ def _diff_blocks(old_body: str, new_body: str) -> tuple[list[_DiffBlock], dict[s
             for offset in range(max(left_count, right_count)):
                 left_text = old_paragraphs[i1 + offset] if offset < left_count else None
                 right_text = new_paragraphs[j1 + offset] if offset < right_count else None
-                blocks.append(
-                    _DiffBlock(
-                        "changed",
-                        markdown.render(left_text) if left_text is not None else None,
-                        markdown.render(right_text) if right_text is not None else None,
-                    )
-                )
+                if left_text is not None and right_text is not None:
+                    # A clean one-for-one pairing within the replace group:
+                    # highlight the words that actually differ instead of
+                    # tinting both whole paragraphs alike.
+                    left_html, right_html = _word_diff_html(left_text, right_text)
+                else:
+                    # An uneven replace group (more paragraphs on one side
+                    # than the other) has no natural word-for-word pairing;
+                    # fall back to rendering the lone side's paragraph whole.
+                    left_html = markdown.render(left_text) if left_text is not None else None
+                    right_html = markdown.render(right_text) if right_text is not None else None
+                blocks.append(_DiffBlock("changed", left_html, right_html))
                 counts["changed"] += 1
     return blocks, counts
 

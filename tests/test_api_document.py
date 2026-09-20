@@ -174,6 +174,88 @@ class BrokenRecordAndCompareTests(unittest.TestCase):
                 self.assertIn("knowledge/bad.md", broken_paths)
                 self.assertTrue(any(entry["id"] == "good" for entry in data["entries"]))
 
+    def test_changed_paragraph_marks_only_the_words_that_differ(self) -> None:
+        # A "changed" paragraph pair must not read as "the whole thing is
+        # different" when only a few words moved: the compare page's own
+        # value is showing exactly what changed, not just that something
+        # did. See knowledge_os/reader/api/record.py's `_word_diff_html`.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+            write_record(
+                root,
+                "projects/demo/README.md",
+                {
+                    "id": "demo",
+                    "title": "Demo",
+                    "type": "project",
+                    "status": "active",
+                    "scope": "project:demo",
+                    "created": "2026-08-29",
+                    "updated": "2026-08-29",
+                    "provenance": [{"kind": "fixture", "reference": "demo"}],
+                },
+            )
+            write_record(
+                root,
+                "projects/demo/decisions/old.md",
+                {
+                    "id": "old",
+                    "title": "Old decision",
+                    "type": "project",
+                    "record_kind": "decision",
+                    "status": "superseded",
+                    "scope": "project:demo",
+                    "created": "2026-08-29",
+                    "updated": "2026-08-29",
+                    "provenance": [
+                        {"kind": "decision-acceptance", "reference": "c1", "captured": "2026-08-29T00:00:00Z"}
+                    ],
+                },
+                body="Store every note in one flat file with no index.\n",
+            )
+            write_record(
+                root,
+                "projects/demo/decisions/new.md",
+                {
+                    "id": "new",
+                    "title": "New decision",
+                    "type": "project",
+                    "record_kind": "decision",
+                    "status": "active",
+                    "scope": "project:demo",
+                    "supersedes": ["old"],
+                    "created": "2026-08-30",
+                    "updated": "2026-08-30",
+                    "provenance": [
+                        {"kind": "decision-acceptance", "reference": "c2", "captured": "2026-08-30T00:00:00Z"}
+                    ],
+                },
+                body="Store every note in one file per topic with an index.\n",
+            )
+            with serve(root, PORT) as base_url:
+                status, data = _get(base_url, "/api/records/old/compare")
+                self.assertEqual(status, 200)
+                blocks = data["comparisons"][0]["blocks"]
+                self.assertEqual(len(blocks), 1)
+                block = blocks[0]
+                self.assertEqual(block["kind"], "changed")
+                # Shared words survive unmarked...
+                self.assertIn("Store every note in one", block["left_html"])
+                self.assertIn("Store every note in one", block["right_html"])
+                self.assertIn("file", block["left_html"])
+                self.assertIn("with", block["left_html"])
+                self.assertIn("with", block["right_html"])
+                self.assertIn("index.", block["left_html"])
+                self.assertIn("index.", block["right_html"])
+                # ...only the words that actually moved are wrapped.
+                self.assertIn("<mark>flat</mark>", block["left_html"])
+                self.assertIn("<mark>no</mark>", block["left_html"])
+                self.assertIn("<mark>per topic</mark>", block["right_html"])
+                self.assertIn("<mark>an</mark>", block["right_html"])
+                self.assertNotIn("<mark>Store", block["left_html"])
+                self.assertNotIn("<mark>file</mark>", block["left_html"])
+
     def test_decision_with_no_lineage_reports_no_comparison(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

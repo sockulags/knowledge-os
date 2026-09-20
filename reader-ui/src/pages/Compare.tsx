@@ -11,7 +11,14 @@ const BLOCK_CLASSES: Record<DiffBlock["kind"], string> = {
   equal: "",
   added: "bg-(--color-accent-green-bg) rounded px-2 -mx-2",
   removed: "bg-(--color-accent-red-bg) rounded px-2 -mx-2",
-  changed: "bg-(--color-accent-yellow-bg) rounded px-2 -mx-2",
+  // A "changed" paragraph carries no fill of its own -- an amber left rule
+  // marks it as "this one differs", while the words that actually moved
+  // get the fill (via [&_mark]) instead. Tinting the *whole* paragraph the
+  // same flat colour as every other changed paragraph made a one-word edit
+  // and a full rewrite look identical; putting the colour only on what
+  // changed is what actually answers "what changed" at a glance.
+  changed:
+    "border-l-2 border-(--color-accent-amber-text) pl-3 [&_mark]:bg-(--color-accent-amber-bg) [&_mark]:text-(--color-accent-amber-text) [&_mark]:rounded [&_mark]:px-0.5 [&_mark]:not-italic [&_mark]:font-medium",
 };
 
 function ComparisonBlock({ comparison }: { comparison: Comparison }) {
@@ -25,7 +32,7 @@ function ComparisonBlock({ comparison }: { comparison: Comparison }) {
   }
   return (
     <section className="mt-10">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-lg font-semibold">{comparison.heading}</h2>
         {comparison.summary && <p className="text-sm text-(--color-text-muted)">{comparison.summary}</p>}
       </div>
