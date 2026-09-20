@@ -54,7 +54,7 @@ export function Search() {
 
   return (
     <div className="mx-auto w-full max-w-[760px] px-6 py-12 sm:px-10">
-      <h1 className="text-[32px] font-semibold leading-tight tracking-tight">Search</h1>
+      <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">Search</h1>
 
       <form onSubmit={submitQuery} className="mt-5 flex items-center gap-2 rounded-lg border border-(--color-border) bg-(--color-bg-raised) px-3.5 py-2.5">
         <SearchIcon size={17} className="text-(--color-text-faint)" />
@@ -103,7 +103,7 @@ export function Search() {
         {!loading && data && data.search_available && (
           <>
             {params.get("q") && (
-              <p className="mb-3 text-sm text-(--color-text-faint)">{data.result_count} matching record(s)</p>
+              <p className="mb-3 text-sm text-(--color-text-faint)">{data.result_count_label}</p>
             )}
             <div className="space-y-1">
               {data.results.map((result) => (

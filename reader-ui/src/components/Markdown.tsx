@@ -24,7 +24,7 @@ export function Markdown({ html, className }: { html: string; className?: string
   return (
     <div
       ref={ref}
-      className={`prose-kos ${className ?? ""}`}
+      className={`prose prose-kos max-w-none ${className ?? ""}`}
       onClick={handleClick}
       // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{ __html: html }}

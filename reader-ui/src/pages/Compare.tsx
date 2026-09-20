@@ -37,7 +37,7 @@ function ComparisonBlock({ comparison }: { comparison: Comparison }) {
           </div>
           <div className="space-y-3 rounded-lg border border-(--color-border) bg-(--color-bg-raised) p-4">
             {comparison.blocks.map((block, index) => (
-              <div key={index} className={`prose-kos ${BLOCK_CLASSES[block.kind]}`}>
+              <div key={index} className={`prose prose-kos prose-sm max-w-none ${BLOCK_CLASSES[block.kind]}`}>
                 {block.left_html ? (
                   <div dangerouslySetInnerHTML={{ __html: block.left_html }} />
                 ) : (
@@ -54,7 +54,7 @@ function ComparisonBlock({ comparison }: { comparison: Comparison }) {
           </div>
           <div className="space-y-3 rounded-lg border border-(--color-border) bg-(--color-bg-raised) p-4">
             {comparison.blocks.map((block, index) => (
-              <div key={index} className={`prose-kos ${BLOCK_CLASSES[block.kind]}`}>
+              <div key={index} className={`prose prose-kos prose-sm max-w-none ${BLOCK_CLASSES[block.kind]}`}>
                 {block.right_html ? (
                   <div dangerouslySetInnerHTML={{ __html: block.right_html }} />
                 ) : (
@@ -85,7 +85,7 @@ export function Compare() {
           {data.record.title}
         </Link>
       </p>
-      <h1 className="text-[32px] font-semibold leading-tight tracking-tight">Compare</h1>
+      <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">Compare</h1>
       <p className="mt-1 text-(--color-text-muted)">{data.status_text}</p>
 
       {data.comparisons.length === 0 ? (

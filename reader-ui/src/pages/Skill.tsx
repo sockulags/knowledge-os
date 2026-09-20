@@ -21,7 +21,7 @@ export function Skill() {
   if (data.broken) {
     return (
       <div className="mx-auto w-full max-w-[720px] px-6 py-12 sm:px-10">
-        <h1 className="text-[32px] font-semibold leading-tight tracking-tight">{data.broken.label}</h1>
+        <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">{data.broken.label}</h1>
         <div className="mt-6">
           <Callout tone="danger">{data.broken.detail}</Callout>
         </div>
@@ -35,7 +35,7 @@ export function Skill() {
     <div className="mx-auto flex w-full max-w-[1100px] gap-10 px-6 py-12 sm:px-10">
       <div className="mx-auto w-full max-w-[720px]">
         <Breadcrumb items={[{ label: "Skills", href: "/everything" }]} current={data.title ?? data.name} />
-        <h1 className="text-[36px] font-semibold leading-tight tracking-tight">{data.title ?? data.name}</h1>
+        <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title ?? data.name}</h1>
         {data.description && <p className="mt-2 text-(--color-text-muted)">{data.description}</p>}
 
         <dl className="mt-6 mb-8 rounded-lg border border-(--color-border) bg-(--color-bg-raised) px-4 py-1 divide-y divide-(--color-border)">

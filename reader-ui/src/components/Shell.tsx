@@ -36,13 +36,17 @@ export function Shell() {
   return (
     <div className="flex min-h-screen">
       <ScrollToTop />
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar: sticky and self-start so it stays pinned to the
+          viewport with its own scroll, rather than stretching to the main
+          column's full height (the flex row's default cross-axis stretch)
+          and scrolling away with the page on anything taller than one
+          screen. */}
       <aside
-        className={`hidden shrink-0 border-r border-(--color-border) bg-(--color-bg-sidebar) md:block ${
+        className={`sticky top-0 hidden h-screen shrink-0 self-start border-r border-(--color-border) bg-(--color-bg-sidebar) md:block ${
           collapsed ? "w-0 overflow-hidden border-r-0" : "w-64"
         } transition-[width] duration-150`}
       >
-        <div className="w-64">
+        <div className="h-full w-64">
           <Sidebar nav={nav} onOpenQuickFind={() => setQuickFindOpen(true)} />
         </div>
       </aside>

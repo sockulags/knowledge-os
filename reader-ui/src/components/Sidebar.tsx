@@ -1,7 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { ChevronRight, Home, LayoutGrid, Search, FolderKanban, BookOpen, FolderClosed } from "lucide-react";
-import type { NavPayload } from "../api/types";
+import type { NavPayload, TreeNode } from "../api/types";
 import { TreeNodeView } from "./ProjectTree";
 
 function NavRow({ to, icon, label, active }: { to: string; icon: ReactNode; label: string; active: boolean }) {
@@ -90,23 +90,7 @@ export function Sidebar({
 
       <Section title="Projects">
         {nav?.projects.length ? (
-          nav.projects.map((project) => (
-            <div key={project.id}>
-              <div className="flex items-center">
-                <TreeToggle />
-                <Link
-                  to={`/p/${project.id}`}
-                  className={`flex min-w-0 flex-1 items-center gap-2 truncate rounded-md px-1 py-1 text-sm ${
-                    location.pathname === `/p/${project.id}` ? "bg-(--color-bg-hover) font-medium" : "hover:bg-(--color-bg-hover)"
-                  }`}
-                >
-                  <FolderKanban size={14} className="shrink-0 opacity-70" />
-                  <span className="truncate">{project.title}</span>
-                </Link>
-              </div>
-              <ProjectSubtree tree={project.tree} />
-            </div>
-          ))
+          nav.projects.map((project) => <ProjectNode key={project.id} project={project} />)
         ) : (
           <p className="px-2 text-sm text-(--color-text-faint)">No project yet.</p>
         )}
@@ -151,30 +135,68 @@ export function Sidebar({
   );
 }
 
-function TreeToggle() {
-  return <span className="w-5 shrink-0" />;
+/** Whether ``pathname`` names a record reachable from this tree (its own
+ * root's records, or any descendant directory's), so a project can start
+ * expanded while its own page or one of its pages is open. */
+function treeContainsPath(tree: TreeNode, pathname: string): boolean {
+  if (tree.records.some((record) => `/r/${record.id}` === pathname)) return true;
+  return tree.children.some((child) => treeContainsPath(child, pathname));
 }
 
-function ProjectSubtree({ tree }: { tree: NavPayload["projects"][number]["tree"] }) {
-  const [open, setOpen] = useState(false);
-  const hasContent = tree.records.length > 0 || tree.children.length > 0 || tree.broken.length > 0;
-  if (!hasContent) return null;
+/** One project in the sidebar: a normal expandable node (chevron + link),
+ * not a separate "Show pages" link buried under it. Starts expanded while
+ * the current page is the project's own page or one of its pages, and
+ * stays expanded once opened even after navigating elsewhere. */
+function ProjectNode({ project }: { project: NavPayload["projects"][number] }) {
+  const location = useLocation();
+  const isActive = location.pathname === `/p/${project.id}` || treeContainsPath(project.tree, location.pathname);
+  const [open, setOpen] = useState(isActive);
+  useEffect(() => {
+    if (isActive) setOpen(true);
+  }, [isActive]);
+
+  const hasContent = project.tree.records.length > 0 || project.tree.children.length > 0 || project.tree.broken.length > 0;
+
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="ml-5 flex items-center gap-1 px-1 py-0.5 text-xs text-(--color-text-faint) hover:text-(--color-text-muted)"
-      >
-        <ChevronRight size={11} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
-        {open ? "Hide pages" : "Show pages"}
-      </button>
-      {open && (
+      <div className="flex items-center">
+        {hasContent ? (
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            className="flex h-6 w-5 shrink-0 items-center justify-center text-(--color-text-faint)"
+            aria-label={open ? "Collapse" : "Expand"}
+          >
+            <ChevronRight size={13} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
+          </button>
+        ) : (
+          <span className="w-5 shrink-0" />
+        )}
+        <Link
+          to={`/p/${project.id}`}
+          className={`flex min-w-0 flex-1 items-center gap-2 truncate rounded-md px-1 py-1 text-sm ${
+            location.pathname === `/p/${project.id}` ? "bg-(--color-bg-hover) font-medium" : "hover:bg-(--color-bg-hover)"
+          }`}
+        >
+          <FolderKanban size={14} className="shrink-0 opacity-70" />
+          <span className="truncate">{project.title}</span>
+        </Link>
+      </div>
+      {open && hasContent && (
         <div className="ml-5 border-l border-(--color-border) pl-1.5">
-          {tree.records.map((record) => (
-            <TreeNodeView key={record.id} node={{ name: record.title, overview: record, records: [], broken: [], children: [] }} depth={1} />
+          {project.tree.records.map((record) => (
+            <TreeNodeView
+              key={record.id}
+              node={{ name: record.title, overview: record, records: [], broken: [], children: [] }}
+              depth={1}
+            />
           ))}
-          {tree.children.map((child) => (
+          {project.tree.broken.map((entry) => (
+            <div key={entry.path} className="truncate px-2 py-1 text-xs text-(--color-accent-red-text)" title={entry.message}>
+              {entry.path.split("/").pop()}
+            </div>
+          ))}
+          {project.tree.children.map((child) => (
             <TreeNodeView key={child.name} node={child} depth={1} />
           ))}
         </div>

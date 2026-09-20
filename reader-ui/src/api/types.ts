@@ -250,6 +250,7 @@ export interface SearchPayload {
   disabled_reason: string | null;
   results: SearchResult[];
   result_count: number;
+  result_count_label: string;
 }
 
 export interface EverythingEntry extends RecordSummary {

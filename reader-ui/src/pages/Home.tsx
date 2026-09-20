@@ -26,7 +26,7 @@ export function Home() {
 
   return (
     <div className="mx-auto w-full max-w-[760px] px-6 py-12 sm:px-10">
-      <h1 className="text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
+      <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
       <p className="mt-1.5 text-(--color-text-muted)">{data.subtitle}</p>
 
       {somethingWrong && health && (

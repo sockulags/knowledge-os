@@ -43,7 +43,7 @@ export function Document() {
     <div className="mx-auto flex w-full max-w-[1100px] gap-10 px-6 py-12 sm:px-10">
       <div className="mx-auto w-full max-w-[720px]">
         <Breadcrumb items={data.breadcrumb} current={data.title} />
-        <h1 className="text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
+        <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
 
         {data.lineage.map((callout, index) => (
           <div className="mt-6" key={index}>

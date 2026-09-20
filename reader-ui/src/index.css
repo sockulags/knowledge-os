@@ -99,18 +99,46 @@ body {
   border-color: var(--color-border);
 }
 
-/* Reading typography for rendered Markdown. */
+/* Reading typography for rendered Markdown: the @tailwindcss/typography
+   plugin supplies every structural rule (heading sizes and margins,
+   paragraph spacing, list markers and indentation, table layout, code
+   block padding, blockquote and hr styling) via its `prose` class; this
+   block only points its colour variables at the app's own theme tokens
+   (so light and dark both work with no separate `prose-invert` class,
+   since a CSS custom property reference re-resolves whenever the active
+   theme's `--color-*` value changes) and keeps `.prose-kos` for the
+   handful of overrides the plugin has no opinion on at all: Pygments
+   token colours, the markdown.py-generated `.table-scroll` wrapper, and
+   an unresolved internal link's dotted underline. Apply both `prose` and
+   `prose-kos` on the same element (see Markdown.tsx); `max-w-none`
+   cancels the plugin's own 65ch cap so `.prose-kos`'s 70ch (the plan's
+   68-72 character measure) applies instead. */
 .prose-kos {
+  --tw-prose-body: var(--color-text);
+  --tw-prose-headings: var(--color-text);
+  --tw-prose-lead: var(--color-text-muted);
+  --tw-prose-links: var(--color-text);
+  --tw-prose-bold: var(--color-text);
+  --tw-prose-counters: var(--color-text-muted);
+  --tw-prose-bullets: var(--color-border-strong);
+  --tw-prose-hr: var(--color-border);
+  --tw-prose-quotes: var(--color-text);
+  --tw-prose-quote-borders: var(--color-border-strong);
+  --tw-prose-captions: var(--color-text-muted);
+  --tw-prose-code: var(--color-text);
+  --tw-prose-pre-code: var(--color-text);
+  --tw-prose-pre-bg: var(--color-bg-hover);
+  --tw-prose-th-borders: var(--color-border);
+  --tw-prose-td-borders: var(--color-border);
   color: var(--color-text);
   max-width: 70ch;
 }
-.prose-kos :where(h1, h2, h3, h4) {
+.prose-kos :where(h1, h2, h3, h4, h5, h6) {
   font-weight: 600;
   letter-spacing: -0.01em;
   scroll-margin-top: 5.5rem;
 }
 .prose-kos a {
-  color: var(--color-text);
   text-decoration: underline;
   text-decoration-color: var(--color-border-strong);
   text-underline-offset: 2px;
@@ -124,22 +152,33 @@ body {
   padding: 0.1em 0.35em;
   font-size: 0.875em;
 }
+.prose-kos code::before,
+.prose-kos code::after {
+  content: none;
+}
 .prose-kos pre {
-  background: var(--color-bg-hover);
   border: 1px solid var(--color-border);
   border-radius: 8px;
+  overflow-x: auto;
 }
 .prose-kos pre code {
   background: transparent;
   padding: 0;
+  font-size: 0.85em;
 }
 .prose-kos .table-scroll {
   overflow-x: auto;
   border: 1px solid var(--color-border);
   border-radius: 8px;
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
 }
-.prose-kos table {
+.prose-kos .table-scroll table {
   width: 100%;
+  margin: 0;
+}
+.prose-kos thead {
+  background: var(--color-bg-hover);
 }
 .prose-kos .md-link-unresolved {
   text-decoration: underline dotted;

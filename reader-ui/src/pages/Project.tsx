@@ -91,7 +91,7 @@ export function Project() {
   return (
     <div className="mx-auto w-full max-w-[760px] px-6 py-12 sm:px-10">
       <Breadcrumb items={data.breadcrumb} />
-      <h1 className="text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
+      <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
 
       <div className="mt-6">
         <PropertiesBlock properties={data.properties} />
