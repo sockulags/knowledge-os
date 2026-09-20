@@ -1,0 +1,224 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  --color-bg: #ffffff;
+  --color-bg-sidebar: #f7f7f5;
+  --color-bg-raised: #ffffff;
+  --color-bg-hover: #efefec;
+  --color-text: #1f1f1f;
+  --color-text-muted: #6b6b6b;
+  --color-text-faint: #9a9a94;
+  --color-border: #e6e4df;
+  --color-border-strong: #d8d5cd;
+
+  --color-accent-green-bg: #e6f4ea;
+  --color-accent-green-text: #1e7a3d;
+  --color-accent-amber-bg: #fdf0da;
+  --color-accent-amber-text: #9a6314;
+  --color-accent-yellow-bg: #fdf6d8;
+  --color-accent-yellow-text: #8a6d13;
+  --color-accent-grey-bg: #eeede9;
+  --color-accent-grey-text: #6b6b6b;
+  --color-accent-violet-bg: #efeafb;
+  --color-accent-violet-text: #6446c9;
+  --color-accent-red-bg: #fbeaea;
+  --color-accent-red-text: #b3261e;
+}
+
+:root:not([data-theme="light"]) {
+  @media (prefers-color-scheme: dark) {
+    --color-bg: #171715;
+    --color-bg-sidebar: #1c1c1a;
+    --color-bg-raised: #1f1f1d;
+    --color-bg-hover: #292925;
+    --color-text: #ecece7;
+    --color-text-muted: #a3a39a;
+    --color-text-faint: #6e6e66;
+    --color-border: #2d2d29;
+    --color-border-strong: #3a3a35;
+
+    --color-accent-green-bg: #163325;
+    --color-accent-green-text: #6fd497;
+    --color-accent-amber-bg: #3a2a10;
+    --color-accent-amber-text: #e3ac52;
+    --color-accent-yellow-bg: #362e0d;
+    --color-accent-yellow-text: #e0c559;
+    --color-accent-grey-bg: #262622;
+    --color-accent-grey-text: #a3a39a;
+    --color-accent-violet-bg: #271f3d;
+    --color-accent-violet-text: #b6a1f5;
+    --color-accent-red-bg: #3a1a18;
+    --color-accent-red-text: #f0938d;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #171715;
+  --color-bg-sidebar: #1c1c1a;
+  --color-bg-raised: #1f1f1d;
+  --color-bg-hover: #292925;
+  --color-text: #ecece7;
+  --color-text-muted: #a3a39a;
+  --color-text-faint: #6e6e66;
+  --color-border: #2d2d29;
+  --color-border-strong: #3a3a35;
+
+  --color-accent-green-bg: #163325;
+  --color-accent-green-text: #6fd497;
+  --color-accent-amber-bg: #3a2a10;
+  --color-accent-amber-text: #e3ac52;
+  --color-accent-yellow-bg: #362e0d;
+  --color-accent-yellow-text: #e0c559;
+  --color-accent-grey-bg: #262622;
+  --color-accent-grey-text: #a3a39a;
+  --color-accent-violet-bg: #271f3d;
+  --color-accent-violet-text: #b6a1f5;
+  --color-accent-red-bg: #3a1a18;
+  --color-accent-red-text: #f0938d;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 15.5px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+/* Reading typography for rendered Markdown: the @tailwindcss/typography
+   plugin supplies every structural rule (heading sizes and margins,
+   paragraph spacing, list markers and indentation, table layout, code
+   block padding, blockquote and hr styling) via its `prose` class; this
+   block only points its colour variables at the app's own theme tokens
+   (so light and dark both work with no separate `prose-invert` class,
+   since a CSS custom property reference re-resolves whenever the active
+   theme's `--color-*` value changes) and keeps `.prose-kos` for the
+   handful of overrides the plugin has no opinion on at all: Pygments
+   token colours, the markdown.py-generated `.table-scroll` wrapper, and
+   an unresolved internal link's dotted underline. Apply both `prose` and
+   `prose-kos` on the same element (see Markdown.tsx); `max-w-none`
+   cancels the plugin's own 65ch cap so `.prose-kos`'s 70ch (the plan's
+   68-72 character measure) applies instead. */
+.prose-kos {
+  --tw-prose-body: var(--color-text);
+  --tw-prose-headings: var(--color-text);
+  --tw-prose-lead: var(--color-text-muted);
+  --tw-prose-links: var(--color-text);
+  --tw-prose-bold: var(--color-text);
+  --tw-prose-counters: var(--color-text-muted);
+  --tw-prose-bullets: var(--color-border-strong);
+  --tw-prose-hr: var(--color-border);
+  --tw-prose-quotes: var(--color-text);
+  --tw-prose-quote-borders: var(--color-border-strong);
+  --tw-prose-captions: var(--color-text-muted);
+  --tw-prose-code: var(--color-text);
+  --tw-prose-pre-code: var(--color-text);
+  --tw-prose-pre-bg: var(--color-bg-hover);
+  --tw-prose-th-borders: var(--color-border);
+  --tw-prose-td-borders: var(--color-border);
+  color: var(--color-text);
+  max-width: 70ch;
+}
+.prose-kos :where(h1, h2, h3, h4, h5, h6) {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  scroll-margin-top: 5.5rem;
+}
+.prose-kos a {
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+  text-underline-offset: 2px;
+}
+.prose-kos a:hover {
+  text-decoration-color: currentColor;
+}
+.prose-kos code {
+  background: var(--color-bg-hover);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.875em;
+}
+.prose-kos code::before,
+.prose-kos code::after {
+  content: none;
+}
+.prose-kos pre {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.prose-kos pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85em;
+}
+.prose-kos .table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+}
+.prose-kos .table-scroll table {
+  width: 100%;
+  margin: 0;
+}
+.prose-kos thead {
+  background: var(--color-bg-hover);
+}
+.prose-kos .md-link-unresolved {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--color-text-faint);
+  cursor: help;
+}
+
+/* Pygments tokens: kept intentionally muted in both themes, no per-language
+   hue clashes with the pill palette above. */
+.prose-kos .highlight .c,
+.prose-kos .highlight .c1,
+.prose-kos .highlight .cm {
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+.prose-kos .highlight .k,
+.prose-kos .highlight .kn,
+.prose-kos .highlight .kd {
+  color: var(--color-accent-violet-text);
+}
+.prose-kos .highlight .s,
+.prose-kos .highlight .s1,
+.prose-kos .highlight .s2 {
+  color: var(--color-accent-green-text);
+}
+.prose-kos .highlight .n,
+.prose-kos .highlight .nb {
+  color: var(--color-text);
+}
+.prose-kos .highlight .mi,
+.prose-kos .highlight .mf {
+  color: var(--color-accent-amber-text);
+}
+
+::selection {
+  background: var(--color-accent-amber-bg);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

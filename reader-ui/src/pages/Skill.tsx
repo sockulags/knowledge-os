@@ -1,0 +1,95 @@
+import { useParams, Link } from "react-router";
+import { AlertTriangle } from "lucide-react";
+import { api } from "../api/client";
+import { useApi } from "../hooks/useApi";
+import { PageSkeleton } from "../components/Skeleton";
+import { Breadcrumb } from "../components/Breadcrumb";
+import { Markdown } from "../components/Markdown";
+import { TableOfContents } from "../components/TableOfContents";
+import { EmptyState } from "../components/EmptyState";
+import { Callout } from "../components/Callout";
+
+export function Skill() {
+  const { skillName } = useParams<{ skillName: string }>();
+  const { data, loading, notFound, error } = useApi(() => api.skill(skillName!), [skillName]);
+
+  if (loading) return <PageSkeleton />;
+  if (notFound)
+    return <EmptyState title="No such skill" body={`No skill named "${skillName}" exists in this workspace.`} />;
+  if (error || !data) return <Callout tone="danger">{error ?? "Could not load this skill."}</Callout>;
+
+  if (data.broken) {
+    return (
+      <div className="mx-auto w-full max-w-[720px] px-6 py-12 sm:px-10">
+        <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">{data.broken.label}</h1>
+        <div className="mt-6">
+          <Callout tone="danger">{data.broken.detail}</Callout>
+        </div>
+      </div>
+    );
+  }
+
+  const showToc = (data.headings?.length ?? 0) >= 3;
+
+  return (
+    <div className="mx-auto flex w-full max-w-[1100px] gap-10 px-6 py-12 sm:px-10">
+      <div className="mx-auto w-full max-w-[720px]">
+        <Breadcrumb items={[{ label: "Skills", href: "/everything" }]} current={data.title ?? data.name} />
+        <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title ?? data.name}</h1>
+        {data.description && <p className="mt-2 text-(--color-text-muted)">{data.description}</p>}
+
+        <dl className="mt-6 mb-8 rounded-lg border border-(--color-border) bg-(--color-bg-raised) px-4 py-1 divide-y divide-(--color-border)">
+          <div className="grid grid-cols-[100px_1fr] gap-3 py-1.5 text-sm sm:grid-cols-[120px_1fr]">
+            <dt className="text-(--color-text-muted)">Trust</dt>
+            <dd>{data.trust_label}</dd>
+          </div>
+          <div className="grid grid-cols-[100px_1fr] gap-3 py-1.5 text-sm sm:grid-cols-[120px_1fr]">
+            <dt className="text-(--color-text-muted)">Tags</dt>
+            <dd>
+              {data.tags && data.tags.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {data.tags.map((tag) => (
+                    <span key={tag} className="rounded-full bg-(--color-bg-hover) px-2 py-0.5 text-xs text-(--color-text-muted)">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-(--color-text-faint)">No tags recorded.</span>
+              )}
+            </dd>
+          </div>
+        </dl>
+
+        {data.body_html && <Markdown html={data.body_html} />}
+
+        {data.references && data.references.length > 0 && (
+          <section className="mt-10 border-t border-(--color-border) pt-6">
+            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
+              Supporting references
+            </h3>
+            <div className="space-y-1">
+              {data.references.map((reference) =>
+                reference.readable ? (
+                  <Link
+                    key={reference.path}
+                    to={reference.href!}
+                    className="block rounded-md px-2 py-1.5 text-sm hover:bg-(--color-bg-hover)"
+                  >
+                    {reference.title}
+                  </Link>
+                ) : (
+                  <div key={reference.path} className="flex items-center gap-2 px-2 py-1.5 text-sm text-(--color-text-faint)">
+                    <AlertTriangle size={13} />
+                    {reference.title}
+                  </div>
+                ),
+              )}
+            </div>
+          </section>
+        )}
+      </div>
+      {showToc && data.headings && <TableOfContents headings={data.headings} />}
+    </div>
+  );
+}
