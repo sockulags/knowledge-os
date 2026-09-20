@@ -74,6 +74,32 @@ class RealCorpusProjectTests(unittest.TestCase):
             self.assertIn("conversational-memory-capture", tree_ids)
 
 
+class ProjectDisplayNameTests(unittest.TestCase):
+    """The real corpus's overview record is titled "Knowledge OS project
+    overview"; everywhere that title is used to *name the project*
+    (breadcrumbs, "Applies to", a catalog's Project column) it must read
+    "Knowledge OS" instead. The overview page's own <h1> ("title" here)
+    keeps the full, unmodified record title."""
+
+    def test_document_breadcrumb_and_applies_to_use_the_short_name(self) -> None:
+        with serve(REPOSITORY, PORT) as base_url:
+            _status, data = _get(base_url, "/api/records/openknowledge-pivot")
+            self.assertEqual(data["breadcrumb"][-1]["label"], "Knowledge OS")
+            self.assertEqual(data["properties"]["applies_to"]["value"], "Knowledge OS")
+
+    def test_everything_project_column_uses_the_short_name(self) -> None:
+        with serve(REPOSITORY, PORT) as base_url:
+            _status, data = _get(base_url, "/api/everything")
+            entry = next(e for e in data["entries"] if e["id"] == "openknowledge-pivot")
+            self.assertEqual(entry["project_title"], "Knowledge OS")
+
+    def test_the_overview_page_itself_keeps_its_full_title(self) -> None:
+        with serve(REPOSITORY, PORT) as base_url:
+            status, data = _get(base_url, "/api/projects/knowledge-os")
+            self.assertEqual(status, 200)
+            self.assertEqual(data["title"], "Knowledge OS project overview")
+
+
 class ProjectNotFoundTests(unittest.TestCase):
     def test_unknown_project_id_is_404_json(self) -> None:
         with serve(REPOSITORY, PORT) as base_url:

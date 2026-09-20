@@ -26,6 +26,38 @@ def _load(build) -> "language.Library":
         return load_library(Workspace(root))
 
 
+class FormatDateShortTests(unittest.TestCase):
+    def test_abbreviated_month(self) -> None:
+        self.assertEqual(language.format_date_short("2026-09-12"), "12 Sep 2026")
+
+    def test_none_in_none_out(self) -> None:
+        self.assertIsNone(language.format_date_short(None))
+
+    def test_unparseable_value_falls_back_unchanged(self) -> None:
+        self.assertEqual(language.format_date_short("not-a-date"), "not-a-date")
+
+
+class DisplayProjectTitleTests(unittest.TestCase):
+    """Every project overview in the real corpus is titled "<Name> project
+    overview" or "<Name> overview"; anywhere that title names the project
+    rather than titling the overview page itself, the suffix is stripped."""
+
+    def test_strips_project_overview_suffix(self) -> None:
+        self.assertEqual(language.display_project_title("Knowledge OS project overview"), "Knowledge OS")
+
+    def test_strips_bare_overview_suffix(self) -> None:
+        self.assertEqual(language.display_project_title("Demo overview"), "Demo")
+
+    def test_is_case_insensitive(self) -> None:
+        self.assertEqual(language.display_project_title("Demo Project Overview"), "Demo")
+
+    def test_leaves_an_unrelated_title_unchanged(self) -> None:
+        self.assertEqual(language.display_project_title("Demo project"), "Demo project")
+
+    def test_falls_back_to_the_full_title_when_nothing_would_remain(self) -> None:
+        self.assertEqual(language.display_project_title("Overview"), "Overview")
+
+
 class FormatDateTests(unittest.TestCase):
     def test_plain_date(self) -> None:
         self.assertEqual(language.format_date("2026-08-30"), "30 August 2026")

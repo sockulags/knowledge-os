@@ -31,7 +31,12 @@ export function PropertiesBlock({ properties }: { properties: PropertiesBlockDat
           <span>{properties.status.value}</span>
         </div>
       </Row>
-      <Row label={properties.trust.label}>{properties.trust.value}</Row>
+      <Row label={properties.trust.label}>
+        <div className="flex flex-wrap items-center gap-2">
+          {properties.trust.pill && <Pill pill={properties.trust.pill} />}
+          <span>{properties.trust.value}</span>
+        </div>
+      </Row>
       <Row label={properties.applies_to.label}>{properties.applies_to.value}</Row>
       <Row label={properties.updated.label}>
         <span title={properties.updated.raw}>{properties.updated.value}</span>

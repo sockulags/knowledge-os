@@ -12,7 +12,7 @@ import unittest
 import urllib.request
 from pathlib import Path
 
-from reader_support import create_workspace, serve, write_record
+from reader_support import REPOSITORY, create_workspace, serve, write_record
 
 from knowledge_os.index import rebuild_indexes
 from knowledge_os.workspace import Workspace
@@ -77,6 +77,68 @@ class StaleIndexTests(unittest.TestCase):
                 data = _get(base_url, "/api/workspace")
                 self.assertTrue(data["health"]["index_stale"])
                 self.assertTrue(data["health"]["search_disabled"])
+
+
+class SnippetMarkdownStrippingTests(unittest.TestCase):
+    """A search snippet is a raw slice of a record's own Markdown source,
+    not rendered HTML, so it can contain a heading marker, a link's
+    `[text](url)` syntax, or backticks verbatim. None of that belongs in a
+    preview -- coordinator review of PR #17 flagged `## Decision` and
+    `[OpenKnowledge pivot decision](../decisions/openknowledge-pivot.md)`
+    showing up raw in real search results."""
+
+    def test_snippet_strips_heading_link_and_code_syntax(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+            write_record(
+                root,
+                "knowledge/plan.md",
+                _record("plan", title="Plan"),
+                body=(
+                    "## Decision\n\n"
+                    "See the [OpenKnowledge pivot decision](../decisions/openknowledge-pivot.md) "
+                    "for context, and run `kos index` to refresh the decision catalog.\n"
+                ),
+            )
+            workspace = Workspace(root)
+            rebuild_indexes(workspace)
+
+            with serve(root, PORT) as base_url:
+                data = _get(base_url, "/api/search?q=decision")
+                self.assertTrue(data["search_available"])
+                self.assertEqual(len(data["results"]), 1)
+                snippet = data["results"][0]["snippet_html"]
+                self.assertNotIn("##", snippet)
+                self.assertNotIn("](", snippet)
+                self.assertNotIn("`", snippet)
+                self.assertNotIn("[OpenKnowledge", snippet)
+                # The highlighting itself must survive the stripping pass:
+                # the matched word "decision" inside the link text is still
+                # its own <mark>, even though the link syntax around it
+                # (including a *second* matched "Decision" as the snippet's
+                # own heading word) is gone.
+                self.assertIn("<mark>Decision</mark>", snippet)
+                self.assertIn("OpenKnowledge pivot <mark>decision</mark>", snippet)
+
+
+class RealCorpusSnippetTests(unittest.TestCase):
+    def test_real_corpus_snippets_have_no_raw_markdown_syntax(self) -> None:
+        # This only exercises the real repository's own index if one is
+        # already built (`kos index`), and skips cleanly otherwise; the
+        # synthetic test above is the deterministic, always-run regression
+        # check for the same bug.
+        database = REPOSITORY / "indexes" / "catalog.sqlite3"
+        if not database.is_file():
+            self.skipTest("no search index built in the real repository; run `kos index` to exercise this check")
+        with serve(REPOSITORY, PORT) as base_url:
+            data = _get(base_url, "/api/search?q=decision")
+            if not data["search_available"] or not data["results"]:
+                self.skipTest("search index present but stale or empty for this query")
+            for result in data["results"]:
+                snippet = result["snippet_html"]
+                self.assertNotIn("##", snippet)
+                self.assertNotIn("](", snippet)
 
 
 class FilterTests(unittest.TestCase):

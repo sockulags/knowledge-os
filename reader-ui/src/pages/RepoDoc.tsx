@@ -28,7 +28,7 @@ export function RepoDoc() {
             sidebar) — so this crumb goes to Home rather than pointing at a
             page with nothing matching on it. */}
         <Breadcrumb items={[{ label: "Home", href: "/" }]} current={data.title} />
-        <h1 className="text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
+        <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
 
         <div className="mt-6">
           <Callout tone="neutral">{data.unmanaged_label}</Callout>

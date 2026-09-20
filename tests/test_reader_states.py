@@ -216,6 +216,17 @@ class HealthSummaryTests(unittest.TestCase):
             self.assertFalse(summary.search_disabled)
             self.assertIsNone(summary.search_disabled_reason)
 
+    def test_lint_message_pluralizes_a_single_issue_correctly(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+            (root / "knowledge" / "bad.md").write_text("no frontmatter\n", encoding="utf-8")
+            lib = library.load_library(Workspace(root))
+            summary = states.build_health_summary(lib)
+            self.assertEqual(summary.issue_count, 1)
+            self.assertEqual(summary.lint_message, strings.LINT_ISSUES_SINGULAR)
+            self.assertNotIn("(s)", summary.lint_message)
+
     def test_broken_and_relational_issues_are_counted_once_each(self) -> None:
         """A workspace with one unparseable file and one parsed-but-invalid
         file must report exactly 2 issues, never adding Library.broken's
@@ -237,7 +248,7 @@ class HealthSummaryTests(unittest.TestCase):
             summary = states.build_health_summary(lib)
             self.assertFalse(summary.lint_ok)
             self.assertEqual(summary.issue_count, 2)
-            self.assertEqual(summary.lint_message, strings.LINT_ISSUES.format(count=2))
+            self.assertEqual(summary.lint_message, strings.LINT_ISSUES_PLURAL.format(count=2))
             self.assertEqual(len(summary.issues), 2)
 
     def test_absent_index_disables_search_with_the_absent_message(self) -> None:

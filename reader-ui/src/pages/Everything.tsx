@@ -60,8 +60,8 @@ export function Everything() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-[1000px] px-6 py-12 sm:px-10">
-      <h1 className="text-[32px] font-semibold leading-tight tracking-tight">Everything</h1>
+    <div className="mx-auto w-full max-w-[1100px] px-6 py-12 sm:px-10">
+      <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">Everything</h1>
       <p className="mt-1.5 text-(--color-text-muted)">
         Every record, source, and discovery the workspace holds, in one flat list.
       </p>
@@ -130,7 +130,9 @@ export function Everything() {
                   </Link>
                 </td>
                 <td className="px-3 py-2 text-(--color-text-muted)">{entry.type_label}</td>
-                <td className="px-3 py-2 text-(--color-text-muted)">{entry.updated}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-(--color-text-muted)" title={entry.updated}>
+                  {entry.updated_display ?? entry.updated}
+                </td>
                 <td className="px-3 py-2">
                   <Pill pill={entry.status_pill} />
                 </td>

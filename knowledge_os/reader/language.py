@@ -31,6 +31,7 @@ from .library import Library, ProvenanceEntry, Record
 
 __all__ = [
     "format_date",
+    "format_date_short",
     "successor_of",
     "status_sentence",
     "trust_sentence",
@@ -39,6 +40,7 @@ __all__ = [
     "record_accent",
     "catalog_phrase",
     "type_label",
+    "display_project_title",
 ]
 
 #: trust_label() collapses superseded/deprecated/archived into this one
@@ -96,6 +98,19 @@ _LIFECYCLE_ACCENT: dict[str, str] = {
 _DISCOVERY_RAW_STATUS = "proposed"
 
 
+def _parse_iso_date(text: str) -> datetime.date | None:
+    """A plain ISO date or an ISO timestamp, either one, or ``None`` if
+    ``text`` is neither. Shared by ``format_date`` and
+    ``format_date_short`` so the two only ever agree or both fail."""
+
+    try:
+        if "T" in text:
+            return datetime.datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+        return datetime.date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
 def format_date(value: str | None) -> str | None:
     """Render an ISO date or timestamp as "30 August 2026".
 
@@ -110,14 +125,25 @@ def format_date(value: str | None) -> str | None:
     if not value:
         return None
     text = value.strip()
-    try:
-        if "T" in text:
-            parsed = datetime.datetime.fromisoformat(text.replace("Z", "+00:00")).date()
-        else:
-            parsed = datetime.date.fromisoformat(text)
-    except ValueError:
+    parsed = _parse_iso_date(text)
+    if parsed is None:
         return text
     return f"{parsed.day} {parsed.strftime('%B')} {parsed.year}"
+
+
+def format_date_short(value: str | None) -> str | None:
+    """Render an ISO date or timestamp as "12 Sep 2026": a compact form for
+    a column that needs to stay narrow and not wrap (the Everything table's
+    Updated column), with the same None-in/None-out and unparseable-value
+    fallback contract as ``format_date``."""
+
+    if not value:
+        return None
+    text = value.strip()
+    parsed = _parse_iso_date(text)
+    if parsed is None:
+        return text
+    return f"{parsed.day} {parsed.strftime('%b')} {parsed.year}"
 
 
 def successor_of(library: Library, record: Record) -> Record | None:
@@ -215,14 +241,39 @@ def trust_sentence(record: Record) -> tuple[str, str | None]:
     return label, _TRUST_ACCENT.get(record.trust_label)
 
 
+#: A project's overview record is conventionally titled "<Name> project
+#: overview" or "<Name> overview" (every project overview in the real
+#: corpus follows this pattern); everywhere that title is used to *name
+#: the project* rather than to title the overview page itself (the
+#: sidebar, a breadcrumb, "Applies to", a catalog's Project column), that
+#: suffix is just repeated boilerplate. Longest suffix first, so " project
+#: overview" is tried before the " overview" it also ends with.
+_PROJECT_OVERVIEW_SUFFIXES = (" project overview", " overview")
+
+
+def display_project_title(title: str) -> str:
+    """The short form of a project's name, for anywhere it is used to name
+    the project rather than to title its own overview page (which keeps
+    the record's full, unmodified title). Falls back to the full title
+    when stripping the suffix would leave nothing."""
+
+    lowered = title.lower()
+    for suffix in _PROJECT_OVERVIEW_SUFFIXES:
+        if lowered.endswith(suffix):
+            stripped = title[: -len(suffix)].rstrip()
+            if stripped:
+                return stripped
+    return title
+
+
 def scope_sentence(library: Library, record: Record) -> str:
-    """"Applies everywhere", or the scoped project's own title."""
+    """"Applies everywhere", or the scoped project's own (short) name."""
 
     if record.scope == "general":
         return strings.SCOPE_GENERAL
     project_id = record.scope.split(":", 1)[1]
     project = library.records_by_id.get(project_id)
-    return project.title if project is not None else project_id
+    return display_project_title(project.title) if project is not None else project_id
 
 
 def provenance_sentence(library: Library, record: Record, entry: ProvenanceEntry) -> str:

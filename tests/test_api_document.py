@@ -69,6 +69,29 @@ class OpenknowledgePivotTests(unittest.TestCase):
             )
 
 
+class StatusAndTrustPillPlacementTests(unittest.TestCase):
+    """A record's one colour pill sits on whichever properties row it
+    actually describes: a decision's pill (a lifecycle state) belongs on
+    Status; every other record's pill (an epistemic judgment) belongs on
+    Trust, never both, and never Status for a non-decision -- "Unconfirmed"
+    next to "Current" would read as the page contradicting itself."""
+
+    def test_decision_carries_its_pill_on_status_not_trust(self) -> None:
+        with serve(REPOSITORY, PORT) as base_url:
+            _status, data = _get(base_url, "/api/records/openknowledge-pivot")
+            self.assertIsNotNone(data["properties"]["status"]["pill"])
+            self.assertEqual(data["properties"]["status"]["pill"]["label"], "Waiting on you")
+            self.assertIsNone(data["properties"]["trust"]["pill"])
+
+    def test_ordinary_record_carries_its_pill_on_trust_not_status(self) -> None:
+        with serve(REPOSITORY, PORT) as base_url:
+            _status, data = _get(base_url, "/api/records/knowledge-os-record-model")
+            self.assertIsNone(data["properties"]["status"]["pill"])
+            self.assertIsNotNone(data["properties"]["trust"]["pill"])
+            self.assertEqual(data["properties"]["trust"]["pill"]["label"], "Unconfirmed")
+            self.assertEqual(data["properties"]["status"]["value"], "Current")
+
+
 class ProvenanceNeverLeaksAPathTests(unittest.TestCase):
     """``knowledge-os-record-model`` carries ten ``repository-file``
     provenance entries, each referencing a real workspace path (e.g.

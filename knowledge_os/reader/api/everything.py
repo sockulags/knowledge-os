@@ -22,7 +22,22 @@ def _sort_records(records: tuple[Record, ...]) -> list[Record]:
 def _entry(record: Record, library: Library) -> dict[str, object]:
     summary = record_summary(record)
     summary["type_label"] = language.type_label(record)
-    summary["trust_phrase"] = language.catalog_phrase(library, record)
+    # The Trust column sits next to a Status pill. For a decision, that
+    # pill already carries its lifecycle (in force / waiting on you /
+    # replaced); language.catalog_phrase's decision-specific branch would
+    # repeat that same full sentence a second time ("In force — accepted
+    # ..." next to an "In force" pill), since catalog_phrase was designed
+    # for a listing with no separate Status column at all. Every other
+    # record type's catalog_phrase (source, discovery, ordinary durable)
+    # already answers "how much to trust this" specifically and is not
+    # redundant with its pill, so only decisions get the narrower
+    # trust_sentence here.
+    if record.is_decision:
+        trust_sentence, _accent = language.trust_sentence(record)
+        summary["trust_phrase"] = trust_sentence
+    else:
+        summary["trust_phrase"] = language.catalog_phrase(library, record)
+    summary["updated_display"] = language.format_date_short(record.updated)
     project_id = summary.get("project")
     summary["project_title"] = project_title(library, project_id) if project_id else None
     return summary

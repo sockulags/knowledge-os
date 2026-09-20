@@ -136,7 +136,10 @@ def _diff_blocks(old_body: str, new_body: str) -> tuple[list[_DiffBlock], dict[s
 def _summarize(counts: dict[str, int]) -> str:
     if not any(counts.values()):
         return strings.LINEAGE_SUMMARY_UNCHANGED
-    return strings.LINEAGE_SUMMARY.format(added=counts["added"], removed=counts["removed"], changed=counts["changed"])
+    noun = "section" if counts["added"] == 1 else "sections"
+    return strings.LINEAGE_SUMMARY.format(
+        noun=noun, added=counts["added"], removed=counts["removed"], changed=counts["changed"]
+    )
 
 
 def _side_json(library: Library, record: Record) -> dict[str, object]:
