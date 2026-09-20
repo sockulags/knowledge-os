@@ -228,7 +228,12 @@ def build_health_summary(library: Library) -> HealthSummary:
 
     issue_count = len(library.issues)
     lint_ok = issue_count == 0
-    lint_message = strings.LINT_OK if lint_ok else strings.LINT_ISSUES.format(count=issue_count)
+    if lint_ok:
+        lint_message = strings.LINT_OK
+    elif issue_count == 1:
+        lint_message = strings.LINT_ISSUES_SINGULAR
+    else:
+        lint_message = strings.LINT_ISSUES_PLURAL.format(count=issue_count)
     reason = _search_disabled_reason(library.index)
     return HealthSummary(
         lint_ok=lint_ok,

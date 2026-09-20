@@ -173,8 +173,9 @@ REPO_DOCUMENT_UNSAFE = "{path} could not be read: {detail}"
 # ---------------------------------------------------------------------------
 
 LINT_OK = "All managed records pass `kos lint`."
-#: {count} is len(Library.issues).
-LINT_ISSUES = "{count} issue(s) found by `kos lint`."
+#: {count} is len(Library.issues); properly pluralized, not a bare "(s)".
+LINT_ISSUES_SINGULAR = "1 issue found by `kos lint`."
+LINT_ISSUES_PLURAL = "{count} issues found by `kos lint`."
 
 EMPTY_WORKSPACE_TITLE = "This workspace has no durable records yet"
 EMPTY_WORKSPACE_BODY = (
@@ -217,8 +218,6 @@ STUB_NOT_IMPLEMENTED = "This view is not implemented yet."
 START_RECENTLY_CHANGED = "Recently changed"
 START_OPEN_DECISIONS = "Open decisions awaiting a position"
 START_PROJECTS = "Projects"
-#: {records}, {skills}, {issues} are counts from the loaded Library.
-START_HEALTH_LINE = "{records} record(s) · {skills} skill(s) · {issues} issue(s)"
 
 # ---------------------------------------------------------------------------
 # Project view
@@ -388,9 +387,9 @@ PROJECT_DETAILS_CONTENT_HASH = "Content hash"
 PROJECT_DETAILS_TRUST = "Trust"
 # Start view — additional strings (unit 3)
 #
-# START_RECENTLY_CHANGED, START_OPEN_DECISIONS, START_PROJECTS, and
-# START_HEALTH_LINE already exist above (unit 0). These fill in the
-# remaining copy views/start.py needs: per-section empty sentences (Sec.6
+# START_RECENTLY_CHANGED, START_OPEN_DECISIONS, and START_PROJECTS already
+# exist above (unit 0). These fill in the remaining copy views/start.py
+# needs: per-section empty sentences (Sec.6
 # "Empty project group" applies the same "never hidden, explain instead"
 # rule to the start page's own groups), the skills group, the one labelled
 # entry point into the unmanaged repo-document tier (acceptance criterion
@@ -449,8 +448,10 @@ SEARCH_FILTER_ANY_LABEL = "Any"
 SEARCH_SUBMIT_LABEL = "Search"
 SEARCH_CLEAR_LABEL = "Clear filters"
 
-#: {count} is the number of results shown after filtering.
-SEARCH_RESULT_COUNT = "{count} matching record(s)"
+#: {count} is the number of results shown after filtering; properly
+#: pluralized, not a bare "(s)".
+SEARCH_RESULT_COUNT_SINGULAR = "1 matching record"
+SEARCH_RESULT_COUNT_PLURAL = "{count} matching records"
 
 #: The type dimension: the six record types the contract allows in the FTS
 #: index (skills are never indexed, so no seventh option is offered here).
@@ -666,8 +667,11 @@ LINEAGE_ACCEPTED_UNKNOWN = "In force, though no acceptance date is recorded."
 
 #: Paragraph-level diff summary, above the side-by-side comparison body.
 LINEAGE_SUMMARY_UNCHANGED = "The wording is unchanged between these two versions."
-#: {added}, {removed}, {changed} are paragraph counts from the comparison.
-LINEAGE_SUMMARY = "{added} section(s) added, {removed} removed, {changed} reworded."
+#: {added}, {removed}, {changed} are paragraph counts from the comparison;
+#: {noun} is "section" or "sections", agreeing with {added} (the only
+#: clause that names the noun at all -- "2 removed, 1 reworded" already
+#: reads cleanly without repeating it).
+LINEAGE_SUMMARY = "{added} {noun} added, {removed} removed, {changed} reworded."
 
 # ---------------------------------------------------------------------------
 # JSON API (knowledge_os/reader/api/) — the React SPA's data source.
@@ -695,9 +699,17 @@ PILL_LABELS: dict[str, str] = {
     "raw": "Raw material",
 }
 
+#: The page title for "/" itself -- distinct from the workspace's own name
+#: (``Library.workspace_name``), which the sidebar header still shows.
+HOME_TITLE = "Home"
+
 #: Home page subtitle. {count} is the number of decisions currently in
-#: force (accepted, not superseded) across the whole workspace.
-HOME_SUBTITLE = "{count} decision(s) currently govern this workspace."
+#: force (accepted, not superseded) across the whole workspace. Properly
+#: pluralized rather than a bare "(s)": the singular form also changes its
+#: verb ("governs" vs "govern"), so this is two full templates, not one
+#: template plus a suffix.
+HOME_SUBTITLE_SINGULAR = "1 decision currently governs this workspace."
+HOME_SUBTITLE_PLURAL = "{count} decisions currently govern this workspace."
 HOME_SUBTITLE_NONE = "No decision governs this workspace yet."
 
 HOME_WAITING_HEADER = "Waiting on you"

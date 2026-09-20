@@ -64,7 +64,8 @@ class HomeTests(unittest.TestCase):
                 in_force_ids,
                 {"conversational-memory-capture", "project-directory-layout", "knowledge-os-reader"},
             )
-            self.assertIn("3 decision(s)", data["subtitle"])
+            self.assertEqual(data["subtitle"], "3 decisions currently govern this workspace.")
+            self.assertNotIn("(s)", data["subtitle"])
             self.assertTrue(any(project["id"] == "knowledge-os" for project in data["projects"]))
 
 

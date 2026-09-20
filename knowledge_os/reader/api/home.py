@@ -28,7 +28,9 @@ def _decisions(library: Library, status: str) -> list[Record]:
 def _subtitle(in_force_count: int) -> str:
     if in_force_count == 0:
         return strings.HOME_SUBTITLE_NONE
-    return strings.HOME_SUBTITLE.format(count=in_force_count)
+    if in_force_count == 1:
+        return strings.HOME_SUBTITLE_SINGULAR
+    return strings.HOME_SUBTITLE_PLURAL.format(count=in_force_count)
 
 
 def _project_ids(library: Library) -> list[str]:
@@ -65,7 +67,7 @@ async def view(request: Request) -> Response:
 
     return json_response(
         {
-            "title": library.workspace_name or strings.APP_NAME,
+            "title": strings.HOME_TITLE,
             "subtitle": _subtitle(len(in_force)),
             "waiting_on_you": waiting_json,
             "in_force": in_force_json,
