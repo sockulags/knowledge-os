@@ -27,6 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Mount, Route
@@ -109,7 +111,7 @@ def create_app(workspace: Workspace) -> Starlette:
     """
 
     from .api import build_api_routes
-    from .api.write import new_write_token
+    from .api.write import host_guard, new_write_token
 
     routes: list[Route | Mount] = list(build_api_routes())
     routes.append(Route("/api/{full_path:path}", _api_not_found))
@@ -121,7 +123,13 @@ def create_app(workspace: Workspace) -> Starlette:
     # ("/p/...", "/r/.../compare", a refresh, a bookmark).
     routes.append(Route("/{full_path:path}", _spa_index))
 
-    app = Starlette(debug=False, routes=routes)
+    # Every request, not only writes, must be addressed to this server by a
+    # loopback host name (defeats DNS rebinding from a page open in the
+    # user's browser). Wrapping the whole route table in one middleware,
+    # built on the same helper the write API already used, keeps a single
+    # definition of "loopback" instead of a second, divergent check per
+    # route.
+    app = Starlette(debug=False, routes=routes, middleware=[Middleware(BaseHTTPMiddleware, dispatch=host_guard)])
     app.state.workspace = workspace
     # Random per process: only a page that can read this server's own
     # responses (GET /api/session) can write through it.
