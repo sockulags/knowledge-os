@@ -371,7 +371,11 @@ non-loopback `Origin` or `Sec-Fetch-Site: cross-site`, and it must be
 `GET /api/session` applies the same host and origin checks. No route sends
 CORS headers, so a page on another origin can neither read the token nor
 send the custom header. The UI reads the token from its own origin; the Vite
-dev server's loopback origin passes the same checks through its proxy.
+dev server's loopback origin passes the same checks through its proxy. The
+loopback host check applies to every request the server handles, not only
+writes: a middleware in front of the whole route table refuses any request
+whose `Host` is not loopback, so DNS rebinding can't be used to read the
+JSON API or the served SPA either.
 
 Decision lifecycle actions are not exposed yet. They are meant to follow the
 same shape as `POST /api/records/{id}/accept`, `/withdraw`, and

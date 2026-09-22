@@ -17,6 +17,13 @@ foreign ``Origin`` or ``Sec-Fetch-Site: cross-site``, must be
 this process's random token. A web page on another origin can neither set
 that header without a CORS preflight this server never grants nor read the
 token from ``GET /api/session``, since no response carries CORS headers.
+
+The loopback ``Host`` check itself (``_is_loopback_host``) is not limited to
+writes: ``app.py`` wraps every route, GET included, in a middleware built
+from :func:`host_guard` below, so a page reached through DNS rebinding can't
+read the JSON API or the served SPA either. This module's own checks (here,
+via :func:`_same_machine_error`) are what is left once that's covered:
+Origin, Sec-Fetch-Site, and the write token.
 """
 
 from __future__ import annotations
@@ -63,6 +70,21 @@ def _is_loopback_host(value: str | None) -> bool:
 def _is_loopback_origin(value: str) -> bool:
     parts = urlsplit(value)
     return parts.scheme in {"http", "https"} and parts.hostname in _LOOPBACK_HOSTS
+
+
+async def host_guard(request: Request, call_next: Any) -> Response:
+    """Refuse any request (not only writes) whose ``Host`` is not loopback.
+
+    Installed as a Starlette middleware in ``app.py`` around every route,
+    including the JSON GET API and the served SPA, so a page reached
+    through DNS rebinding cannot read the workspace either. Uses the same
+    ``_is_loopback_host`` helper and error shape as the write checks below,
+    so there is exactly one definition of "loopback" for the whole server.
+    """
+
+    if not _is_loopback_host(request.headers.get("host")):
+        return _error("forbidden", "requests must address this server by a loopback host name")
+    return await call_next(request)
 
 
 def _same_machine_error(request: Request) -> Response | None:
