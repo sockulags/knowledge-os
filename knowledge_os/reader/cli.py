@@ -12,7 +12,9 @@ exactly like ``kos``.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import threading
 from pathlib import Path
 
 from knowledge_os.workspace import Workspace, WorkspaceError
@@ -40,7 +42,33 @@ def build_parser() -> argparse.ArgumentParser:
     _root_option(parser)
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8800, help="bind port (default: 8800)")
+    parser.add_argument(
+        "--exit-on-stdin-eof",
+        action="store_true",
+        help="exit as soon as standard input closes (lets a parent process that dies take this server with it)",
+    )
     return parser
+
+
+def _exit_when_stdin_closes() -> None:
+    """Exit the whole process once standard input reaches end-of-file.
+
+    A launching parent (the desktop shell) keeps this process's stdin pipe
+    open and never writes to it. When the parent exits for any reason,
+    including a crash that skips its own cleanup, the operating system
+    closes the pipe and this server stops instead of being orphaned.
+    """
+
+    if sys.stdin is None:
+        return
+
+    def watch() -> None:
+        stream = sys.stdin.buffer
+        while stream.read(4096):
+            pass
+        os._exit(0)
+
+    threading.Thread(target=watch, name="kos-read-stdin-lifeline", daemon=True).start()
 
 
 def _workspace(args: argparse.Namespace) -> Workspace:
@@ -66,5 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     except (WorkspaceError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    if args.exit_on_stdin_eof:
+        _exit_when_stdin_closes()
     uvicorn.run(app, host=args.host, port=args.port)
     return 0
