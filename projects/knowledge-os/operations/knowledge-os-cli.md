@@ -5,7 +5,7 @@ type: project
 status: active
 scope: project:knowledge-os
 created: '2026-09-12'
-updated: '2026-09-12'
+updated: '2026-09-22'
 provenance:
 - kind: repository-file
   reference: knowledge_os/cli.py
@@ -82,6 +82,13 @@ Material decision changes require a new draft and `kos supersede`.
 activates one draft decision and appends decision acceptance provenance. It
 refuses records that are not decisions, decisions that are not draft, stale hashes, and draft decisions
 that declare `supersedes`.
+
+`kos decision withdraw ID --expected-sha256 HASH --reason TEXT [--json]`
+archives one draft decision and appends decision withdrawal provenance
+recording the reason. It uses the same locked mutation, exact-revision guard,
+and atomic write as `kos decision accept`, and refuses records that are not
+decisions, decisions that are not draft, and stale hashes. An active decision
+is retired through `kos supersede`, not withdrawal.
 
 `kos supersede OLD_ID NEW_ID --expected-old-sha256 HASH
 --expected-new-sha256 HASH --acceptance-reference REF` activates a draft

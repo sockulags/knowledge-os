@@ -175,6 +175,114 @@ class MutationTests(unittest.TestCase):
             self.assertEqual(edited.returncode, 0, edited.stderr)
             self.assertIn("editorial-update", {item["kind"] for item in metadata(decision)["provenance"]})
 
+    def test_decision_withdraw_archives_draft_with_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+            decision = root / "projects" / "demo" / "pivot-plan.md"
+            draft = {
+                "id": "pivot-plan",
+                "title": "Pivot plan",
+                "type": "project",
+                "record_kind": "decision",
+                "status": "draft",
+                "scope": "project:demo",
+                "created": "2026-08-29",
+                "updated": "2026-08-29",
+                "provenance": [{"kind": "proposal", "reference": "proposal:pivot"}],
+            }
+            write_record(decision, draft, "Pause the project and pivot.\n")
+            index_workspace(root)
+
+            withdrawn = run_kos(
+                root,
+                "decision",
+                "withdraw",
+                "pivot-plan",
+                "--expected-sha256",
+                digest(decision),
+                "--reason",
+                "The owner chose to keep building the standalone project instead.",
+                "--json",
+            )
+            self.assertEqual(withdrawn.returncode, 0, withdrawn.stderr)
+            withdrawn_metadata = metadata(decision)
+            self.assertEqual(withdrawn_metadata["status"], "archived")
+            withdrawal_entries = [
+                item for item in withdrawn_metadata["provenance"] if item["kind"] == "decision-withdrawal"
+            ]
+            self.assertEqual(len(withdrawal_entries), 1)
+            self.assertEqual(
+                withdrawal_entries[0]["reference"],
+                "The owner chose to keep building the standalone project instead.",
+            )
+            self.assertEqual(run_kos(root, "lint").returncode, 0)
+
+            # An active decision cannot be withdrawn; retiring it is supersede's job.
+            active_decision = root / "projects" / "demo" / "active-policy.md"
+            write_record(
+                active_decision,
+                {
+                    "id": "active-policy", "title": "Active", "type": "project", "record_kind": "decision",
+                    "status": "active", "scope": "project:demo", "created": "2026-08-29", "updated": "2026-08-29",
+                    "provenance": [{"kind": "decision-acceptance", "reference": "conversation:old"}],
+                },
+            )
+            index_workspace(root)
+            refused_active = run_kos(
+                root,
+                "decision",
+                "withdraw",
+                "active-policy",
+                "--expected-sha256",
+                digest(active_decision),
+                "--reason",
+                "no longer needed",
+            )
+            self.assertNotEqual(refused_active.returncode, 0)
+            self.assertIn("must be draft before withdrawal", refused_active.stderr)
+
+            # A non-decision record cannot be withdrawn.
+            plain = root / "knowledge" / "plain-note.md"
+            write_record(
+                plain,
+                {
+                    "id": "plain-note", "title": "Plain", "type": "knowledge",
+                    "status": "draft", "scope": "general", "created": "2026-08-29", "updated": "2026-08-29",
+                    "provenance": [{"kind": "fixture", "reference": "plain"}],
+                },
+            )
+            index_workspace(root)
+            refused_non_decision = run_kos(
+                root,
+                "decision",
+                "withdraw",
+                "plain-note",
+                "--expected-sha256",
+                digest(plain),
+                "--reason",
+                "no longer needed",
+            )
+            self.assertNotEqual(refused_non_decision.returncode, 0)
+            self.assertIn("is not a decision", refused_non_decision.stderr)
+
+    def test_decision_withdrawal_provenance_rejected_off_archived_decisions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+            hand_edited = root / "knowledge" / "hand-edited.md"
+            write_record(
+                hand_edited,
+                {
+                    "id": "hand-edited", "title": "Hand edited", "type": "knowledge",
+                    "status": "active", "scope": "general", "created": "2026-08-29", "updated": "2026-08-29",
+                    "provenance": [{"kind": "decision-withdrawal", "reference": "not a decision"}],
+                },
+            )
+            result = run_kos(root, "lint")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("only allowed on archived decisions", result.stderr)
+
     def test_supersede_keeps_old_active_until_replacement_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

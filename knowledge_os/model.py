@@ -29,6 +29,7 @@ DISCOVERY_ONLY_FIELDS = {"evidence", "origin", "confidence", "reviews"}
 RECORD_KIND_TYPES = {"knowledge", "project"}
 RECORD_KINDS = {"ordinary", "decision"}
 DECISION_ACCEPTANCE_KIND = "decision-acceptance"
+DECISION_WITHDRAWAL_KIND = "decision-withdrawal"
 ALLOWED_FIELDS = {
     "id",
     "title",
@@ -278,6 +279,12 @@ def validate_metadata(metadata: Any, path: Path, *, check_filename: bool = True)
             )
         if status == "draft" and acceptance:
             raise MetadataError("draft decisions must not contain decision-acceptance provenance")
+
+    withdrawal = [item for item in metadata["provenance"] if item["kind"] == DECISION_WITHDRAWAL_KIND]
+    if withdrawal and (metadata.get("record_kind") != "decision" or status != "archived"):
+        raise MetadataError(
+            f"provenance kind {DECISION_WITHDRAWAL_KIND!r} is only allowed on archived decisions"
+        )
 
     for field in ("tags",):
         if field in metadata and (not isinstance(metadata[field], list) or any(not isinstance(v, str) for v in metadata[field])):

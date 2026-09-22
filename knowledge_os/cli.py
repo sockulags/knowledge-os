@@ -23,7 +23,7 @@ from .discovery import (
 from .index import rebuild_indexes, search_index
 from .ingest import ingest_source
 from .model import MetadataError, content_sha256
-from .mutations import accept_decision, supersede_decision, update_record
+from .mutations import accept_decision, supersede_decision, update_record, withdraw_decision
 from .workspace import Workspace, WorkspaceError, validate_workspace
 
 
@@ -95,6 +95,14 @@ def build_parser() -> argparse.ArgumentParser:
     decision_accept.add_argument("--acceptance-reference", required=True)
     decision_accept.add_argument("--json", action="store_true", dest="as_json")
     _root_option(decision_accept)
+    decision_withdraw = decision_commands.add_parser(
+        "withdraw", help="archive a draft decision that will not be accepted"
+    )
+    decision_withdraw.add_argument("id")
+    decision_withdraw.add_argument("--expected-sha256", required=True)
+    decision_withdraw.add_argument("--reason", required=True)
+    decision_withdraw.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(decision_withdraw)
 
     supersede = commands.add_parser("supersede", help="activate a draft replacement and retire its prior decision")
     supersede.add_argument("old_id")
@@ -358,6 +366,26 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
             else:
                 print(f"Accepted decision {result.id}")
+                print(f"SHA-256: {result.sha256}")
+                print(f"Index refreshed: {result.index_count} record(s)")
+            return 0
+        if args.command == "decision" and args.decision_command == "withdraw":
+            result = withdraw_decision(
+                workspace,
+                args.id,
+                expected_sha256=args.expected_sha256,
+                reason=args.reason,
+            )
+            payload = {
+                "id": result.id,
+                "path": result.path,
+                "sha256": result.sha256,
+                "status": result.status,
+            }
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                print(f"Withdrew decision {result.id}")
                 print(f"SHA-256: {result.sha256}")
                 print(f"Index refreshed: {result.index_count} record(s)")
             return 0
