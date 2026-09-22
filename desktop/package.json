@@ -15,6 +15,9 @@
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "npm run typecheck && electron-vite build",
+    "build:ui": "npm --prefix ../reader-ui ci && npm --prefix ../reader-ui run build",
+    "build:core": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-core.ps1",
+    "dist": "npm run build:ui && npm run build:core && npm run build && electron-builder --win --publish never",
     "postinstall": "install-electron"
   },
   "devDependencies": {
@@ -23,6 +26,7 @@
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@types/node": "^24.13.3",
     "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
     "prettier": "^3.9.6",

@@ -56,6 +56,28 @@ export function interpreterCandidates(options: CandidateOptions): InterpreterCan
   return candidates
 }
 
+export interface BundledCoreOptions {
+  env: NodeJS.ProcessEnv
+  /** Electron's app.isPackaged. */
+  packaged: boolean
+  /** Electron's process.resourcesPath. */
+  resourcesPath: string
+  platform: NodeJS.Platform
+}
+
+/**
+ * The frozen core (kos-core) that an installed app runs instead of a Python
+ * interpreter, or null when an interpreter must be resolved: in development,
+ * or when KOS_PYTHON is set to debug the packaged app against a real Python.
+ * It takes the same `-m knowledge_os[.reader] ARGS` arguments as Python.
+ */
+export function bundledCore(options: BundledCoreOptions): string | null {
+  const { env, packaged, resourcesPath, platform } = options
+  if (!packaged || env['KOS_PYTHON']?.trim()) return null
+  const executable = platform === 'win32' ? 'kos-core.exe' : 'kos-core'
+  return join(resourcesPath, 'core', executable)
+}
+
 /**
  * The Knowledge OS checkout the shell runs from, if any: the parent of the
  * desktop/ folder, recognized by its knowledge_os package and pyproject.toml.

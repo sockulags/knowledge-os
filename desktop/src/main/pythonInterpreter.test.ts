@@ -1,6 +1,6 @@
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { findRepoRoot, interpreterCandidates, venvPython } from './pythonInterpreter'
+import { bundledCore, findRepoRoot, interpreterCandidates, venvPython } from './pythonInterpreter'
 
 const repo = join('C:', 'code', 'knowledge-os')
 const winVenv = venvPython(repo, 'win32')
@@ -71,5 +71,32 @@ describe('findRepoRoot', () => {
 
   it('returns null outside a checkout', () => {
     expect(findRepoRoot(appPath, (path) => path.endsWith('pyproject.toml'))).toBeNull()
+  })
+})
+
+describe('bundledCore', () => {
+  const resources = join('C:', 'Program Files', 'Knowledge OS', 'resources')
+
+  it('uses the frozen core in resources/core in a packaged app', () => {
+    expect(
+      bundledCore({ env: {}, packaged: true, resourcesPath: resources, platform: 'win32' })
+    ).toBe(join(resources, 'core', 'kos-core.exe'))
+    expect(
+      bundledCore({ env: {}, packaged: true, resourcesPath: resources, platform: 'linux' })
+    ).toBe(join(resources, 'core', 'kos-core'))
+  })
+
+  it('resolves an interpreter in development', () => {
+    expect(
+      bundledCore({ env: {}, packaged: false, resourcesPath: resources, platform: 'win32' })
+    ).toBeNull()
+  })
+
+  it('lets KOS_PYTHON override the frozen core, but not when it is empty', () => {
+    const packaged = { packaged: true, resourcesPath: resources, platform: 'win32' as const }
+    expect(bundledCore({ ...packaged, env: { KOS_PYTHON: 'D:\\py\\python.exe' } })).toBeNull()
+    expect(bundledCore({ ...packaged, env: { KOS_PYTHON: ' ' } })).toBe(
+      join(resources, 'core', 'kos-core.exe')
+    )
   })
 })

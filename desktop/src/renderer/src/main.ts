@@ -10,6 +10,7 @@ const root = document.getElementById('app') as HTMLElement
 
 const ERROR_TITLES: Record<ErrorKind, string> = {
   'python-missing': 'Python is not available',
+  'core-missing': 'The Knowledge OS core is missing',
   'invalid-workspace': 'Not a valid knowledge base',
   'early-exit': 'The Python core stopped',
   'create-failed': 'The knowledge base was not created'

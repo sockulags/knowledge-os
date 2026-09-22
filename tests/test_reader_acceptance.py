@@ -45,7 +45,9 @@ PORT = 8822
 #: very test process importing knowledge_os), not of the reader's request
 #: handling, and are already git-ignored (see .gitignore). Any scratch venv
 #: this suite itself creates is excluded the same way, as are the git-ignored
-#: Node dependencies and build output of reader-ui/ and desktop/.
+#: Node dependencies and build output of reader-ui/ and desktop/, including
+#: the desktop installer (dist/) and the frozen core with its build venv
+#: (build-core/).
 _ARTIFACT_DIR_NAMES = {
     ".git",
     "__pycache__",
@@ -55,6 +57,8 @@ _ARTIFACT_DIR_NAMES = {
     ".pytest_cache",
     "node_modules",
     "out",
+    "dist",
+    "build-core",
 }
 
 
