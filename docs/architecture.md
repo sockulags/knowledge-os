@@ -92,11 +92,17 @@ the chosen rule and rationale. `record_kind` on any other type, unknown values,
 and unknown metadata fields are rejected.
 
 For a decision, `draft` means proposed and not governing, `active` means
-explicitly accepted and governing, and `superseded` means replaced by an
-accepted successor. Active and superseded decisions require a provenance entry
-with `kind: decision-acceptance`; a draft decision must not contain one.
+explicitly accepted and governing, `superseded` means replaced by an
+accepted successor, and `archived` means withdrawn from consideration without
+ever being accepted. Active and superseded decisions require a provenance
+entry with `kind: decision-acceptance`; a draft decision must not contain one.
 Acceptance records the basis for authority. It does not mean that the decision
-was implemented or that any factual claim was verified. Capture creates
+was implemented or that any factual claim was verified. An archived decision
+that was withdrawn requires a provenance entry with `kind:
+decision-withdrawal` recording the reason; that provenance kind is rejected on
+any record that is not an archived decision. `kos decision withdraw` is the
+only path from `draft` to `archived`; an active decision is retired through
+`kos supersede`, never withdrawn. Capture creates
 decisions only as drafts, and ordinary update cannot change lifecycle status.
 
 Every `project:<slug>` scope present in the corpus must have exactly one usable
@@ -249,8 +255,9 @@ context.
 ## Mutation and recovery contract
 
 Ingest, capture, conflict-safe update, decision acceptance, decision
-supersession, discovery add/retain/reject/promote, and index replacement all use
-one workspace-scoped advisory mutation lock owned by workspace infrastructure.
+withdrawal, decision supersession, discovery add/retain/reject/promote, and
+index replacement all use one workspace-scoped advisory mutation lock owned by
+workspace infrastructure.
 Each mutation follows this order:
 
 1. acquire the lock and validate the current canonical corpus and skills;
@@ -279,6 +286,14 @@ date, record kind, lifecycle status, supersession, discovery lineage, and
 decision-acceptance lineage. An accepted decision body may change only with an
 explicit non-material confirmation and a recorded change reference. Material
 changes use a new draft decision.
+
+`kos decision withdraw ID --expected-sha256 HASH --reason TEXT` moves one
+draft decision to `archived` and appends `decision-withdrawal` provenance
+with the given reason. It uses the same exact-revision SHA-256 guard, shared
+workspace lock, and atomic canonical write as `kos decision accept`, and
+refuses records that are not decisions, decisions that are not draft, and a
+stale hash. Withdrawal ends consideration of a proposal without accepting it;
+an active decision is retired through `kos supersede` instead.
 
 A draft decision may declare exactly one active decision in `supersedes`; this
 is only a proposed replacement and does not retire the target. `kos supersede`
@@ -324,6 +339,8 @@ attempt to restore writes after a caught failure.
   lifecycle-preserving replacement.
 - `kos decision accept ID` activates a draft decision with explicit acceptance
   provenance.
+- `kos decision withdraw ID --reason TEXT` archives a draft decision with
+  explicit withdrawal provenance, ending consideration without acceptance.
 - `kos supersede OLD_ID NEW_ID` activates an accepted draft replacement and
   retires the prior decision as one coordinated mutation.
 - `kos discovery add PATH`, `review ID`, `retain ID`, `reject ID`, and

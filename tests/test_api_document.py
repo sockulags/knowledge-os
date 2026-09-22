@@ -12,6 +12,7 @@ alongside readable neighbours), plus 404 JSON for an unknown id and
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,15 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from reader_support import REPOSITORY, create_workspace, serve, write_record
+from reader_support import (
+    FIXTURE_PROJECT_ID,
+    FIXTURE_PROPOSED_ID,
+    REPOSITORY,
+    create_workspace,
+    serve,
+    write_decision_fixture,
+    write_record,
+)
 
 PORT = 8833
 CONTEXT_WORKSPACE = REPOSITORY / "examples" / "context-workspace"
@@ -35,38 +44,49 @@ def _get(base_url: str, path: str) -> tuple[int, dict]:
 
 
 class OpenknowledgePivotTests(unittest.TestCase):
-    """Acceptance criterion 4: the real corpus's undecided proposal."""
+    """Acceptance criterion 4: an undecided proposal. Uses an isolated
+    fixture rather than the real corpus's own draft decision, which changes
+    over time as Lucas accepts or withdraws proposals (see
+    ``reader_support.write_decision_fixture``)."""
 
     def test_reads_as_an_undecided_proposal_with_no_contract_vocabulary(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
-            status, data = _get(base_url, "/api/records/openknowledge-pivot")
-            self.assertEqual(status, 200)
-            self.assertEqual(data["properties"]["status"]["value"], "Proposal — nobody has taken a position yet")
-            self.assertEqual(data["properties"]["status"]["pill"]["tone"], "amber")
-            self.assertIn("30 August 2026", data["properties"]["source"]["value"][0])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_decision_fixture(root)
+            with serve(root, PORT) as base_url:
+                status, data = _get(base_url, f"/api/records/{FIXTURE_PROPOSED_ID}")
+                self.assertEqual(status, 200)
+                self.assertEqual(data["properties"]["status"]["value"], "Proposal — nobody has taken a position yet")
+                self.assertEqual(data["properties"]["status"]["pill"]["tone"], "amber")
+                self.assertIn("30 August 2026", data["properties"]["source"]["value"][0])
 
-            # No contract vocabulary anywhere outside technical_details.
-            surface = json.dumps({k: v for k, v in data.items() if k != "technical_details"})
-            for forbidden in ('"draft"', '"provenance"', '"content_sha256"', ".md"):
-                self.assertNotIn(forbidden, surface, f"{forbidden!r} leaked outside technical_details")
+                # No contract vocabulary anywhere outside technical_details.
+                surface = json.dumps({k: v for k, v in data.items() if k != "technical_details"})
+                for forbidden in ('"draft"', '"provenance"', '"content_sha256"', ".md"):
+                    self.assertNotIn(forbidden, surface, f"{forbidden!r} leaked outside technical_details")
 
     def test_content_sha256_matches_kos_inspect(self) -> None:
-        inspected = subprocess.run(
-            [sys.executable, "-m", "knowledge_os", "inspect", "openknowledge-pivot"],
-            cwd=REPOSITORY,
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        expected = json.loads(inspected.stdout)["content_sha256"]
-        with serve(REPOSITORY, PORT) as base_url:
-            _status, data = _get(base_url, "/api/records/openknowledge-pivot")
-            self.assertEqual(data["technical_details"]["content_sha256"], expected)
-            self.assertEqual(data["technical_details"]["status"], "draft")
-            self.assertEqual(data["technical_details"]["scope"], "project:knowledge-os")
-            self.assertEqual(
-                data["technical_details"]["path"], "projects/knowledge-os/decisions/openknowledge-pivot.md"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_decision_fixture(root)
+            inspected = subprocess.run(
+                [sys.executable, "-m", "knowledge_os", "inspect", FIXTURE_PROPOSED_ID],
+                cwd=root,
+                env={**os.environ, "PYTHONPATH": str(REPOSITORY)},
+                text=True,
+                capture_output=True,
+                check=True,
             )
+            expected = json.loads(inspected.stdout)["content_sha256"]
+            with serve(root, PORT) as base_url:
+                _status, data = _get(base_url, f"/api/records/{FIXTURE_PROPOSED_ID}")
+                self.assertEqual(data["technical_details"]["content_sha256"], expected)
+                self.assertEqual(data["technical_details"]["status"], "draft")
+                self.assertEqual(data["technical_details"]["scope"], f"project:{FIXTURE_PROJECT_ID}")
+                self.assertEqual(
+                    data["technical_details"]["path"],
+                    f"projects/{FIXTURE_PROJECT_ID}/{FIXTURE_PROPOSED_ID}.md",
+                )
 
 
 class StatusAndTrustPillPlacementTests(unittest.TestCase):
@@ -77,11 +97,14 @@ class StatusAndTrustPillPlacementTests(unittest.TestCase):
     next to "Current" would read as the page contradicting itself."""
 
     def test_decision_carries_its_pill_on_status_not_trust(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
-            _status, data = _get(base_url, "/api/records/openknowledge-pivot")
-            self.assertIsNotNone(data["properties"]["status"]["pill"])
-            self.assertEqual(data["properties"]["status"]["pill"]["label"], "Waiting on you")
-            self.assertIsNone(data["properties"]["trust"]["pill"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_decision_fixture(root)
+            with serve(root, PORT) as base_url:
+                _status, data = _get(base_url, f"/api/records/{FIXTURE_PROPOSED_ID}")
+                self.assertIsNotNone(data["properties"]["status"]["pill"])
+                self.assertEqual(data["properties"]["status"]["pill"]["label"], "Waiting on you")
+                self.assertIsNone(data["properties"]["trust"]["pill"])
 
     def test_ordinary_record_carries_its_pill_on_trust_not_status(self) -> None:
         with serve(REPOSITORY, PORT) as base_url:

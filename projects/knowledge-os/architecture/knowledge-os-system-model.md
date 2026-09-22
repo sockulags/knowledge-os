@@ -5,28 +5,28 @@ type: project
 status: active
 scope: project:knowledge-os
 created: '2026-09-12'
-updated: '2026-09-12'
+updated: '2026-09-22'
 provenance:
-  - kind: repository-file
-    reference: SYSTEM.md
-  - kind: repository-file
-    reference: README.md
-  - kind: repository-file
-    reference: indexes/catalog.md
-  - kind: repository-file
-    reference: docs/architecture.md
-  - kind: repository-file
-    reference: knowledge_os/model.py
-  - kind: repository-file
-    reference: knowledge_os/context_policy.py
-  - kind: repository-file
-    reference: knowledge_os/workspace.py
-  - kind: repository-file
-    reference: projects/knowledge-os/README.md
-  - kind: repository-file
-    reference: projects/knowledge-os/architecture/project-layout/README.md
-  - kind: repository-file
-    reference: projects/knowledge-os/decisions/openknowledge-pivot.md
+- kind: repository-file
+  reference: SYSTEM.md
+- kind: repository-file
+  reference: README.md
+- kind: repository-file
+  reference: indexes/catalog.md
+- kind: repository-file
+  reference: docs/architecture.md
+- kind: repository-file
+  reference: knowledge_os/model.py
+- kind: repository-file
+  reference: knowledge_os/context_policy.py
+- kind: repository-file
+  reference: knowledge_os/workspace.py
+- kind: repository-file
+  reference: projects/knowledge-os/README.md
+- kind: repository-file
+  reference: projects/knowledge-os/architecture/project-layout/README.md
+- kind: repository-file
+  reference: projects/knowledge-os/decisions/openknowledge-pivot.md
 ---
 
 # System model
@@ -72,9 +72,11 @@ Durable records without a `verified` date are labeled as draft or active and
 not verified. A `verified` date produces the `verified durable` label. Lifecycle
 status does not verify a claim.
 
-The draft [OpenKnowledge pivot decision](../decisions/openknowledge-pivot.md)
-records an evaluation direction. It is not a current integration or a change
-to the v0.0.1 ownership model.
+The [OpenKnowledge pivot decision](../decisions/openknowledge-pivot.md) was
+withdrawn on 2026-09-22. It never became a current integration or a change to
+the v0.0.1 ownership model; see the draft decision [Keep Knowledge OS
+standalone, built for learning](../decisions/standalone-learning-direction.md)
+for the current direction.
 
 ## Mutation and recovery
 

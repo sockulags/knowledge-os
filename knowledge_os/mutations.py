@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .model import (
     DECISION_ACCEPTANCE_KIND,
+    DECISION_WITHDRAWAL_KIND,
     SHA256_PATTERN,
     Document,
     MetadataError,
@@ -28,7 +29,7 @@ from .workspace import (
     workspace_mutation_lock,
 )
 
-SYSTEM_PROVENANCE_KINDS = {"discovery", DECISION_ACCEPTANCE_KIND}
+SYSTEM_PROVENANCE_KINDS = {"discovery", DECISION_ACCEPTANCE_KIND, DECISION_WITHDRAWAL_KIND}
 IMMUTABLE_UPDATE_FIELDS = ("id", "type", "scope", "created", "record_kind", "status", "supersedes")
 
 
@@ -114,6 +115,16 @@ def _acceptance(reference: str) -> dict[str, object]:
     return {
         "kind": DECISION_ACCEPTANCE_KIND,
         "reference": reference.strip(),
+        "captured": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+
+
+def _withdrawal(reason: str) -> dict[str, object]:
+    if not isinstance(reason, str) or not reason.strip():
+        raise MutationError("--reason must be a non-empty string")
+    return {
+        "kind": DECISION_WITHDRAWAL_KIND,
+        "reference": reason.strip(),
         "captured": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
 
@@ -241,6 +252,36 @@ def accept_decision(
         metadata["updated"] = _today_after(metadata["updated"])
         metadata["provenance"] = [*metadata["provenance"], _acceptance(acceptance_reference)]
         return _write_one(workspace, current, metadata, current.body, "accept a decision")
+
+
+def withdraw_decision(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    reason: str,
+) -> MutationResult:
+    """Retire one proposed decision to archived without accepting it."""
+
+    with workspace_mutation_lock(workspace):
+        _, by_id = _documents_for_mutation(workspace, "withdraw a decision")
+        current = by_id.get(record_id)
+        if current is None:
+            raise MutationError(f"record not found: {record_id}")
+        _assert_expected(current.path, expected_sha256, "--expected-sha256")
+        if current.metadata.get("record_kind") != "decision":
+            raise MutationError(f"record {record_id!r} is not a decision")
+        if current.metadata["status"] != "draft":
+            raise MutationError(
+                f"decision {record_id!r} must be draft before withdrawal; "
+                "retire an active decision with 'kos supersede' instead"
+            )
+
+        metadata = deepcopy(current.metadata)
+        metadata["status"] = "archived"
+        metadata["updated"] = _today_after(metadata["updated"])
+        metadata["provenance"] = [*metadata["provenance"], _withdrawal(reason)]
+        return _write_one(workspace, current, metadata, current.body, "withdraw a decision")
 
 
 def supersede_decision(

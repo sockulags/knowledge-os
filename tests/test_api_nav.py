@@ -5,10 +5,18 @@ health) and the landing page."""
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 import urllib.request
+from pathlib import Path
 
-from reader_support import REPOSITORY, serve
+from reader_support import (
+    FIXTURE_GOVERNING_IDS,
+    FIXTURE_PROPOSED_ID,
+    REPOSITORY,
+    serve,
+    write_decision_fixture,
+)
 
 PORT = 8838
 
@@ -54,19 +62,23 @@ class NavTests(unittest.TestCase):
 
 
 class HomeTests(unittest.TestCase):
-    def test_waiting_and_in_force_match_the_real_corpus(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
-            data = _get(base_url, "/api/home")
-            waiting_ids = {r["id"] for r in data["waiting_on_you"]}
-            in_force_ids = {r["id"] for r in data["in_force"]}
-            self.assertEqual(waiting_ids, {"openknowledge-pivot"})
-            self.assertEqual(
-                in_force_ids,
-                {"conversational-memory-capture", "project-directory-layout", "knowledge-os-reader"},
-            )
-            self.assertEqual(data["subtitle"], "3 decisions currently govern this workspace.")
-            self.assertNotIn("(s)", data["subtitle"])
-            self.assertTrue(any(project["id"] == "knowledge-os" for project in data["projects"]))
+    """Uses an isolated fixture rather than the real corpus's own draft
+    decision, which changes over time as Lucas accepts or withdraws
+    proposals (see ``reader_support.write_decision_fixture``)."""
+
+    def test_waiting_and_in_force_match_the_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_decision_fixture(root)
+            with serve(root, PORT) as base_url:
+                data = _get(base_url, "/api/home")
+                waiting_ids = {r["id"] for r in data["waiting_on_you"]}
+                in_force_ids = {r["id"] for r in data["in_force"]}
+                self.assertEqual(waiting_ids, {FIXTURE_PROPOSED_ID})
+                self.assertEqual(in_force_ids, set(FIXTURE_GOVERNING_IDS))
+                self.assertEqual(data["subtitle"], "3 decisions currently govern this workspace.")
+                self.assertNotIn("(s)", data["subtitle"])
+                self.assertTrue(any(project["id"] == "fixture-decisions-project" for project in data["projects"]))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,11 @@
 # Knowledge OS Reader — v1 plan
 
+> **Note (2026-09-22):** the `openknowledge-pivot` decision referenced below
+> was withdrawn on 2026-09-22. Knowledge OS continues as a standalone project;
+> see the draft decision
+> `projects/knowledge-os/decisions/standalone-learning-direction.md`. This
+> document is kept as-is for historical context and is not rewritten.
+
 Status: accepted. This plan describes a read-only human reading surface over an
 existing Knowledge OS workspace. It changes the frozen v0.0.1 contract, which
 excludes a GUI ([`docs/architecture.md`](../architecture.md)), and is authorized
