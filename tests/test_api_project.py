@@ -13,7 +13,16 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from reader_support import REPOSITORY, create_workspace, serve, write_record
+from reader_support import (
+    FIXTURE_GOVERNING_IDS,
+    FIXTURE_PROJECT_ID,
+    FIXTURE_PROPOSED_ID,
+    REPOSITORY,
+    create_workspace,
+    serve,
+    write_decision_fixture,
+    write_record,
+)
 
 PORT = 8832
 
@@ -27,30 +36,33 @@ def _get(base_url: str, path: str) -> tuple[int, dict]:
 
 
 class RealCorpusProjectTests(unittest.TestCase):
-    """Acceptance criterion 3: the knowledge-os project groups its four
-    decisions as in force now / waiting on you / replaced."""
+    """Acceptance criterion 3: a project groups its decisions as in force
+    now / waiting on you / replaced. Uses an isolated fixture rather than
+    the real corpus's own draft decision, which changes over time as Lucas
+    accepts or withdraws proposals (see
+    ``reader_support.write_decision_fixture``)."""
 
     def test_decisions_group_as_the_plan_describes(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
-            status, data = _get(base_url, "/api/projects/knowledge-os")
-            self.assertEqual(status, 200)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_decision_fixture(root)
+            with serve(root, PORT) as base_url:
+                status, data = _get(base_url, f"/api/projects/{FIXTURE_PROJECT_ID}")
+                self.assertEqual(status, 200)
 
-            governing_ids = {entry["id"] for entry in data["groups"]["governing"]["records"]}
-            proposed_ids = {entry["id"] for entry in data["groups"]["proposed"]["records"]}
-            historical_ids = {entry["id"] for entry in data["groups"]["historical"]["records"]}
+                governing_ids = {entry["id"] for entry in data["groups"]["governing"]["records"]}
+                proposed_ids = {entry["id"] for entry in data["groups"]["proposed"]["records"]}
+                historical_ids = {entry["id"] for entry in data["groups"]["historical"]["records"]}
 
-            self.assertEqual(
-                governing_ids,
-                {"conversational-memory-capture", "project-directory-layout", "knowledge-os-reader"},
-            )
-            self.assertEqual(proposed_ids, {"openknowledge-pivot"})
-            self.assertEqual(historical_ids, set())
+                self.assertEqual(governing_ids, set(FIXTURE_GOVERNING_IDS))
+                self.assertEqual(proposed_ids, {FIXTURE_PROPOSED_ID})
+                self.assertEqual(historical_ids, set())
 
-            # Sec.4/design brief group labels, not the old "GOVERNING NOW".
-            self.assertEqual(data["groups"]["governing"]["header"], "In force now")
-            self.assertEqual(data["groups"]["proposed"]["header"], "Waiting on you")
-            self.assertEqual(data["groups"]["historical"]["header"], "Replaced")
-            self.assertEqual(data["groups"]["historical"]["empty_text"], "No decision has been superseded yet.")
+                # Sec.4/design brief group labels, not the old "GOVERNING NOW".
+                self.assertEqual(data["groups"]["governing"]["header"], "In force now")
+                self.assertEqual(data["groups"]["proposed"]["header"], "Waiting on you")
+                self.assertEqual(data["groups"]["historical"]["header"], "Replaced")
+                self.assertEqual(data["groups"]["historical"]["empty_text"], "No decision has been superseded yet.")
 
     def test_page_tree_includes_decisions_unlike_the_meaning_groups(self) -> None:
         """The sidebar/page tree mirrors the whole project directory

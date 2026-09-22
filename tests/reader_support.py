@@ -23,7 +23,26 @@ from typing import Iterator
 
 import yaml
 
+from knowledge_os.index import rebuild_indexes
+from knowledge_os.workspace import Workspace
+
 REPOSITORY = Path(__file__).resolve().parents[1]
+
+#: Fixed ids for :func:`write_decision_fixture`'s isolated project. Reader
+#: API tests that assert on "the one open proposal" or "N decisions govern
+#: this workspace" behavior must not depend on which draft decision happens
+#: to be live in the real corpus -- the real corpus's draft decisions change
+#: over time as Lucas accepts or withdraws them (the openknowledge-pivot
+#: decision, for example, was withdrawn and replaced by a new draft that
+#: Lucas is expected to accept soon). Those assertions get this isolated,
+#: never-changing fixture instead.
+FIXTURE_PROJECT_ID = "fixture-decisions-project"
+FIXTURE_GOVERNING_IDS = (
+    "fixture-governing-alpha",
+    "fixture-governing-beta",
+    "fixture-governing-gamma",
+)
+FIXTURE_PROPOSED_ID = "fixture-proposed-decision"
 
 MANAGED_DIRECTORIES = (
     "inbox",
@@ -61,6 +80,77 @@ def write_record(root: Path, rel_path: str, metadata: dict, body: str = "Body.\n
     rendered = yaml.safe_dump(metadata, sort_keys=False)
     path.write_text(f"---\n{rendered}---\n\n{body}", encoding="utf-8")
     return path
+
+
+def write_decision_fixture(root: Path) -> None:
+    """Build a small, self-contained, indexed workspace with one project
+    overview, three active ("in force") decisions, and one draft decision
+    waiting on approval ("proposed" / "waiting on you"). See
+    ``FIXTURE_PROJECT_ID`` for why this exists instead of asserting against
+    the real corpus's own draft decisions.
+    """
+
+    create_workspace(root)
+    write_record(
+        root,
+        f"projects/{FIXTURE_PROJECT_ID}/README.md",
+        {
+            "id": FIXTURE_PROJECT_ID,
+            "title": "Fixture decisions project overview",
+            "type": "project",
+            "status": "active",
+            "scope": f"project:{FIXTURE_PROJECT_ID}",
+            "created": "2026-08-29",
+            "updated": "2026-08-29",
+            "provenance": [{"kind": "fixture", "reference": FIXTURE_PROJECT_ID}],
+        },
+        "Fixture decisions project overview.\n",
+    )
+    for governing_id in FIXTURE_GOVERNING_IDS:
+        write_record(
+            root,
+            f"projects/{FIXTURE_PROJECT_ID}/{governing_id}.md",
+            {
+                "id": governing_id,
+                "title": governing_id.replace("-", " ").title(),
+                "type": "project",
+                "record_kind": "decision",
+                "status": "active",
+                "scope": f"project:{FIXTURE_PROJECT_ID}",
+                "created": "2026-08-29",
+                "updated": "2026-08-29",
+                "provenance": [
+                    {
+                        "kind": "decision-acceptance",
+                        "reference": f"conversation:2026-08-29:{governing_id}",
+                        "captured": "2026-08-29T12:00:00Z",
+                    }
+                ],
+            },
+            f"{governing_id} governing body.\n",
+        )
+    write_record(
+        root,
+        f"projects/{FIXTURE_PROJECT_ID}/{FIXTURE_PROPOSED_ID}.md",
+        {
+            "id": FIXTURE_PROPOSED_ID,
+            "title": "Fixture proposed decision",
+            "type": "project",
+            "record_kind": "decision",
+            "status": "draft",
+            "scope": f"project:{FIXTURE_PROJECT_ID}",
+            "created": "2026-08-30",
+            "updated": "2026-08-30",
+            "provenance": [
+                {
+                    "kind": "user-approved-conversation",
+                    "reference": "conversation:2026-08-30:fixture-proposed-decision-approval",
+                }
+            ],
+        },
+        "Fixture proposed decision body.\n",
+    )
+    rebuild_indexes(Workspace(root))
 
 
 def _poll_until_serving(base_url: str, process: subprocess.Popen, timeout: float) -> None:
