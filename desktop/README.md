@@ -129,6 +129,11 @@ limited to the start page and the running core's origin; web links open in
 the system browser, and every other scheme is blocked. Permission requests
 are denied.
 
+The core's write endpoints need a per-process token. The shell passes nothing:
+the UI, served from the core's own origin, reads the token from
+`GET /api/session` and sends it back in the `X-KOS-Write-Token` header. See
+"Local interface write API" in [`docs/architecture.md`](../docs/architecture.md).
+
 ## Development hooks
 
 - `KOS_DESKTOP_WORKSPACE=PATH` opens that knowledge base at startup.

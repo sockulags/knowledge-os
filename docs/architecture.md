@@ -21,9 +21,11 @@ Agentic Work OS.
 
 The product does not include URLs, PDFs, embeddings, semantic search or
 reranking, LLM trust decisions, contradiction or backlink subsystems, arbitrary
-record merging, MCP/API, GUI, cloud or multi-user behavior, a database
-as canonical storage, WAL/journal/transaction infrastructure, or background
-workers. The Codex plugin is a thin distribution surface for the conversational
+record merging, MCP, a remote or shared API, cloud or multi-user behavior, a
+database as canonical storage, WAL/journal/transaction infrastructure, or
+background workers. The local interface (the `kos-read` JSON API and the
+desktop app that shows it) reads one workspace and writes to it only through
+the core mutations described under "Local interface write API". The Codex plugin is a thin distribution surface for the conversational
 capture skill, not a second storage or execution system.
 
 ## Workspace and filesystem
@@ -315,6 +317,66 @@ project overviews, and repository-relative project paths before writing
 `.knowledge-os-project.toml`. Both commands are idempotent, refuse conflicting
 configuration unless `--replace` is supplied, use atomic file replacement, and
 attempt to restore writes after a caught failure.
+
+## Local interface write API
+
+`kos-read` (and the desktop app, which runs the same server) serves a JSON API
+on a loopback address. `GET` routes never write. The write routes call the same
+core functions as `kos capture` and `kos update`, so they share the mutation
+lock, staged whole-corpus validation, exact-revision SHA-256 guard, and index
+refresh described above; `knowledge_os/reader/library.py` is the only reader
+module that calls them. The routes create and edit only `knowledge`,
+`project`, and `memory` records, the types capture creates.
+
+- `GET /api/session` returns `{"write_token": ..., "write_token_header":
+  "X-KOS-Write-Token"}`. The token is random per server process.
+- `POST /api/records` creates one record with capture's rules. Body:
+  `{"metadata": {...}, "body": "...", "project_path": "optional/relative.md"}`.
+  `metadata` holds the frontmatter fields; `created` and `updated` default to
+  today (UTC), and provenance is required. `project_path` has
+  `--project-path` semantics. Decisions are created only as `draft`.
+  Answers `201`.
+- `PATCH /api/records/{id}` edits one record with `kos update`'s rules. Body:
+  `{"expected_sha256": "...", "metadata": {"field": value}, "body": "...",
+  "confirm_non_material": false, "change_reference": "..."}`. Only
+  `expected_sha256` is required. `metadata` replaces the named top-level
+  fields on the revision identified by `expected_sha256` (`null` removes a
+  field), and an omitted `body` keeps the current body. Unless `metadata`
+  sets `updated`, it becomes today or keeps its later current value. Changes
+  to identity, lifecycle, supersession, and system provenance are refused.
+  An accepted decision's body changes only with `confirm_non_material` and
+  `change_reference`. Answers `200`.
+
+A successful write returns `{"id", "status", "path", "content_sha256",
+"index": {"refreshed", "count", "error"}}`. `content_sha256` is the new
+revision's hash, which the next edit sends as `expected_sha256`. If the
+canonical write succeeded but reindexing failed, the write still answers
+`201`/`200` with `index.refreshed: false` and the recovery message in
+`index.error`; run `kos lint` and then `kos index`.
+
+A refused write returns `{"error": KIND, "detail": MESSAGE}` and writes
+nothing. The kinds and statuses are `bad_request` `400` (malformed JSON or
+field types), `forbidden` `403` (origin checks below), `not_found` `404`,
+`conflict` `409` (stale `expected_sha256`; the body adds `current_sha256`),
+`duplicate` `409` (the ID or destination already exists), and `validation`
+`422` (the core rejected the candidate or the resulting corpus; the body adds
+`issues: [{"path", "message"}]` with lint findings when the staged corpus is
+invalid). The message is the same text the CLI prints for the same rule.
+
+Writes are protected against requests caused by web pages the user visits.
+A write must address the server by a loopback host name (`127.0.0.1`,
+`localhost`, or `::1`), which defeats DNS rebinding. It must not carry a
+non-loopback `Origin` or `Sec-Fetch-Site: cross-site`, and it must be
+`application/json` with the process's token in `X-KOS-Write-Token`.
+`GET /api/session` applies the same host and origin checks. No route sends
+CORS headers, so a page on another origin can neither read the token nor
+send the custom header. The UI reads the token from its own origin; the Vite
+dev server's loopback origin passes the same checks through its proxy.
+
+Decision lifecycle actions are not exposed yet. They are meant to follow the
+same shape as `POST /api/records/{id}/accept`, `/withdraw`, and
+`/supersede`, with `expected_sha256` in the JSON body and the same response
+and error mapping.
 
 ## CLI contract
 
