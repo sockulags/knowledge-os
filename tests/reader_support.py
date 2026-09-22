@@ -177,7 +177,7 @@ def _poll_until_serving(base_url: str, process: subprocess.Popen, timeout: float
 
 
 @contextmanager
-def serve(root: Path, port: int, *, timeout: float = 15.0) -> Iterator[str]:
+def serve(root: Path, port: int, *, timeout: float = 15.0, cwd: Path | None = None) -> Iterator[str]:
     """Start ``kos-read --root root --port port`` and yield its base URL.
 
     Polls until the port answers an HTTP request before yielding, and
@@ -185,7 +185,8 @@ def serve(root: Path, port: int, *, timeout: float = 15.0) -> Iterator[str]:
     test raises. Output is captured to a temporary file (not a pipe) so a
     long test session issuing many requests cannot deadlock the child on a
     full pipe buffer; the file is surfaced in the error message if the
-    server never comes up.
+    server never comes up. ``cwd`` sets the child's working directory; it
+    defaults to the caller's own (see the comment below).
     """
 
     environment = os.environ.copy()
@@ -206,6 +207,7 @@ def serve(root: Path, port: int, *, timeout: float = 15.0) -> Iterator[str]:
     process = subprocess.Popen(
         [sys.executable, "-m", "knowledge_os.reader", "--root", str(root), "--port", str(port)],
         env=environment,
+        cwd=cwd,
         stdout=log,
         stderr=subprocess.STDOUT,
         text=True,
