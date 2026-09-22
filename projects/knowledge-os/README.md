@@ -5,7 +5,7 @@ type: project
 status: active
 scope: project:knowledge-os
 created: '2026-08-29'
-updated: '2026-09-12'
+updated: '2026-09-22'
 provenance:
 - kind: project-definition
   reference: conversation:2026-08-29:knowledge-os-product-contract
@@ -31,6 +31,9 @@ and orchestration.
 
 Version 0.0.1 excludes background workers, model-driven trust decisions,
 semantic fact checking, and runtime automation. The
-[OpenKnowledge pivot](decisions/openknowledge-pivot.md) remains a draft
-decision. The proposed reader plan under `docs/plans/` is not an accepted
+[OpenKnowledge pivot](decisions/openknowledge-pivot.md) was withdrawn on
+2026-09-22; Knowledge OS continues as a standalone project. See the draft
+decision [Keep Knowledge OS standalone, built for
+learning](decisions/standalone-learning-direction.md) for the current
+direction. The proposed reader plan under `docs/plans/` is not an accepted
 product contract.

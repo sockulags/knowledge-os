@@ -2,14 +2,18 @@
 id: openknowledge-pivot
 title: Pivot Knowledge OS to OpenKnowledge governance
 type: project
-status: draft
+status: archived
 scope: project:knowledge-os
 record_kind: decision
 created: '2026-08-30'
-updated: '2026-08-30'
+updated: '2026-09-22'
 provenance:
 - kind: user-approved-conversation
   reference: conversation:2026-08-30:openknowledge-pivot-approval
+- kind: decision-withdrawal
+  reference: The owner chose to keep Knowledge OS as a standalone project built for
+    learning rather than pivot onto OpenKnowledge/OKF.
+  captured: '2026-09-22T19:10:22.801854Z'
 ---
 
 ## Decision

@@ -1,5 +1,11 @@
 # OpenKnowledge governance compatibility gate
 
+> **Note (2026-09-22):** the `openknowledge-pivot` decision this gate was
+> written for was withdrawn on 2026-09-22. Knowledge OS continues as a
+> standalone project; see the draft decision
+> `projects/knowledge-os/decisions/standalone-learning-direction.md`. This
+> document is kept as-is for historical context and is not rewritten.
+
 This is the bounded implementation check required by the draft
 `openknowledge-pivot` decision. It is not a broader platform comparison.
 
