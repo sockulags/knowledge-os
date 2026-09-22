@@ -2,7 +2,7 @@
 id: standalone-learning-direction
 title: Keep Knowledge OS standalone, built for learning
 type: project
-status: draft
+status: active
 scope: project:knowledge-os
 record_kind: decision
 created: '2026-09-22'
@@ -10,6 +10,9 @@ updated: '2026-09-22'
 provenance:
 - kind: user-approved-conversation
   reference: conversation:2026-09-22:standalone-learning-direction
+- kind: decision-acceptance
+  reference: conversation:2026-09-22:standalone-learning-direction-accepted
+  captured: '2026-09-22T19:42:24.022182Z'
 related:
 - openknowledge-pivot
 ---
