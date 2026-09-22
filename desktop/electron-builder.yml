@@ -1,0 +1,30 @@
+appId: se.lucasskog.knowledgeos
+productName: Knowledge OS
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!core/*'
+  - '!scripts/*'
+  - '!build-core/**'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{vitest.config.ts,eslint.config.mjs,.eslintcache,.prettierignore,.prettierrc.yaml,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+# The frozen core (npm run build:core) ships next to app.asar as
+# resources/core/kos-core.exe; the shell finds it through process.resourcesPath.
+extraResources:
+  - from: build-core/dist/kos-core
+    to: core
+win:
+  executableName: knowledge-os
+  target: nsis
+nsis:
+  # Version-less artifact name, as in Referat, so a latest-download link never rots.
+  artifactName: knowledge-os-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  # Per-user install without an elevation prompt.
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+npmRebuild: false

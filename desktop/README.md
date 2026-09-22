@@ -6,7 +6,8 @@ runs the Python core (`python -m knowledge_os.reader`, the same server as
 There is no second UI: the only page of its own is a small start page for
 opening or creating a knowledge base and for showing errors.
 
-Packaging and an installer are not part of this folder yet.
+`npm run dist` builds a Windows installer that bundles the core, so the
+installed app needs no Python (see [Building the Windows installer](#building-the-windows-installer)).
 
 ## Requirements
 
@@ -31,10 +32,52 @@ Run these in `desktop/`:
 | `npm run lint` | Runs ESLint with the Prettier rules. |
 | `npm test` | Runs the Vitest unit tests. |
 | `npm run build` | Type-checks and builds into `out/`; `npm start` runs that build. |
+| `npm run build:ui` | Installs `reader-ui/` dependencies and rebuilds the reader UI into `knowledge_os/reader/static/app/`. |
+| `npm run build:core` | Builds the frozen core into `build-core/dist/kos-core/`. |
+| `npm run dist` | Runs the three builds above, then writes the installer to `dist/knowledge-os-setup.exe`. |
+
+## Building the Windows installer
+
+From a clean checkout, in `desktop/`:
+
+```powershell
+npm ci
+npm run dist
+```
+
+This needs Windows, Node.js 22 or newer, and Python 3.11 reachable as
+`py -3.11` (the Python launcher from the python.org installer). No virtual
+environment has to be prepared: `build:core` creates its own in
+`build-core\venv`, installs the dependencies listed in `pyproject.toml`
+(including the `reader` extra) and a pinned PyInstaller into it, and freezes
+Knowledge OS from this checkout with `core\kos-core.spec`. It then runs the
+frozen core once as a smoke test. `build-core\` and `dist\` are git-ignored.
+
+The installer is an unsigned, per-user NSIS installer (no administrator
+prompt) for the app "Knowledge OS". It installs to
+`%LOCALAPPDATA%\Programs\knowledge-os-desktop` (electron-builder names the
+folder after the npm package), adds Start menu and desktop shortcuts, and
+registers an uninstaller under Installed apps. `knowledge-os-setup.exe /S`
+installs silently. Windows SmartScreen warns about
+the unsigned installer on first run. There is no auto-update.
+
+The core is a PyInstaller one-folder build (`resources\core\kos-core.exe`
+next to its `_internal\` folder), not a one-file build: it starts without
+unpacking itself to a temp folder, and it runs as a single process, so the
+process-tree kill and the stdin lifeline below apply to it unchanged.
+`kos-core.exe` accepts the same `-m knowledge_os ARGS` and
+`-m knowledge_os.reader ARGS` forms as Python, so the shell starts it with the
+same arguments in development and in the installed app.
 
 ## Which Python runs the core
 
-The shell tries these in order and uses the first one that is Python 3.11+ and
+The installed app runs its bundled `kos-core.exe` and never looks for Python.
+Setting `KOS_PYTHON` makes an installed app use that interpreter instead,
+which is useful for debugging; the interpreter then needs Knowledge OS
+installed, since an installed app has no checkout to put on `PYTHONPATH`.
+
+When the shell runs from a checkout (`npm run dev` or `npm start`), it tries
+these in order and uses the first one that is Python 3.11+ and
 can import the reader and its dependencies:
 
 1. `KOS_PYTHON`, when set. It is then the only candidate, so a wrong value is
@@ -71,7 +114,8 @@ with `kos init`, and lists the ten most recently opened knowledge bases. The
 list is stored in `recent-workspaces.json` in Electron's user-data folder. The
 File menu has the same actions plus Close Knowledge Base.
 
-An error screen explains a missing Python, a folder that is not a knowledge
+An error screen explains a missing Python (or, in the installed app, a missing
+bundled core), a folder that is not a knowledge
 base, a core that stopped while starting or later, and a refused `kos init`,
 and shows the core's own output. A knowledge base with lint issues still opens;
 the reader shows those issues itself.
