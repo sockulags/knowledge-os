@@ -48,14 +48,33 @@ LIBRARY_MODULE = READER_PACKAGE / "library.py"
 #: are each assigned a different port; this one is 8822.
 PORT = 8822
 
-#: The write paths the decision record's "Boundaries" section and the unit
-#: brief forbid the reader from ever reaching, however indirectly.
+#: The core's write modules. The editable-interface decision lets the
+#: interface write, but only through the core's own mutations and only from
+#: the one adapter: ``library.py`` may import exactly the names in
+#: ``ADAPTER_WRITE_ENTRY_POINTS``; every other reader module, and every other
+#: name, stays forbidden.
 FORBIDDEN_MODULES = {
     "knowledge_os.capture",
     "knowledge_os.ingest",
     "knowledge_os.mutations",
     "knowledge_os.discovery",
     "knowledge_os.documentation_init",
+}
+ADAPTER_WRITE_ENTRY_POINTS = {
+    "knowledge_os.capture": {
+        "CAPTURE_DIRECTORIES",
+        "CaptureError",
+        "CaptureIndexError",
+        "DuplicateRecordError",
+        "capture_record_text",
+    },
+    "knowledge_os.mutations": {
+        "MutationError",
+        "MutationIndexError",
+        "RecordNotFoundError",
+        "StaleRevisionError",
+        "update_record_text",
+    },
 }
 FORBIDDEN_WORKSPACE_NAMES = {
     "atomic_write",
@@ -124,16 +143,29 @@ def knowledge_os_imports(tree: ast.Module) -> set[str]:
     }
 
 
-def forbidden_write_path_violations(tree: ast.Module) -> set[str]:
+def forbidden_write_path_violations(
+    tree: ast.Module, allowed: dict[str, set[str]] | None = None
+) -> set[str]:
     """Every forbidden module or write-path name imported by ``tree``, as a
-    human-readable label. Applies to the whole reader package, including
-    ``library.py``: none of these may be reachable from anywhere in it."""
+    human-readable label. Applies to the whole reader package. ``allowed``
+    names the only ``from <module> import name`` imports a module may make
+    from a forbidden module (``ADAPTER_WRITE_ENTRY_POINTS`` for
+    ``library.py``); a bare ``import <module>`` is never allowed."""
 
+    allowed = allowed or {}
     violations: set[str] = set()
     imported = _imported_modules(tree)
+    bare_imports = {
+        alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    }
     for module in FORBIDDEN_MODULES:
-        if module in imported:
+        if module not in imported:
+            continue
+        extra_names = _names_imported_from(tree, module) - allowed.get(module, set())
+        if module in bare_imports or module not in allowed:
             violations.add(f"import {module}")
+        for name in extra_names:
+            violations.add(f"from {module} import {name}")
     workspace_names = _names_imported_from(tree, "knowledge_os.workspace")
     for name in workspace_names & FORBIDDEN_WORKSPACE_NAMES:
         violations.add(f"from knowledge_os.workspace import {name}")
@@ -264,14 +296,28 @@ class OneAdapterRuleTests(unittest.TestCase):
 class ForbiddenWritePathTests(unittest.TestCase):
     """None of capture/ingest/mutations/discovery/documentation_init, nor
     the five workspace write functions, nor the core's read-write search
-    helpers, are reachable from anywhere in the reader package."""
+    helpers, are reachable from anywhere in the reader package, except the
+    adapter's named capture/update entry points."""
+
+    def test_the_adapter_allowance_does_not_admit_other_names(self) -> None:
+        allowed = ADAPTER_WRITE_ENTRY_POINTS
+        tree = ast.parse("from knowledge_os.mutations import supersede_decision\n")
+        self.assertIn(
+            "from knowledge_os.mutations import supersede_decision",
+            forbidden_write_path_violations(tree, allowed),
+        )
+        tree = ast.parse("import knowledge_os.capture\n")
+        self.assertIn("import knowledge_os.capture", forbidden_write_path_violations(tree, allowed))
+        tree = ast.parse("from knowledge_os.capture import capture_record_text\n")
+        self.assertEqual(forbidden_write_path_violations(tree, allowed), set())
 
     def test_no_file_in_the_reader_package_imports_a_forbidden_write_path(self) -> None:
         offenders: dict[str, set[str]] = {}
         for path in sorted(READER_PACKAGE.rglob("*.py")):
             if "__pycache__" in path.parts:
                 continue
-            violations = forbidden_write_path_violations(_parse(path))
+            allowed = ADAPTER_WRITE_ENTRY_POINTS if path == LIBRARY_MODULE else None
+            violations = forbidden_write_path_violations(_parse(path), allowed)
             if violations:
                 offenders[str(path.relative_to(REPOSITORY))] = violations
         self.assertEqual(offenders, {}, f"forbidden write paths imported: {offenders}")
@@ -601,6 +647,7 @@ class ServeReadOnlyTests(unittest.TestCase):
                     "/f/SYSTEM.md",
                     "/search?q=note",
                     "/everything",
+                    "/api/session",
                     "/api/workspace",
                     "/api/nav",
                     "/api/home",

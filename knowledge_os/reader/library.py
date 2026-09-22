@@ -1,10 +1,16 @@
 """The one module in this package permitted to import ``knowledge_os.*``.
 
 Views consume only the frozen dataclasses and functions defined here. This
-module never parses YAML itself, never reimplements validation, trust
-classification, or lifecycle rules, and never writes to the workspace: it
-calls ``validate_workspace``, ``trust_label``, ``validate_index``, and
-``content_sha256`` and reshapes their output into plain data.
+module never parses YAML itself and never reimplements validation, trust
+classification, or lifecycle rules: it calls ``validate_workspace``,
+``trust_label``, ``validate_index``, and ``content_sha256`` and reshapes
+their output into plain data.
+
+Reads never write to the workspace. The only writes are ``create_record``
+and ``edit_record`` at the end of this module, which hand a complete
+Markdown candidate to the core's own ``capture`` and ``update`` mutations
+(shared lock, staged validation, SHA-256 guard, index refresh) and translate
+the core's errors into one ``WriteError`` with a stable ``kind``.
 
 ``load_library`` runs the full corpus scan and must be called fresh per
 request (see ``app.py``); nothing here caches across calls, so a record
@@ -14,17 +20,41 @@ edited while the server is running is visible on the next request
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
+from knowledge_os.capture import (
+    CAPTURE_DIRECTORIES,
+    CaptureError,
+    CaptureIndexError,
+    DuplicateRecordError,
+    capture_record_text,
+)
 from knowledge_os.context_policy import trust_label
 from knowledge_os.index import validate_index
-from knowledge_os.model import Document, MetadataError, content_sha256, parse_document
+from knowledge_os.model import (
+    SHA256_PATTERN,
+    Document,
+    MetadataError,
+    content_sha256,
+    parse_document,
+    parse_document_text,
+    render_document,
+)
+from knowledge_os.mutations import (
+    MutationError,
+    MutationIndexError,
+    RecordNotFoundError,
+    StaleRevisionError,
+    update_record_text,
+)
 from knowledge_os.skills import Skill, load_skills
-from knowledge_os.workspace import Issue, Workspace, WorkspaceError, validate_workspace
+from knowledge_os.workspace import CorpusValidationError, Issue, Workspace, WorkspaceError, validate_workspace
 
 from . import strings
 
@@ -41,6 +71,10 @@ __all__ = [
     "search",
     "read_repo_document",
     "path_index",
+    "WriteError",
+    "WriteResult",
+    "create_record",
+    "edit_record",
     # Record has no content_sha256 field (not part of the frozen contract);
     # a view that needs one for its technical-details disclosure (acceptance
     # criterion 4) computes it on demand via this re-export, since views may
@@ -470,3 +504,178 @@ def read_repo_document(workspace: Workspace, rel_path: str) -> tuple[str, str]:
         raise LibraryError(strings.REPO_DOCUMENT_UNSAFE.format(path=rel_path, detail=str(exc))) from exc
     title = _first_heading(text) or Path(rel_path).name
     return title, text
+
+
+# ---------------------------------------------------------------------------
+# Writes: create and edit through the core's capture and update mutations
+# ---------------------------------------------------------------------------
+
+
+class WriteError(LibraryError):
+    """A refused write, with a ``kind`` the API maps to one HTTP status.
+
+    ``kind`` is one of ``bad_request``, ``not_found``, ``conflict`` (stale
+    SHA-256), ``duplicate`` (ID or destination already exists), or
+    ``validation`` (the core rejected the candidate or the resulting corpus).
+    ``issues`` holds ``(path, message)`` lint findings when the core reported
+    them; ``current_sha256`` is set on a conflict.
+    """
+
+    def __init__(
+        self,
+        kind: str,
+        detail: str,
+        *,
+        issues: tuple[tuple[str, str], ...] = (),
+        current_sha256: str | None = None,
+    ):
+        super().__init__(detail)
+        self.kind = kind
+        self.detail = detail
+        self.issues = issues
+        self.current_sha256 = current_sha256
+
+
+@dataclass(frozen=True)
+class WriteResult:
+    id: str
+    status: str
+    path: str  # workspace-relative POSIX
+    content_sha256: str
+    index_refreshed: bool
+    index_count: int | None
+    index_error: str | None  # set when the canonical write succeeded but reindexing failed
+
+
+def _today() -> str:
+    return datetime.now(UTC).date().isoformat()
+
+
+def _write_error(exc: Exception) -> WriteError:
+    """Translate one core exception into a WriteError. The core's own message
+    is kept verbatim: it is the same text ``kos`` prints for the same rule."""
+
+    if isinstance(exc, WriteError):
+        return exc
+    if isinstance(exc, DuplicateRecordError):
+        return WriteError("duplicate", str(exc))
+    if isinstance(exc, RecordNotFoundError):
+        return WriteError("not_found", str(exc))
+    if isinstance(exc, StaleRevisionError):
+        return WriteError("conflict", str(exc), current_sha256=exc.actual)
+    if isinstance(exc, CorpusValidationError):
+        return WriteError("validation", str(exc), issues=exc.issues)
+    return WriteError("validation", str(exc))
+
+
+def create_record(
+    workspace: Workspace,
+    *,
+    metadata: dict[str, Any],
+    body: str,
+    project_path: str | None = None,
+) -> WriteResult:
+    """Create one knowledge, project, or memory record with ``kos capture``'s
+    rules: create-only, draft or active (decisions draft only), and for a
+    project record an optional ``project_path`` relative to
+    ``projects/<project-id>/``. ``created`` and ``updated`` default to today
+    (UTC); every other field, including provenance, comes from the caller."""
+
+    candidate = dict(metadata)
+    candidate.setdefault("created", _today())
+    candidate.setdefault("updated", candidate["created"])
+    text = render_document(candidate, body).decode("utf-8")
+    try:
+        result = capture_record_text(
+            workspace,
+            text,
+            project_path=Path(project_path) if project_path is not None else None,
+        )
+    except CaptureIndexError as exc:
+        written = exc.result
+        return WriteResult(written.id, written.status, written.path, written.sha256, False, None, str(exc))
+    except (CaptureError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+    return WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
+
+
+def edit_record(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    changes: Mapping[str, Any],
+    body: str | None = None,
+    confirm_non_material: bool = False,
+    change_reference: str | None = None,
+) -> WriteResult:
+    """Edit one record's body and metadata with ``kos update``'s rules.
+
+    ``changes`` replaces top-level metadata fields (``None`` removes one) on
+    top of the exact revision the caller read, identified by
+    ``expected_sha256``; ``body`` of ``None`` keeps the current body. When
+    ``changes`` does not set ``updated``, it becomes today (UTC) or stays at
+    its current value if that is later. The core then refuses changes to
+    identity, lifecycle, supersession, or system provenance, re-checks the
+    SHA-256 under the workspace lock, and validates the staged corpus.
+    """
+
+    if not SHA256_PATTERN.fullmatch(expected_sha256):
+        raise WriteError("bad_request", "expected_sha256 must be 64 lowercase hex characters")
+    if "id" in changes and changes["id"] != record_id:
+        raise WriteError("validation", "update must not change id; create a new record instead")
+
+    documents, _issues = validate_workspace(workspace)
+    current = next((document for document in documents if document.metadata["id"] == record_id), None)
+    if current is None:
+        raise WriteError("not_found", f"record not found: {record_id}")
+    if current.metadata["type"] not in CAPTURE_DIRECTORIES:
+        # Sources and syntheses keep their ingest provenance and discoveries
+        # their review workflow; the interface edits only what it can create.
+        raise WriteError(
+            "validation",
+            f"record {record_id!r} has type {current.metadata['type']!r}; the interface edits only "
+            f"{', '.join(sorted(CAPTURE_DIRECTORIES))} records",
+        )
+
+    # Merge onto the exact bytes the caller read, never onto a newer revision.
+    raw = current.path.read_bytes()
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != expected_sha256:
+        raise WriteError(
+            "conflict",
+            f"conflict for {current.path.name}: expected sha256 {expected_sha256}, found {actual}; "
+            "the record changed after it was read, so nothing was written",
+            current_sha256=actual,
+        )
+    try:
+        base = parse_document_text(current.path, raw.decode("utf-8"))
+    except (MetadataError, UnicodeDecodeError) as exc:
+        raise WriteError("validation", f"current record cannot be parsed: {exc}") from exc
+
+    metadata = dict(base.metadata)
+    for field, value in changes.items():
+        if value is None:
+            metadata.pop(field, None)
+        else:
+            metadata[field] = value
+    if "updated" not in changes:
+        previous = metadata.get("updated")
+        previous_date = previous if isinstance(previous, date) else date.fromisoformat(str(previous))
+        metadata["updated"] = max(previous_date, datetime.now(UTC).date()).isoformat()
+    text = render_document(metadata, base.body if body is None else body).decode("utf-8")
+
+    try:
+        result = update_record_text(
+            workspace,
+            text,
+            expected_sha256=expected_sha256,
+            confirm_non_material=confirm_non_material,
+            change_reference=change_reference,
+        )
+    except MutationIndexError as exc:
+        written = exc.result
+        return WriteResult(written.id, written.status, written.path, written.sha256, False, None, str(exc))
+    except (MutationError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+    return WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
