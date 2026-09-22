@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Callable
 
 from .model import (
     DECISION_ACCEPTANCE_KIND,
@@ -37,6 +38,19 @@ class MutationError(ValueError):
     """A user-actionable canonical mutation error."""
 
 
+class RecordNotFoundError(MutationError):
+    """No record with the requested ID exists."""
+
+
+class StaleRevisionError(MutationError):
+    """The record's current bytes do not match the SHA-256 the caller read."""
+
+    def __init__(self, message: str, *, expected: str, actual: str):
+        super().__init__(message)
+        self.expected = expected
+        self.actual = actual
+
+
 @dataclass(frozen=True)
 class MutationResult:
     id: str
@@ -44,6 +58,17 @@ class MutationResult:
     status: str
     sha256: str
     index_count: int
+
+
+class MutationIndexError(MutationError):
+    """The canonical write succeeded, but the derived indexes were not rebuilt.
+
+    ``result`` describes the record as written (its ``index_count`` is 0).
+    """
+
+    def __init__(self, message: str, result: MutationResult):
+        super().__init__(message)
+        self.result = result
 
 
 @dataclass(frozen=True)
@@ -87,9 +112,11 @@ def _assert_expected(path: Path, expected: str, option: str) -> None:
     expected = _require_hash(expected, option)
     actual = content_sha256(path)
     if actual != expected:
-        raise MutationError(
+        raise StaleRevisionError(
             f"conflict for {path.name}: expected sha256 {expected}, found {actual}; "
-            "the record changed after it was read, so nothing was written"
+            "the record changed after it was read, so nothing was written",
+            expected=expected,
+            actual=actual,
         )
 
 
@@ -141,17 +168,18 @@ def _write_one(workspace: Workspace, document: Document, metadata: dict[str, obj
     except OSError as exc:
         raise MutationError(f"canonical write failed for {relative}; nothing was replaced: {exc}") from exc
 
-    try:
-        count = refresh_derived_indexes(workspace)
-    except WorkspaceError as exc:
-        raise MutationError(str(exc)) from exc
-    return MutationResult(
+    result = MutationResult(
         id=str(metadata["id"]),
         path=relative,
         status=str(metadata["status"]),
         sha256=content_sha256(document.path),
-        index_count=count,
+        index_count=0,
     )
+    try:
+        count = refresh_derived_indexes(workspace)
+    except WorkspaceError as exc:
+        raise MutationIndexError(str(exc), result) from exc
+    return replace(result, index_count=count)
 
 
 def update_record(
@@ -164,12 +192,54 @@ def update_record(
 ) -> MutationResult:
     """Replace one record only when the caller still has its exact prior bytes."""
 
+    return _update(
+        workspace,
+        lambda: _load_candidate(input_path),
+        expected_sha256=expected_sha256,
+        confirm_non_material=confirm_non_material,
+        change_reference=change_reference,
+    )
+
+
+def update_record_text(
+    workspace: Workspace,
+    text: str,
+    *,
+    expected_sha256: str,
+    confirm_non_material: bool = False,
+    change_reference: str | None = None,
+) -> MutationResult:
+    """Replace one record from complete Markdown text, with the same rules as ``update_record``."""
+
+    def load() -> Document:
+        try:
+            return parse_document_text(Path("candidate.md"), text, check_filename=False)
+        except MetadataError as exc:
+            raise MutationError(f"invalid update candidate: {exc}") from exc
+
+    return _update(
+        workspace,
+        load,
+        expected_sha256=expected_sha256,
+        confirm_non_material=confirm_non_material,
+        change_reference=change_reference,
+    )
+
+
+def _update(
+    workspace: Workspace,
+    load_candidate: Callable[[], Document],
+    *,
+    expected_sha256: str,
+    confirm_non_material: bool,
+    change_reference: str | None,
+) -> MutationResult:
     with workspace_mutation_lock(workspace):
         _, by_id = _documents_for_mutation(workspace, "update a record")
-        candidate = _load_candidate(input_path)
+        candidate = load_candidate()
         current = by_id.get(candidate.metadata["id"])
         if current is None:
-            raise MutationError(f"record not found: {candidate.metadata['id']}")
+            raise RecordNotFoundError(f"record not found: {candidate.metadata['id']}")
         _assert_expected(current.path, expected_sha256, "--expected-sha256")
 
         for field in IMMUTABLE_UPDATE_FIELDS:
@@ -236,7 +306,7 @@ def accept_decision(
         _, by_id = _documents_for_mutation(workspace, "accept a decision")
         current = by_id.get(record_id)
         if current is None:
-            raise MutationError(f"record not found: {record_id}")
+            raise RecordNotFoundError(f"record not found: {record_id}")
         _assert_expected(current.path, expected_sha256, "--expected-sha256")
         if current.metadata.get("record_kind") != "decision":
             raise MutationError(f"record {record_id!r} is not a decision")
@@ -267,7 +337,7 @@ def withdraw_decision(
         _, by_id = _documents_for_mutation(workspace, "withdraw a decision")
         current = by_id.get(record_id)
         if current is None:
-            raise MutationError(f"record not found: {record_id}")
+            raise RecordNotFoundError(f"record not found: {record_id}")
         _assert_expected(current.path, expected_sha256, "--expected-sha256")
         if current.metadata.get("record_kind") != "decision":
             raise MutationError(f"record {record_id!r} is not a decision")
@@ -302,9 +372,9 @@ def supersede_decision(
         old = by_id.get(old_id)
         new = by_id.get(new_id)
         if old is None:
-            raise MutationError(f"record not found: {old_id}")
+            raise RecordNotFoundError(f"record not found: {old_id}")
         if new is None:
-            raise MutationError(f"record not found: {new_id}")
+            raise RecordNotFoundError(f"record not found: {new_id}")
         _assert_expected(old.path, expected_old_sha256, "--expected-old-sha256")
         _assert_expected(new.path, expected_new_sha256, "--expected-new-sha256")
         if old.metadata.get("record_kind") != "decision" or new.metadata.get("record_kind") != "decision":
