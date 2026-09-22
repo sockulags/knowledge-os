@@ -16,7 +16,8 @@ export interface RecentWorkspace {
   lastOpened: string
 }
 
-export type ErrorKind = 'python-missing' | 'invalid-workspace' | 'early-exit' | 'create-failed'
+export type ErrorKind =
+  'python-missing' | 'core-missing' | 'invalid-workspace' | 'early-exit' | 'create-failed'
 
 /** What the start page shows; while a workspace is open the window shows the reader instead. */
 export type ShellState =

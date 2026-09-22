@@ -16,7 +16,7 @@ import {
   resolvePython,
   type CoreFailure
 } from './pythonCore'
-import { findRepoRoot, interpreterCandidates } from './pythonInterpreter'
+import { bundledCore, findRepoRoot, interpreterCandidates } from './pythonInterpreter'
 import { addRecent, loadRecent, saveRecent } from './recentWorkspaces'
 
 // Development and test hook: keep this run's settings apart from others.
@@ -70,6 +70,24 @@ function showError(root: string | null, failure: CoreFailure): void {
 
 async function ensurePython(): Promise<string | null> {
   if (pythonExecutable !== null) return pythonExecutable
+  const bundled = bundledCore({
+    env: process.env,
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    platform: process.platform
+  })
+  if (bundled !== null) {
+    if (!existsSync(bundled)) {
+      showError(null, {
+        error: 'core-missing',
+        message: 'The Knowledge OS core is missing from this installation. Reinstall the app.',
+        detail: `Not found: ${bundled}`
+      })
+      return null
+    }
+    pythonExecutable = bundled
+    return pythonExecutable
+  }
   const candidates = interpreterCandidates({
     env: process.env,
     repoRoot,
