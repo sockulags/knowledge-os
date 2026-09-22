@@ -12,6 +12,7 @@ from .context import ContextRequest, build_context
 from .context_policy import trust_label
 from .context_verify import verify_context_package
 from .documentation_init import DocumentationInitError, init_global, init_repo
+from .init_workspace import init_workspace
 from .discovery import (
     add_discovery,
     inspect_discovery,
@@ -35,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kos", description="Knowledge OS local knowledge tools")
     _root_option(parser)
     commands = parser.add_subparsers(dest="command", required=True)
+
+    init = commands.add_parser("init", help="create a new, empty, valid workspace")
+    init.add_argument("path", type=Path, help="folder to create the workspace in")
+    init.add_argument("--name", help="workspace name (default: derived from the folder name)")
+    init.add_argument("--json", action="store_true", dest="as_json")
 
     ingest = commands.add_parser("ingest", help="ingest one local Markdown or text file")
     ingest.add_argument("path", type=Path)
@@ -246,6 +252,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result, ensure_ascii=False, sort_keys=True))
             else:
                 print(f"Initialized {args.documentation_command}: {len(result['changed_paths'])} file(s) changed")
+            return 0
+        if args.command == "init":
+            created = init_workspace(args.path, name=args.name)
+            if args.as_json:
+                print(json.dumps({"root": str(created)}, ensure_ascii=False, sort_keys=True))
+            else:
+                print(f"Initialized workspace at {created}")
             return 0
         workspace = _workspace(args)
         if args.command == "lint":

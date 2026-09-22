@@ -34,6 +34,26 @@ PATH`. Try `kos ingest examples/sample.md`, then `kos search xylophone --json`,
 and `kos inspect <id>`. `inbox/` is intentionally outside the managed record
 contract.
 
+## Create a separate knowledge base
+
+A knowledge base does not have to live in this repository. `kos init PATH`
+creates an empty, valid workspace in a new or empty folder: the
+`knowledge-os.toml` marker, the managed directories with their README files, a
+`.gitignore` for the SQLite cache, and fresh indexes. It refuses a folder that
+is not empty, that already is a workspace, or that lies inside another
+workspace. The workspace name defaults to the folder name in kebab-case; pass
+`--name` to choose it.
+
+```powershell
+kos init D:\notes\my-kb
+kos --root D:\notes\my-kb lint
+kos-read --root D:\notes\my-kb
+```
+
+Every command, indexing, and the reader work against any workspace root; the
+reader's UI bundle ships inside the installed package. The records in this
+repository remain its own project documentation.
+
 ## Documentation skill
 
 The automatically discoverable `knowledge-os-documentation` skill supports one-time setup and
