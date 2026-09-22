@@ -44,8 +44,18 @@ PORT = 8822
 #: side effect of running Python at all (via `kos lint`, `kos-read`, or this
 #: very test process importing knowledge_os), not of the reader's request
 #: handling, and are already git-ignored (see .gitignore). Any scratch venv
-#: this suite itself creates is excluded the same way.
-_ARTIFACT_DIR_NAMES = {".git", "__pycache__", "knowledge_os.egg-info", ".venv-reader", ".venv", ".pytest_cache"}
+#: this suite itself creates is excluded the same way, as are the git-ignored
+#: Node dependencies and build output of reader-ui/ and desktop/.
+_ARTIFACT_DIR_NAMES = {
+    ".git",
+    "__pycache__",
+    "knowledge_os.egg-info",
+    ".venv-reader",
+    ".venv",
+    ".pytest_cache",
+    "node_modules",
+    "out",
+}
 
 
 def _workspace_snapshot(root: Path) -> dict[str, tuple[bytes, int]]:

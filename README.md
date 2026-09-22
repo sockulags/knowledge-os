@@ -52,7 +52,8 @@ kos-read --root D:\notes\my-kb
 
 Every command, indexing, and the reader work against any workspace root; the
 reader's UI bundle ships inside the installed package. The records in this
-repository remain its own project documentation.
+repository remain its own project documentation. The desktop shell in
+[`desktop/`](desktop/README.md) opens and creates knowledge bases the same way.
 
 ## Documentation skill
 
