@@ -251,15 +251,15 @@ class RelativeLinkResolutionTests(unittest.TestCase):
 
 class RealCorpusSmokeTests(unittest.TestCase):
     """Render the actual, harder documents in this repository. These are
-    the cases called out in the unit brief: docs/architecture.md (10 flat
-    ## headings) and docs/architecture-audit-v0.1.md (52 headings, the
-    harder anchor-collision case)."""
+    the cases called out in the unit brief: docs/architecture.md (11 flat
+    headings since the write API section) and docs/architecture-audit-v0.1.md
+    (52 headings, the harder anchor-collision case)."""
 
-    def test_architecture_doc_renders_without_raising_and_has_ten_headings(self) -> None:
+    def test_architecture_doc_renders_without_raising_and_has_eleven_headings(self) -> None:
         text = (REPOSITORY / "docs" / "architecture.md").read_text(encoding="utf-8")
         html = markdown.render(text)
         self.assertTrue(html)
-        self.assertEqual(len(markdown.headings(text)), 10)
+        self.assertEqual(len(markdown.headings(text)), 11)
 
     def test_architecture_audit_doc_renders_without_raising_and_anchors_are_unique(self) -> None:
         text = (REPOSITORY / "docs" / "architecture-audit-v0.1.md").read_text(encoding="utf-8")

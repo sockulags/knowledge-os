@@ -14,11 +14,14 @@ from __future__ import annotations
 
 from starlette.routing import Route
 
-from . import docs, everything, home, project, record, search, skill, workspace_nav
+from . import docs, everything, home, project, record, search, skill, workspace_nav, write
 
 
 def build_api_routes() -> list[Route]:
     return [
+        Route("/api/session", write.session_view, name="api-session"),
+        Route("/api/records", write.create_view, methods=["POST"], name="api-record-create"),
+        Route("/api/records/{record_id}", write.edit_view, methods=["PATCH"], name="api-record-edit"),
         Route("/api/workspace", workspace_nav.workspace_view, name="api-workspace"),
         Route("/api/nav", workspace_nav.nav_view, name="api-nav"),
         Route("/api/home", home.view, name="api-home"),

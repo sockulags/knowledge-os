@@ -30,6 +30,18 @@ class WorkspaceError(ValueError):
     """A workspace or operation error."""
 
 
+class CorpusValidationError(WorkspaceError):
+    """The intended result of a mutation would leave the corpus invalid.
+
+    ``issues`` holds ``(workspace-relative path, message)`` pairs: the same
+    messages ``kos lint`` prints, located relative to the staged workspace.
+    """
+
+    def __init__(self, message: str, issues: tuple[tuple[str, str], ...]):
+        super().__init__(message)
+        self.issues = issues
+
+
 @dataclass(frozen=True)
 class Issue:
     path: Path
@@ -657,7 +669,17 @@ def staged_documents(workspace: Workspace, operation: str) -> list[Document]:
     documents, issues = validate_workspace(workspace)
     if issues:
         details = "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
-        raise WorkspaceError(f"resulting corpus is invalid while attempting to {operation}:\n{details}")
+        relative: list[tuple[str, str]] = []
+        for issue in issues:
+            try:
+                location = workspace.relative(issue.path)
+            except WorkspaceError:
+                location = str(issue.path)
+            relative.append((location, issue.message))
+        raise CorpusValidationError(
+            f"resulting corpus is invalid while attempting to {operation}:\n{details}",
+            tuple(relative),
+        )
     return documents
 
 

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from .model import Document, MetadataError, parse_document_text, render_document
+from .model import Document, MetadataError, content_sha256, parse_document_text, render_document
 from .workspace import (
     Workspace,
     WorkspaceError,
@@ -34,6 +34,10 @@ class CaptureError(ValueError):
     """A user-actionable approved-record capture error."""
 
 
+class DuplicateRecordError(CaptureError):
+    """The candidate's ID or destination already exists; nothing was written."""
+
+
 @dataclass(frozen=True)
 class CaptureResult:
     id: str
@@ -42,6 +46,18 @@ class CaptureResult:
     path: str
     status: str
     index_count: int
+    sha256: str = ""
+
+
+class CaptureIndexError(CaptureError):
+    """The canonical record was created, but the derived indexes were not rebuilt.
+
+    ``result`` describes the record that now exists (its ``index_count`` is 0).
+    """
+
+    def __init__(self, message: str, result: CaptureResult):
+        super().__init__(message)
+        self.result = result
 
 
 def _load_candidate(input_path: Path) -> Document:
@@ -92,6 +108,13 @@ def _project_relative_path(metadata: dict[str, Any], requested: Path | None) -> 
     return project_directory(metadata["scope"]) / requested
 
 
+def _parse_candidate_text(text: str) -> Document:
+    try:
+        return parse_document_text(Path("candidate.md"), text, check_filename=False)
+    except MetadataError as exc:
+        raise CaptureError(f"invalid capture candidate: {exc}") from exc
+
+
 def capture_record(
     workspace: Workspace,
     input_path: Path,
@@ -100,12 +123,31 @@ def capture_record(
 ) -> CaptureResult:
     """Create one approved durable record under the shared mutation contract."""
 
+    return _capture(workspace, lambda: _load_candidate(input_path), project_path)
+
+
+def capture_record_text(
+    workspace: Workspace,
+    text: str,
+    *,
+    project_path: Path | None = None,
+) -> CaptureResult:
+    """Create one record from complete Markdown text, with the same rules as ``capture_record``."""
+
+    return _capture(workspace, lambda: _parse_candidate_text(text), project_path)
+
+
+def _capture(
+    workspace: Workspace,
+    load_candidate: Callable[[], Document],
+    project_path: Path | None,
+) -> CaptureResult:
     with workspace_mutation_lock(workspace):
         documents, issues = validate_workspace(workspace)
         if issues:
             raise CaptureError(f"cannot capture into an invalid corpus:\n{_details(issues)}")
 
-        candidate = _load_candidate(input_path)
+        candidate = load_candidate()
         _ensure_candidate(candidate)
         metadata = candidate.metadata
         record_id = metadata["id"]
@@ -123,7 +165,7 @@ def capture_record(
         by_id = {document.metadata["id"]: document for document in documents}
         existing = by_id.get(record_id)
         if existing is not None:
-            raise CaptureError(
+            raise DuplicateRecordError(
                 f"duplicate capture id {record_id!r}; already defined at {workspace.relative(existing.path)}"
             )
         if destination.exists() or destination.is_symlink():
@@ -131,7 +173,9 @@ def capture_record(
                 detail = "already exists"
             else:
                 detail = "is not a file"
-            raise CaptureError(f"destination {workspace.relative(destination)} {detail}; refusing overwrite")
+            raise DuplicateRecordError(
+                f"destination {workspace.relative(destination)} {detail}; refusing overwrite"
+            )
 
         canonical = render_document(metadata, candidate.body)
         relative_record = relative_path.as_posix()
@@ -142,7 +186,7 @@ def capture_record(
         try:
             exclusive_write(destination, canonical)
         except FileExistsError as exc:
-            raise CaptureError(
+            raise DuplicateRecordError(
                 f"destination {workspace.relative(destination)} was created by another writer; refusing overwrite"
             ) from exc
         except OSError as exc:
@@ -151,15 +195,17 @@ def capture_record(
                 f"run 'kos lint' before retrying: {exc}"
             ) from exc
 
-        try:
-            index_count = refresh_derived_indexes(workspace)
-        except WorkspaceError as exc:
-            raise CaptureError(str(exc)) from exc
-        return CaptureResult(
+        result = CaptureResult(
             id=record_id,
             type=record_type,
             scope=metadata["scope"],
             path=workspace.relative(destination),
             status=metadata["status"],
-            index_count=index_count,
+            index_count=0,
+            sha256=content_sha256(destination),
         )
+        try:
+            index_count = refresh_derived_indexes(workspace)
+        except WorkspaceError as exc:
+            raise CaptureIndexError(str(exc), result) from exc
+        return replace(result, index_count=index_count)

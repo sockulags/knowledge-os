@@ -109,6 +109,7 @@ def create_app(workspace: Workspace) -> Starlette:
     """
 
     from .api import build_api_routes
+    from .api.write import new_write_token
 
     routes: list[Route | Mount] = list(build_api_routes())
     routes.append(Route("/api/{full_path:path}", _api_not_found))
@@ -122,4 +123,7 @@ def create_app(workspace: Workspace) -> Starlette:
 
     app = Starlette(debug=False, routes=routes)
     app.state.workspace = workspace
+    # Random per process: only a page that can read this server's own
+    # responses (GET /api/session) can write through it.
+    app.state.write_token = new_write_token()
     return app

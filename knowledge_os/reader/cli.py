@@ -37,7 +37,7 @@ def _root_option(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kos-read",
-        description="Local, read-only web reader for a Knowledge OS workspace",
+        description="Local web interface and JSON API for a Knowledge OS workspace",
     )
     _root_option(parser)
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default: 127.0.0.1)")
