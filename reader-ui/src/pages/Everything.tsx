@@ -1,63 +1,75 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router";
-import { ArrowUpDown } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useSearchParams, Link } from "react-router";
+import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { api } from "../api/client";
-import { useApi } from "../hooks/useApi";
 import { PageSkeleton } from "../components/Skeleton";
 import { Callout, BrokenRecordCallout } from "../components/Callout";
 import { Pill } from "../components/Pill";
-import type { EverythingEntry } from "../api/types";
+import type { EverythingPayload } from "../api/types";
 
-type SortKey = "title" | "type_label" | "updated" | "project_title";
+const FILTER_KEYS = ["type", "status", "record_kind", "trust", "scope"] as const;
 
-function sortEntries(entries: EverythingEntry[], key: SortKey, direction: 1 | -1): EverythingEntry[] {
-  return [...entries].sort((a, b) => {
-    const left = (a[key] ?? "") as string;
-    const right = (b[key] ?? "") as string;
-    return left.localeCompare(right) * direction;
-  });
-}
+const SORT_COLUMNS: { key: string; label: string }[] = [
+  { key: "title", label: "Title" },
+  { key: "type", label: "Kind" },
+  { key: "updated", label: "Updated" },
+  { key: "project", label: "Project" },
+];
 
 export function Everything() {
-  const { data, loading, error } = useApi(() => api.everything(), []);
-  const [sortKey, setSortKey] = useState<SortKey>("title");
-  const [direction, setDirection] = useState<1 | -1>(1);
-  const [typeFilter, setTypeFilter] = useState("");
-  const [projectFilter, setProjectFilter] = useState("");
+  const [params, setParams] = useSearchParams();
+  const [data, setData] = useState<EverythingPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const types = useMemo(() => {
-    if (!data) return [];
-    return Array.from(new Set(data.entries.map((entry) => entry.type_label))).sort();
-  }, [data]);
-  const projects = useMemo(() => {
-    if (!data) return [];
-    return Array.from(new Set(data.entries.map((entry) => entry.project_title).filter((v): v is string => Boolean(v)))).sort();
-  }, [data]);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api
+      .everything(`?${params.toString()}`)
+      .then((result) => {
+        // A faster response to an older filter/sort combination must never
+        // overwrite a slower response to the current one (mirrors Search).
+        if (!cancelled) {
+          setData(result);
+          setError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Something went wrong.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [params]);
 
-  const rows = useMemo(() => {
-    if (!data) return [];
-    let entries = data.entries;
-    if (typeFilter) entries = entries.filter((entry) => entry.type_label === typeFilter);
-    if (projectFilter) entries = entries.filter((entry) => entry.project_title === projectFilter);
-    return sortEntries(entries, sortKey, direction);
-  }, [data, typeFilter, projectFilter, sortKey, direction]);
-
-  function toggleSort(key: SortKey) {
-    if (key === sortKey) setDirection((d) => (d === 1 ? -1 : 1));
-    else {
-      setSortKey(key);
-      setDirection(1);
-    }
+  function updateFilter(key: string, value: string) {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
   }
 
-  if (loading) return <PageSkeleton />;
+  function toggleSort(column: string) {
+    const next = new URLSearchParams(params);
+    const currentSort = params.get("sort") || "title";
+    const currentDir = params.get("dir") || "asc";
+    if (currentSort === column) {
+      next.set("dir", currentDir === "asc" ? "desc" : "asc");
+    } else {
+      next.set("sort", column);
+      next.set("dir", "asc");
+    }
+    setParams(next, { replace: true });
+  }
+
+  if (loading && !data) return <PageSkeleton />;
   if (error || !data) return <Callout tone="danger">{error ?? "Could not load the catalog."}</Callout>;
 
-  const columns: { key: SortKey; label: string }[] = [
-    { key: "title", label: "Title" },
-    { key: "type_label", label: "Kind" },
-    { key: "updated", label: "Updated" },
-  ];
+  const sortKey = data.sort;
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-6 py-12 sm:px-10">
@@ -67,62 +79,54 @@ export function Everything() {
       </p>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <select
-          value={typeFilter}
-          onChange={(event) => setTypeFilter(event.target.value)}
-          className="rounded-md border border-(--color-border) bg-(--color-bg) px-2.5 py-1.5 text-sm text-(--color-text-muted)"
-        >
-          <option value="">Kind: Any</option>
-          {types.map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
-        {projects.length > 0 && (
-          <select
-            value={projectFilter}
-            onChange={(event) => setProjectFilter(event.target.value)}
-            className="rounded-md border border-(--color-border) bg-(--color-bg) px-2.5 py-1.5 text-sm text-(--color-text-muted)"
-          >
-            <option value="">Project: Any</option>
-            {projects.map((project) => (
-              <option key={project} value={project}>
-                {project}
-              </option>
-            ))}
-          </select>
-        )}
+        {FILTER_KEYS.map((key) => {
+          const options = data.filter_options[key] ?? [];
+          const label = data.filter_labels[key] ?? key;
+          if (options.length === 0) return null;
+          return (
+            <select
+              key={key}
+              value={params.get(key) ?? ""}
+              onChange={(event) => updateFilter(key, event.target.value)}
+              className="rounded-md border border-(--color-border) bg-(--color-bg) px-2.5 py-1.5 text-sm text-(--color-text-muted)"
+            >
+              <option value="">{label}: Any</option>
+              {options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          );
+        })}
       </div>
 
       <div className="mt-6 overflow-x-auto rounded-lg border border-(--color-border)">
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-(--color-border) bg-(--color-bg-sidebar) text-left text-(--color-text-muted)">
-              {columns.map((column) => (
-                <th key={column.key} className="px-3 py-2 font-medium">
-                  <button type="button" onClick={() => toggleSort(column.key)} className="flex items-center gap-1 hover:text-(--color-text)">
-                    {column.label}
-                    <ArrowUpDown size={12} className={sortKey === column.key ? "opacity-100" : "opacity-30"} />
-                  </button>
-                </th>
-              ))}
+              {SORT_COLUMNS.map((column) => {
+                const active = sortKey === column.key;
+                // An active column shows which way it's sorted (ArrowUp for
+                // ascending, ArrowDown for descending) instead of the same
+                // neutral glyph regardless of direction -- direction was
+                // only readable before by clicking and comparing row order.
+                const Icon = active ? (data.dir === "desc" ? ArrowDown : ArrowUp) : ArrowUpDown;
+                return (
+                  <th key={column.key} className="px-3 py-2 font-medium">
+                    <button type="button" onClick={() => toggleSort(column.key)} className="flex items-center gap-1 hover:text-(--color-text)">
+                      {column.label}
+                      <Icon size={12} className={active ? "opacity-100" : "opacity-30"} />
+                    </button>
+                  </th>
+                );
+              })}
               <th className="px-3 py-2 font-medium">Status</th>
               <th className="px-3 py-2 font-medium">Trust</th>
-              <th className="px-3 py-2 font-medium">
-                <button
-                  type="button"
-                  onClick={() => toggleSort("project_title")}
-                  className="flex items-center gap-1 hover:text-(--color-text)"
-                >
-                  Project
-                  <ArrowUpDown size={12} className={sortKey === "project_title" ? "opacity-100" : "opacity-30"} />
-                </button>
-              </th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((entry) => (
+            {data.entries.map((entry) => (
               <tr key={entry.id} className="border-b border-(--color-border) last:border-0 hover:bg-(--color-bg-hover)">
                 <td className="px-3 py-2">
                   <Link to={`/r/${entry.id}`} className="font-medium hover:underline">
@@ -133,15 +137,18 @@ export function Everything() {
                 <td className="whitespace-nowrap px-3 py-2 text-(--color-text-muted)" title={entry.updated}>
                   {entry.updated_display ?? entry.updated}
                 </td>
+                <td className="px-3 py-2 text-(--color-text-muted)">{entry.project_title ?? "—"}</td>
                 <td className="px-3 py-2">
                   <Pill pill={entry.status_pill} />
                 </td>
                 <td className="px-3 py-2 text-(--color-text-muted)">{entry.trust_phrase}</td>
-                <td className="px-3 py-2 text-(--color-text-muted)">{entry.project_title ?? "—"}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        {data.entries.length === 0 && (
+          <p className="py-8 text-center text-sm text-(--color-text-faint)">No matching records.</p>
+        )}
       </div>
 
       {data.skills.length > 0 && (

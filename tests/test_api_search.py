@@ -174,6 +174,25 @@ class FilterTests(unittest.TestCase):
                 self.assertEqual(data["filters"], {})
                 self.assertEqual({r["id"] for r in data["results"]}, {"apple"})
 
+    def test_record_kind_ordinary_filter_matches_a_source_too(self) -> None:
+        # A source record's own `record_kind` field is never set (it is not
+        # a knowledge/project record); the "Not a decision" filter option is
+        # documented to cover it anyway (SEARCH_RECORD_KIND_FILTER).
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+            write_record(
+                root,
+                "sources/apple-source.md",
+                _record("apple-source", type="source", title="Apple pie source material"),
+            )
+            workspace = Workspace(root)
+            rebuild_indexes(workspace)
+
+            with serve(root, PORT) as base_url:
+                data = _get(base_url, "/api/search?q=apple&record_kind=ordinary")
+                self.assertEqual({r["id"] for r in data["results"]}, {"apple-source"})
+
 
 if __name__ == "__main__":
     unittest.main()

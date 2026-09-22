@@ -44,5 +44,5 @@ export const api = {
   skill: (name: string) => request<SkillPayload>(`/api/skills/${encodeURIComponent(name)}`),
   doc: (path: string) => request<DocPayload>(`/api/docs/${path}`),
   search: (query: string) => request<SearchPayload>(`/api/search${query}`),
-  everything: () => request<EverythingPayload>("/api/everything"),
+  everything: (query: string) => request<EverythingPayload>(`/api/everything${query}`),
 };
