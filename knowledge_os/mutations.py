@@ -82,6 +82,17 @@ class SupersedeResult:
     index_count: int
 
 
+class SupersedeIndexError(MutationError):
+    """Both canonical supersession writes succeeded, but the derived indexes were not rebuilt.
+
+    ``result`` describes the pair as written (its ``index_count`` is 0).
+    """
+
+    def __init__(self, message: str, result: SupersedeResult):
+        super().__init__(message)
+        self.result = result
+
+
 def _details(issues: list[Issue]) -> str:
     return "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
 
@@ -440,16 +451,17 @@ def supersede_decision(
                 f"supersede write failed for {old_relative} and {new_relative}; original bytes were restored: {exc}"
             ) from exc
 
-        try:
-            count = refresh_derived_indexes(workspace)
-        except WorkspaceError as exc:
-            raise MutationError(str(exc)) from exc
-        return SupersedeResult(
+        result = SupersedeResult(
             old_id=old_id,
             new_id=new_id,
             old_status="superseded",
             new_status="active",
             old_sha256=content_sha256(old.path),
             new_sha256=content_sha256(new.path),
-            index_count=count,
+            index_count=0,
         )
+        try:
+            count = refresh_derived_indexes(workspace)
+        except WorkspaceError as exc:
+            raise SupersedeIndexError(str(exc), result) from exc
+        return replace(result, index_count=count)
