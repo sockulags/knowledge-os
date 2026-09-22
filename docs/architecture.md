@@ -322,7 +322,8 @@ attempt to restore writes after a caught failure.
 
 `kos-read` (and the desktop app, which runs the same server) serves a JSON API
 on a loopback address. `GET` routes never write. The write routes call the same
-core functions as `kos capture` and `kos update`, so they share the mutation
+core functions as `kos capture`, `kos update`, `kos decision accept`, `kos
+decision withdraw`, and `kos supersede`, so they share the mutation
 lock, staged whole-corpus validation, exact-revision SHA-256 guard, and index
 refresh described above; `knowledge_os/reader/library.py` is the only reader
 module that calls them. The routes create and edit only `knowledge`,
@@ -377,10 +378,55 @@ writes: a middleware in front of the whole route table refuses any request
 whose `Host` is not loopback, so DNS rebinding can't be used to read the
 JSON API or the served SPA either.
 
-Decision lifecycle actions are not exposed yet. They are meant to follow the
-same shape as `POST /api/records/{id}/accept`, `/withdraw`, and
-`/supersede`, with `expected_sha256` in the JSON body and the same response
-and error mapping.
+The decision lifecycle routes call the same core functions as `kos decision
+accept`, `kos decision withdraw`, and `kos supersede`, with the same guard,
+response, and error mapping. The core's refusals (not a decision, wrong
+lifecycle state, missing `supersedes` declaration, competing replacement)
+answer `422 validation`.
+
+- `POST /api/records/{id}/accept` makes draft decision `id` active. Body:
+  `{"expected_sha256": "..."}`. The acceptance reference is
+  `interface:<UTC timestamp>:accept`.
+- `POST /api/records/{id}/withdraw` archives draft decision `id`. Body:
+  `{"expected_sha256": "...", "reason": "..."}`. `reason` is required and
+  becomes the `decision-withdrawal` provenance reference.
+- `POST /api/records/{id}/supersede` is called on the draft replacement,
+  which must declare `supersedes: [old_id]`: `id` becomes active and
+  `old_id` becomes superseded. Body: `{"expected_sha256": "<draft hash>",
+  "old_id": "...", "old_expected_sha256": "<active decision hash>"}`. The
+  acceptance reference is `interface:<UTC timestamp>:supersede`. The response
+  describes the replacement and adds `replaced: {"id", "status", "path",
+  "content_sha256"}` for the retired decision. A reindex failure after both
+  canonical writes is reported in `index` like any other write.
+
+`POST /api/preview` renders unsaved editor text for the preview toggle:
+`{"body": "...", "path": "optional record path for link resolution"}`
+answers `{"html": ...}`, rendered the way the record page renders a saved
+body. It writes nothing but requires the same guard and token.
+
+`GET /api/records/{id}` carries an `editing` object for the editor, apart
+from the reader's prose fields: `editable` (the record is a type the routes
+edit), `raw_body` and `metadata` (`title`, `tags`, `related`, `sources`)
+read from the same bytes as `content_sha256`, `path`, `project_id`,
+`folder` (the record's folder below its project directory),
+`body_change_needs_confirmation` (an accepted decision's body changes only
+as a confirmed non-material edit), and `decision_actions` (`null` for a
+non-decision, otherwise `accept`, `withdraw`, `propose_replacement`, and
+`supersede`, which names the active decision a draft replacement would
+retire with its current `content_sha256`). `decision_actions` only decides
+which buttons the interface shows; the core re-checks every precondition.
+
+Records authored in the interface carry provenance
+`{"kind": "interface-authored", "reference": "interface:<UTC
+timestamp>:create", "captured": "<UTC timestamp>"}`. No existing kind
+fits: `user-approved-conversation` and `user-request` describe content an
+agent wrote from a conversation, while this content was typed by the person
+directly. The kind is opaque to the core, like every provenance kind except
+`record`, `discovery`, `decision-acceptance`, and `decision-withdrawal`, and
+the interface uses it only when creating a record. Edits add no provenance,
+as with `kos update`; Git history records them. A confirmed non-material
+edit of an accepted decision body gets change reference
+`interface:<UTC timestamp>:edit`.
 
 ## CLI contract
 

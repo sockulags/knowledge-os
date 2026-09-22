@@ -22,6 +22,12 @@ def build_api_routes() -> list[Route]:
         Route("/api/session", write.session_view, name="api-session"),
         Route("/api/records", write.create_view, methods=["POST"], name="api-record-create"),
         Route("/api/records/{record_id}", write.edit_view, methods=["PATCH"], name="api-record-edit"),
+        Route("/api/records/{record_id}/accept", write.accept_view, methods=["POST"], name="api-record-accept"),
+        Route("/api/records/{record_id}/withdraw", write.withdraw_view, methods=["POST"], name="api-record-withdraw"),
+        Route(
+            "/api/records/{record_id}/supersede", write.supersede_view, methods=["POST"], name="api-record-supersede"
+        ),
+        Route("/api/preview", write.preview_view, methods=["POST"], name="api-preview"),
         Route("/api/workspace", workspace_nav.workspace_view, name="api-workspace"),
         Route("/api/nav", workspace_nav.nav_view, name="api-nav"),
         Route("/api/home", home.view, name="api-home"),
