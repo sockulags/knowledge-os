@@ -3,10 +3,10 @@ id: knowledge-os-reader
 title: Read-only reader for Knowledge OS
 type: project
 record_kind: decision
-status: active
+status: superseded
 scope: project:knowledge-os
 created: '2026-09-12'
-updated: '2026-09-12'
+updated: '2026-09-22'
 provenance:
 - kind: user-approved-conversation
   reference: conversation:2026-09-12:knowledge-os-reader-planning
