@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "knowledge-os"
-version = "0.0.1"
+version = "0.1.0"
 description = "Local-first filesystem-native durable knowledge tools"
 requires-python = ">=3.11"
 dependencies = ["PyYAML>=6,<7"]
