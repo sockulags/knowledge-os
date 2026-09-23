@@ -7,10 +7,14 @@ import { Sidebar } from "./Sidebar";
 import { QuickFind } from "./QuickFind";
 import { ThemeToggle } from "./ThemeToggle";
 import { ScrollToTop } from "./ScrollToTop";
+import { SyncBar, SyncFailureBanner } from "./SyncBar";
+import { useSync, type SyncState } from "../hooks/useSync";
 
 export interface ShellContext {
   /** Reload the sidebar after a write changed titles or added a page. */
   refreshNav: () => void;
+  /** Git status for the status line and the sync page. */
+  sync: SyncState;
 }
 
 export function useShell(): ShellContext {
@@ -26,13 +30,25 @@ export function Shell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [quickFindOpen, setQuickFindOpen] = useState(false);
 
-  const refreshNav = useCallback(() => {
+  // Bumped after a sync pulls changes, which remounts the page so it
+  // re-reads what the pull changed.
+  const [dataVersion, setDataVersion] = useState(0);
+
+  const loadNav = useCallback(() => {
     api.nav().then(setNav).catch(() => setNav(null));
   }, []);
 
+  const sync = useSync(
+    useCallback(() => {
+      loadNav();
+      setDataVersion((value) => value + 1);
+    }, [loadNav]),
+  );
+  const refreshNav = loadNav;
+
   useEffect(() => {
-    refreshNav();
-  }, [refreshNav]);
+    loadNav();
+  }, [loadNav]);
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
@@ -101,10 +117,14 @@ export function Shell() {
               {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
             </button>
           </div>
-          <ThemeToggle />
+          <div className="flex min-w-0 items-center gap-2">
+            <SyncBar sync={sync} />
+            <ThemeToggle />
+          </div>
         </header>
-        <main>
-          <Outlet context={{ refreshNav } satisfies ShellContext} />
+        <SyncFailureBanner sync={sync} />
+        <main key={dataVersion}>
+          <Outlet context={{ refreshNav, sync } satisfies ShellContext} />
         </main>
       </div>
 

@@ -205,10 +205,20 @@ export interface WriteResult {
   path: string;
   content_sha256: string;
   index: { refreshed: boolean; count: number | null; error: string | null };
+  /** The local Git commit made for this write, or why none was made. */
+  commit: CommitInfo | null;
+}
+
+export interface CommitInfo {
+  committed: boolean;
+  sha: string | null;
+  message: string | null;
+  skipped: string | null;
+  detail: string | null;
 }
 
 export interface SupersedeResult extends WriteResult {
-  replaced: Omit<WriteResult, "index">;
+  replaced: Omit<WriteResult, "index" | "commit">;
 }
 
 export interface WriteFailure {
@@ -216,6 +226,60 @@ export interface WriteFailure {
   detail: string;
   current_sha256?: string;
   issues?: { path: string; message: string }[];
+}
+
+/** GET /api/sync/status: the repository as it is on this computer; never
+ * contacts the remote. */
+export interface SyncStatus {
+  available: boolean;
+  reason: string | null;
+  detail: string | null;
+  branch: string | null;
+  upstream: string | null;
+  remotes: string[];
+  ahead: number;
+  behind: number;
+  uncommitted: number;
+  merging: boolean;
+  conflicts: number;
+  last_sync: string | null;
+  identity: { name: string; email: string } | null;
+  warnings: string[];
+}
+
+export interface SyncResult {
+  state: "synced";
+  pulled: number;
+  pushed: number;
+  reindexed: boolean;
+  index_error: string | null;
+  status: SyncStatus;
+}
+
+export interface SyncFailure extends WriteFailure {
+  conflicts?: string[];
+  status?: SyncStatus;
+}
+
+export interface ConflictFile {
+  path: string;
+  ours: string | null;
+  theirs: string | null;
+  working: string | null;
+  binary: boolean;
+  resolved: boolean;
+}
+
+export interface ConflictsPayload {
+  files: ConflictFile[];
+  status: SyncStatus;
+}
+
+export interface ResolveResult {
+  path: string;
+  remaining: string[];
+  issues: { path: string; message: string }[];
+  status: SyncStatus;
 }
 
 export interface CompareSide {
