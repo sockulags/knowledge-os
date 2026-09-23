@@ -15,6 +15,7 @@ import {
   currentUserSid,
   removeRuntimeFile,
   runtimeFilePath,
+  systemTool,
   writeRuntimeFile,
   type RuntimeInfo
 } from './runtimeFile'
@@ -99,7 +100,10 @@ describe('runtime file for agents', () => {
     'grants access on Windows to the current user only, without inherited entries',
     () => {
       writeRuntimeFile(file, info)
-      const acl = spawnSync('icacls', [file], { encoding: 'utf-8', windowsHide: true }).stdout
+      const acl = spawnSync(systemTool('icacls'), [file], {
+        encoding: 'utf-8',
+        windowsHide: true
+      }).stdout
       const entries = acl
         .split(/\r?\n/)
         .map((line) => line.replace(file, '').trim())
@@ -107,7 +111,9 @@ describe('runtime file for agents', () => {
       expect(entries).toHaveLength(1)
       expect(entries[0]).toMatch(/:\(F\)$/)
       expect(entries[0]).not.toMatch(/\(I\)/)
-      const sid = spawnSync('icacls', [file, '/save', join(dir, 'acl.txt')], { windowsHide: true })
+      const sid = spawnSync(systemTool('icacls'), [file, '/save', join(dir, 'acl.txt')], {
+        windowsHide: true
+      })
       expect(sid.status).toBe(0)
       const saved = readFileSync(join(dir, 'acl.txt'), 'utf16le')
       expect(saved).toContain(currentUserSid())
@@ -134,5 +140,17 @@ describe('runtime file for agents', () => {
     writeFileSync(file, '{"core_pid": 42', 'utf-8')
     expect(removeRuntimeFile(file, info.corePid)).toBe(true)
     expect(existsSync(file)).toBe(false)
+  })
+})
+
+describe('systemTool', () => {
+  it('resolves Windows tools under System32 instead of whatever PATH finds first', () => {
+    expect(systemTool('whoami', { SystemRoot: 'C:\\Windows' })).toBe(
+      join('C:\\Windows', 'System32', 'whoami.exe')
+    )
+    expect(systemTool('icacls', { SYSTEMROOT: 'D:\\Win' })).toBe(
+      join('D:\\Win', 'System32', 'icacls.exe')
+    )
+    expect(systemTool('whoami', {})).toBe(join('C:\\Windows', 'System32', 'whoami.exe'))
   })
 })

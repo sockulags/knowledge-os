@@ -57,10 +57,19 @@ export function runtimeJson(info: RuntimeInfo, now: Date = new Date()): Record<s
 
 let cachedSid: string | null = null
 
+/**
+ * A Windows system tool by full path. By bare name, PATH can resolve `whoami`
+ * to Git for Windows' GNU coreutils, which rejects the Windows switches.
+ */
+export function systemTool(name: string, env: NodeJS.ProcessEnv = process.env): string {
+  const systemRoot = env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows'
+  return join(systemRoot, 'System32', `${name}.exe`)
+}
+
 /** The current user's SID, from `whoami /user`. */
 export function currentUserSid(): string {
   if (cachedSid !== null) return cachedSid
-  const result = spawnSync('whoami', ['/user', '/fo', 'csv', '/nh'], {
+  const result = spawnSync(systemTool('whoami'), ['/user', '/fo', 'csv', '/nh'], {
     encoding: 'utf-8',
     windowsHide: true
   })
@@ -75,7 +84,7 @@ export function currentUserSid(): string {
 /** Remove inherited access and grant full control to the current user only. */
 export function restrictToCurrentUser(file: string): void {
   const result = spawnSync(
-    'icacls',
+    systemTool('icacls'),
     [file, '/inheritance:r', '/grant:r', `*${currentUserSid()}:F`],
     { encoding: 'utf-8', windowsHide: true }
   )
