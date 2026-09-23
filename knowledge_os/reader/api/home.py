@@ -73,5 +73,12 @@ async def view(request: Request) -> Response:
             "in_force": in_force_json,
             "recently_changed": recent_json,
             "projects": projects,
+            "sections": {
+                "waiting_on_you": strings.HOME_WAITING_HEADER,
+                "in_force": strings.HOME_IN_FORCE_HEADER,
+                "recently_changed": strings.HOME_RECENT_HEADER,
+                "projects": strings.HOME_PROJECTS_HEADER,
+            },
+            "decide_link": strings.HOME_DECIDE_LINK,
         }
     )

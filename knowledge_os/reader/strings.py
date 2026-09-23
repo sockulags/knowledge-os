@@ -59,7 +59,7 @@ TRUST_LABELS: dict[str, str] = {
     # Covers proposed/rejected/promoted discoveries alike; DISCOVERY_STATUS
     # below gives the sharper per-status phrasing the plan actually asks for.
     "discovery observation; not default context": "Observation, not reviewed as knowledge",
-    "draft durable; not verified": "Draft, not confirmed",
+    "draft durable; not verified": "Work in progress, not confirmed",
     "active durable; not verified": "In use, but never confirmed",
     "verified durable": "Confirmed {date}",
     # Collapses superseded/deprecated/archived; DECISION_STATUS and
@@ -68,21 +68,28 @@ TRUST_LABELS: dict[str, str] = {
     "operational guidance": "Operational guidance for agents, not a record of knowledge.",
 }
 
-#: Decision status -> sentence. "active" needs ``{date}`` (Record.accepted_at,
+#: Decision status -> sentence, in the decision vocabulary every view shares
+#: (see "Decision vocabulary" below): Proposed -> In force -> Replaced, or
+#: Proposed -> Withdrawn. "active" needs ``{date}`` (Record.accepted_at,
 #: formatted by the view); "superseded" needs ``{title}`` and ``{date}`` of
-#: the replacement (resolve via the outbound/inbound "supersedes" relation).
+#: the replacement (resolve via the outbound/inbound "supersedes" relation);
+#: "archived" needs ``{date}`` of the withdrawal.
 DECISION_STATUS: dict[str, str] = {
-    "draft": "Proposal — nobody has taken a position yet",  # verbatim, Sec.5
+    "draft": "Proposed — not in force until you accept it",
     "active": "In force — accepted {date}",  # verbatim pattern, Sec.5 ("accepted 30 August")
     "superseded": "Replaced by {title} on {date}",  # verbatim pattern, Sec.5
+    "archived": "Withdrawn on {date}, without being accepted",
 }
+
+#: A withdrawn decision with no withdrawal date to show.
+DECISION_WITHDRAWN_UNDATED = "Withdrawn, without being accepted"
 
 #: Status label for non-decision durable records (ordinary knowledge/project,
 #: memory, synthesis). "superseded" is rare outside decisions but the schema
 #: allows it, so a template is provided for completeness.
 LIFECYCLE_STATUS: dict[str, str] = {
     "active": "Current",  # verbatim, Sec.5 ("ordinary active")
-    "draft": "Draft",  # extrapolation: no non-decision draft row is quoted
+    "draft": "Work in progress",  # extrapolation: no non-decision draft row is quoted
     "deprecated": "Discouraged",  # verbatim, Sec.5
     "archived": "Archived",  # verbatim, Sec.5
     "superseded": "Replaced by {title} on {date}",  # extrapolation, mirrors DECISION_STATUS
@@ -95,7 +102,7 @@ DISCOVERY_STATUS: dict[str, str] = {
     "proposed": "Unconfirmed observation",  # verbatim, Sec.5
     "retained": "Observation — reviewed, but not knowledge",  # verbatim, Sec.5
     "rejected": "Dismissed observation",  # verbatim, Sec.5
-    "promoted": "Promoted — folded into a new draft record",  # extrapolation
+    "promoted": "Promoted — used to start a new page",  # extrapolation
 }
 
 #: "scope: general" (verbatim, Sec.5). "scope: project:<slug>" has no static
@@ -153,7 +160,7 @@ PROVENANCE_ACCEPTED_IN_APP = "Accepted in this app on {date}"
 #: are -- a provenance ``reference`` is an open vocabulary that can itself
 #: be a file path, and the reading path never shows one. The exact kind and
 #: reference stay one click away, in Technical details.
-PROVENANCE_KIND_FALLBACK = "Recorded provenance, not otherwise described here"
+PROVENANCE_KIND_FALLBACK = "From a source this app does not describe yet"
 
 # ---------------------------------------------------------------------------
 # Index health (library.IndexHealth.message; see Sec.6 "Stale index" /
@@ -236,7 +243,7 @@ STUB_NOT_IMPLEMENTED = "This view is not implemented yet."
 # ---------------------------------------------------------------------------
 
 START_RECENTLY_CHANGED = "Recently changed"
-START_OPEN_DECISIONS = "Open decisions awaiting a position"
+START_OPEN_DECISIONS = "Proposed decisions waiting on you"
 START_PROJECTS = "Projects"
 
 # ---------------------------------------------------------------------------
@@ -247,7 +254,7 @@ START_PROJECTS = "Projects"
 #: which group) belongs to views/project.py, not here.
 PROJECT_GROUP_HEADERS: dict[str, str] = {
     "governing": "In force now",
-    "proposed": "Waiting on you",
+    "proposed": "Proposed — waiting on you",
     "historical": "Replaced",
     "observations": "Observations",
     "raw_material": "Raw material",
@@ -259,8 +266,8 @@ PROJECT_GROUP_HEADERS: dict[str, str] = {
 #: Never hidden."). "historical" and "observations" are verbatim, Sec.6.
 PROJECT_GROUP_EMPTY: dict[str, str] = {
     "governing": "Nothing currently governs this project.",
-    "proposed": "No proposal is waiting on a decision.",
-    "historical": "No decision has been superseded yet.",  # verbatim, Sec.6
+    "proposed": "No proposed decision is waiting on you.",
+    "historical": "No decision has been replaced yet.",
     "observations": "No agent has left an observation here.",  # verbatim, Sec.6
     "raw_material": "No raw material has been captured for this project.",
     "related_general": "No general knowledge, memory, or skill is linked here yet.",
@@ -279,9 +286,9 @@ DOCUMENT_TOC_HEADER = "On this page"
 # Lineage / compare view
 # ---------------------------------------------------------------------------
 
-LINEAGE_SUPERSEDES = "Supersedes"
-LINEAGE_SUPERSEDED_BY = "Superseded by"
-LINEAGE_NO_COMPARISON = "This record has no supersession lineage to compare."
+LINEAGE_SUPERSEDES = "Replaces"
+LINEAGE_SUPERSEDED_BY = "Replaced by"
+LINEAGE_NO_COMPARISON = "This decision has not replaced another one, and nothing has replaced it."
 
 # ---------------------------------------------------------------------------
 # Search view
@@ -345,7 +352,7 @@ DOCUMENT_PROVENANCE_MORE = "{count} more"
 #: it, so this is an extrapolation in the same voice as the rest of Sec.5).
 DOCUMENT_SUPERSEDED_UNKNOWN = "Replaced, but the replacement could not be found."
 
-DOCUMENT_RELATED_EMPTY = "This record points at nothing else."
+DOCUMENT_RELATED_EMPTY = "This page links to nothing else."
 DOCUMENT_INBOUND_EMPTY = "No other record points here yet."
 
 DOCUMENT_NOT_FOUND_TITLE = "Record not found"
@@ -425,7 +432,7 @@ START_SKILLS = "Skills"
 #: PROJECT_GROUP_EMPTY's rule, kept separate because these are the start
 #: page's own groups, not a project's meaning-groups).
 START_NO_RECENT_CHANGES = "Nothing has changed yet."
-START_NO_OPEN_DECISIONS = "No decision is waiting on a position."
+START_NO_OPEN_DECISIONS = "No proposed decision is waiting on you."
 START_NO_PROJECTS = "No project exists yet."
 START_NO_SKILLS = "No skill is installed yet."
 
@@ -490,10 +497,10 @@ SEARCH_TYPE_FILTER: dict[str, str] = {
 #: status to type). Deliberately reworded so the raw token never surfaces:
 #: "draft" -> "Not yet decided", not "Draft".
 SEARCH_STATUS_FILTER: dict[str, str] = {
-    "draft": "Not yet decided",
-    "active": "Currently active",
+    "draft": "Proposed or work in progress",
+    "active": "In force or current",
     "deprecated": "Discouraged",
-    "archived": "Archived",
+    "archived": "Withdrawn or archived",
     "superseded": "Replaced",
     "proposed": "Unconfirmed observation",
     "retained": "Reviewed observation",
@@ -688,7 +695,7 @@ LINEAGE_MISSING_TARGET = "{record_id} is referenced here but does not exist in t
 #: The edge resolves to a real record, but that record is not a decision (a
 #: corpus that fails `kos lint` can still have this shape). {title} is the
 #: resolved record's title.
-LINEAGE_TARGET_NOT_DECISION = "{title} exists but is not a decision, so it cannot be compared as a supersession."
+LINEAGE_TARGET_NOT_DECISION = "{title} exists but is not a decision, so the two cannot be compared."
 
 #: An "active" decision with no decision-acceptance provenance to date it.
 #: In a valid corpus this never happens (is_decision and status == "draft" is
@@ -724,7 +731,8 @@ LINEAGE_SUMMARY = "{added} {noun} added, {removed} removed, {changed} reworded."
 #: grey tone but read more precisely next to their own record.
 PILL_LABELS: dict[str, str] = {
     "in_force": "In force",
-    "waiting": "Waiting on you",
+    "proposed": "Proposed",
+    "withdrawn": "Withdrawn",
     "unconfirmed": "Unconfirmed",
     "replaced": "Replaced",
     "discouraged": "Discouraged",
@@ -746,18 +754,21 @@ HOME_SUBTITLE_SINGULAR = "1 decision currently governs this workspace."
 HOME_SUBTITLE_PLURAL = "{count} decisions currently govern this workspace."
 HOME_SUBTITLE_NONE = "No decision governs this workspace yet."
 
-HOME_WAITING_HEADER = "Waiting on you"
+HOME_WAITING_HEADER = "Proposed — waiting on you"
 HOME_IN_FORCE_HEADER = "In force"
 HOME_RECENT_HEADER = "Recently changed"
 HOME_PROJECTS_HEADER = "Projects"
-HOME_NO_WAITING = "Nothing is waiting on a decision."
+HOME_NO_WAITING = "No proposed decision is waiting on you."
 HOME_NO_IN_FORCE = "No decision is in force yet."
 HOME_NO_RECENT = "Nothing has changed yet."
 
 #: A decision's lineage callout at the top of its document page ("Document"
 #: view). {title} is the other decision's title, {date} its effective date.
 LINEAGE_CALLOUT_SUPERSEDED_BY = "Replaced by {title} on {date}."
-LINEAGE_CALLOUT_SUPERSEDES = "Supersedes {title}."
+#: A proposed decision that names the decision it would replace, and an
+#: accepted one that already replaced it.
+LINEAGE_CALLOUT_WOULD_REPLACE = "Would replace {title} once accepted."
+LINEAGE_CALLOUT_SUPERSEDES = "Replaced {title}."
 LINEAGE_COMPARE_LINK = "Compare"
 
 DOCUMENT_LINKED_FROM_HEADER = "Linked from"
@@ -781,3 +792,161 @@ SKILL_OPERATIONAL_GUIDANCE = "Operational guidance for agents."
 NOT_FOUND_TITLE = "Not found"
 NOT_FOUND_BODY = "Nothing lives at this address any more, or it never did."
 NOT_FOUND_HOME_LINK = "Back home"
+
+# ---------------------------------------------------------------------------
+# Decision vocabulary (issues #53 and #54)
+#
+# One set of words for a decision's lifecycle, used by every view that shows
+# a decision: the sidebar, home, a project, a decision page, its dialogs,
+# the Decide inbox, and the search filters.
+#
+#   Proposed  ->  In force  ->  Replaced
+#       \
+#        ->  Withdrawn
+#
+# The contract values stay exact in Technical details only: draft = Proposed,
+# active = In force, superseded = Replaced, archived = Withdrawn. Actions are
+# Accept, Accept as replacement, Withdraw, and Replace with... (propose a new
+# decision that would replace one in force).
+# ---------------------------------------------------------------------------
+
+DECISION_STATE_LABELS: dict[str, str] = {
+    "draft": "Proposed",
+    "active": "In force",
+    "superseded": "Replaced",
+    "archived": "Withdrawn",
+}
+
+#: Button labels and small words for the decision actions, on a decision
+#: page and in the inbox alike.
+DECISION_ACTION_LABELS: dict[str, str] = {
+    "accept": "Accept",
+    "accept_replacement": "Accept as replacement",
+    "withdraw": "Withdraw…",
+    "replace_with": "Replace with…",
+    "compare": "Compare the two first",
+    "compare_short": "Compare the two",
+    "how_it_works": "How decisions work",
+    "reason_label": "Reason",
+    "reason_placeholder": "Why this proposal is being dropped (required)",
+    "cancel": "Cancel",
+    "working": "Working…",
+    "conflict": (
+        "This decision changed on disk after the page was loaded. Nothing was "
+        "changed; close this and reload to see the current version."
+    ),
+}
+
+#: The sentence at the top of a decision's action box. {title} is the
+#: decision it would replace.
+DECISION_SUMMARY: dict[str, str] = {
+    "proposed": "Proposed. It changes nothing until you accept it.",
+    "proposed_replacement": "Proposed as the replacement for “{title}”, which is in force now.",
+    "proposed_blocked": (
+        "Proposed as a replacement, but the decision it names is not in force, so it "
+        "cannot be accepted. You can withdraw it."
+    ),
+    "in_force": "In force. To change it, propose a decision that replaces it.",
+}
+
+#: "How decisions work": a few sentences plus the states, reachable from the
+#: inbox and every decision page.
+DECISION_GUIDE_TITLE = "How decisions work"
+DECISION_GUIDE_INTRO = (
+    "A decision is a rule a project follows. Anyone or anything can propose one: "
+    "you in this app, a conversation you approved, a meeting, or an agent. "
+    "Only you can put it in force."
+)
+#: One sentence per state, keyed like DECISION_STATE_LABELS.
+DECISION_GUIDE_STATES: dict[str, str] = {
+    "draft": "Suggested, not yet in force. It changes nothing until you accept or withdraw it.",
+    "active": "You accepted it. It is the rule the project follows now.",
+    "superseded": "A newer decision took its place. It stays readable as history.",
+    "archived": "Dropped before it was ever accepted, with the reason you gave. It stays readable.",
+}
+DECISION_GUIDE_UNDO = (
+    "Nothing is ever deleted. There is no undo button for accepting; to change your "
+    "mind later, propose a new decision that replaces it."
+)
+
+#: Confirmation dialogs. Each body is one sentence saying what will change
+#: and whether it can be undone. {title} is the decision acted on; {old} the
+#: decision it replaces; {project} the project's short name.
+DECISION_DIALOGS: dict[str, dict[str, str]] = {
+    "accept": {
+        "title": "Accept this decision?",
+        "body": (
+            "“{title}” goes into force for {project} today; there is no undo button, "
+            "but a later decision can replace it."
+        ),
+        "confirm": "Accept",
+        "history": "Your acceptance is saved in the decision's history.",
+    },
+    "withdraw": {
+        "title": "Withdraw this proposal?",
+        "body": (
+            "“{title}” is set aside with your reason and can never be accepted; this "
+            "cannot be undone, though the idea can be proposed again as a new decision."
+        ),
+        "confirm": "Withdraw",
+        "history": "Your reason is saved with it.",
+    },
+    "supersede": {
+        "title": "Accept as the replacement?",
+        "body": (
+            "“{title}” goes into force and “{old}” becomes replaced, both today; "
+            "there is no undo button, but a later decision can replace this one in turn."
+        ),
+        "confirm": "Accept as replacement",
+        "history": "Both decisions stay readable, and the change is saved in their history.",
+    },
+}
+#: The "from -> to" line in a dialog: the state today and the state after.
+DECISION_DIALOG_ACCEPTED_TODAY = "In force, from today"
+DECISION_DIALOG_REPLACED_BY = "Replaced by “{title}”"
+
+# ---------------------------------------------------------------------------
+# Decide view (the decision inbox, GET /api/decisions/proposed)
+# ---------------------------------------------------------------------------
+
+DECIDE_NAV_LABEL = "Decide"
+DECIDE_TITLE = "Decide"
+DECIDE_INTRO = (
+    "Proposed decisions from every project, newest first. None of them is in force "
+    "until you accept it."
+)
+DECIDE_ALL_PROJECTS = "All projects"
+DECIDE_PROJECT_FILTER_LABEL = "Project"
+DECIDE_EMPTY_TITLE = "Nothing is waiting on you"
+DECIDE_EMPTY_BODY = "When something proposes a decision, it appears here for you to accept or withdraw."
+#: Shown when a project filter matches nothing.
+DECIDE_EMPTY_FILTERED = "No proposed decision is waiting in this project."
+#: {count} proposed decisions; two templates so the verb agrees.
+DECIDE_COUNT_SINGULAR = "1 proposed decision is waiting on you."
+DECIDE_COUNT_PLURAL = "{count} proposed decisions are waiting on you."
+#: What accepting a row would change. {project} is the project's short name,
+#: {title} the decision in force that a replacement would retire.
+DECIDE_EFFECT_ACCEPT = "Accepting puts it in force for {project}."
+DECIDE_EFFECT_REPLACE = "Accepting puts it in force and replaces “{title}”."
+DECIDE_EFFECT_BLOCKED = "It names a decision to replace that is not in force, so it can only be withdrawn."
+DECIDE_OPEN = "Open"
+#: Home page link into the inbox.
+HOME_DECIDE_LINK = "Open the decision inbox"
+
+#: Who or what proposed a decision, from its first provenance entry that is
+#: not a lifecycle step, keyed by provenance kind. ``language.proposed_by``
+#: fills {date} for a Referat meeting and {title} for an observation. A kind
+#: not listed here (a source that is not described yet) reads as
+#: PROPOSED_BY_FALLBACK, so a new kind shows up plainly before it gets its
+#: own sentence. ``agent-authored`` is the kind the accepted agent-access
+#: decision gives agent writes (issue #59).
+PROPOSED_BY: dict[str, str] = {
+    "interface-authored": "Proposed by you in this app",
+    "user-request": "Proposed at your request",
+    "user-approved-conversation": "Proposed in a conversation you approved",
+    "referat-meeting": "Proposed in a Referat meeting on {date}",
+    "agent-authored": "Proposed by an agent",
+    "discovery": "Proposed from the observation {title}",
+}
+PROPOSED_BY_REFERAT_UNDATED = "Proposed in a Referat meeting"
+PROPOSED_BY_FALLBACK = "Proposed from a source this app does not describe yet"

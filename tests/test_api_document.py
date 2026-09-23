@@ -56,7 +56,7 @@ class OpenknowledgePivotTests(unittest.TestCase):
             with serve(root, PORT) as base_url:
                 status, data = _get(base_url, f"/api/records/{FIXTURE_PROPOSED_ID}")
                 self.assertEqual(status, 200)
-                self.assertEqual(data["properties"]["status"]["value"], "Proposal — nobody has taken a position yet")
+                self.assertEqual(data["properties"]["status"]["value"], "Proposed — not in force until you accept it")
                 self.assertEqual(data["properties"]["status"]["pill"]["tone"], "amber")
                 self.assertIn("30 August 2026", data["properties"]["source"]["value"][0])
 
@@ -104,7 +104,7 @@ class StatusAndTrustPillPlacementTests(unittest.TestCase):
             with serve(root, PORT) as base_url:
                 _status, data = _get(base_url, f"/api/records/{FIXTURE_PROPOSED_ID}")
                 self.assertIsNotNone(data["properties"]["status"]["pill"])
-                self.assertEqual(data["properties"]["status"]["pill"]["label"], "Waiting on you")
+                self.assertEqual(data["properties"]["status"]["pill"]["label"], "Proposed")
                 self.assertIsNone(data["properties"]["trust"]["pill"])
 
     def test_ordinary_record_carries_its_pill_on_trust_not_status(self) -> None:

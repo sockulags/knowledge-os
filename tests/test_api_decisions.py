@@ -100,10 +100,12 @@ class DecisionApiTests(unittest.TestCase):
         self.create(_draft_decision("actions-replacement-draft", supersedes=[FIXTURE_GOVERNING_IDS[2]]))
 
         plain = self.get("actions-plain-draft")["editing"]
+        actions = plain["decision_actions"]
         self.assertEqual(
-            plain["decision_actions"],
+            {key: actions[key] for key in ("accept", "withdraw", "supersede", "propose_replacement")},
             {"accept": True, "withdraw": True, "supersede": None, "propose_replacement": False},
         )
+        self.assertEqual(set(actions["dialogs"]), {"accept", "withdraw"})
         self.assertEqual(plain["project_id"], FIXTURE_PROJECT_ID)
 
         replacement = self.get("actions-replacement-draft")["editing"]["decision_actions"]

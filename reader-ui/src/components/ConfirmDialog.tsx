@@ -9,6 +9,8 @@ export function ConfirmDialog({
   tone = "neutral",
   busy = false,
   confirmDisabled = false,
+  cancelLabel = "Cancel",
+  workingLabel = "Working…",
   onConfirm,
   onCancel,
 }: {
@@ -18,6 +20,8 @@ export function ConfirmDialog({
   tone?: "neutral" | "danger";
   busy?: boolean;
   confirmDisabled?: boolean;
+  cancelLabel?: string;
+  workingLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -60,7 +64,7 @@ export function ConfirmDialog({
             disabled={busy}
             className="rounded-md px-3 py-1.5 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) disabled:opacity-50"
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
             type="button"
@@ -69,7 +73,7 @@ export function ConfirmDialog({
             disabled={busy || confirmDisabled}
             className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${confirmClass}`}
           >
-            {busy ? "Working…" : confirmLabel}
+            {busy ? workingLabel : confirmLabel}
           </button>
         </div>
       </div>

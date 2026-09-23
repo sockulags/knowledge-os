@@ -74,6 +74,8 @@ export interface NavPayload {
   skills: { name: string; description: string }[];
   repo_docs: { path: string; title: string }[];
   record_index: RecordIndexEntry[];
+  /** The sidebar's Decide entry: its label and how many proposals wait. */
+  decide: { label: string; count: number };
 }
 
 export interface HomePayload {
@@ -83,6 +85,8 @@ export interface HomePayload {
   in_force: RecordSummary[];
   recently_changed: RecordSummary[];
   projects: { id: string; title: string }[];
+  sections: { waiting_on_you: string; in_force: string; recently_changed: string; projects: string };
+  decide_link: string;
 }
 
 export interface Breadcrumb {
@@ -169,6 +173,8 @@ export interface RecordPayload {
   inbound: RelationView[];
   outbound: RelationView[];
   editing: EditingBlock;
+  /** Decision words and the "How decisions work" guide; null for a non-decision. */
+  decision_language: DecisionLanguage | null;
 }
 
 export interface EditableMetadata {
@@ -178,12 +184,86 @@ export interface EditableMetadata {
   sources: string[];
 }
 
+/** One line in a confirmation dialog: what a decision is now and what it becomes. */
+export interface DecisionChange {
+  subject: string | null;
+  from: string;
+  to: string;
+}
+
+/** A confirmation dialog's finished text, composed on the Python side. */
+export interface DecisionDialog {
+  title: string;
+  body: string;
+  confirm: string;
+  history: string;
+  changes: DecisionChange[];
+}
+
 export interface DecisionActions {
   accept: boolean;
   withdraw: boolean;
-  /** The active decision this draft would replace, when it declares one. */
+  /** The decision in force this proposal would replace, when it declares one. */
   supersede: { id: string; title: string; status: string; content_sha256: string | null } | null;
   propose_replacement: boolean;
+  /** The sentence above the buttons, or null when no action applies. */
+  summary: string | null;
+  dialogs: { accept?: DecisionDialog; withdraw?: DecisionDialog; supersede?: DecisionDialog };
+}
+
+export interface DecisionLanguage {
+  labels: {
+    accept: string;
+    accept_replacement: string;
+    withdraw: string;
+    replace_with: string;
+    compare: string;
+    compare_short: string;
+    how_it_works: string;
+    reason_label: string;
+    reason_placeholder: string;
+    cancel: string;
+    working: string;
+    conflict: string;
+  };
+  guide: {
+    title: string;
+    intro: string;
+    undo: string;
+    states: { key: "proposed" | "in_force" | "replaced" | "withdrawn"; label: string; text: string }[];
+  };
+}
+
+/** One row of the Decide inbox (GET /api/decisions/proposed). */
+export interface ProposedDecision {
+  id: string;
+  title: string;
+  excerpt: string;
+  project: { id: string; title: string };
+  proposed_by: { source: string; label: string; kind: string | null };
+  proposed_at: string;
+  proposed_display: string | null;
+  proposed_exact: string | null;
+  replaces: { id: string; title: string; sentence: string | null } | null;
+  effect: string;
+  status_pill: Pill | null;
+  content_sha256: string | null;
+  actions: DecisionActions;
+}
+
+export interface DecidePayload {
+  title: string;
+  intro: string;
+  count: number;
+  count_label: string | null;
+  project: string | null;
+  filter_label: string;
+  all_projects_label: string;
+  projects: { id: string; title: string; count: number }[];
+  items: ProposedDecision[];
+  empty: { title: string; body: string };
+  open_label: string;
+  language: DecisionLanguage;
 }
 
 /** Machine data for the editor and the decision buttons (never shown as prose). */

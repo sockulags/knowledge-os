@@ -7,13 +7,14 @@ needs pinning.
 
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
 from reader_support import create_workspace, write_record
 
-from knowledge_os.reader import language
+from knowledge_os.reader import language, strings
 from knowledge_os.reader.library import load_library
 from knowledge_os.workspace import Workspace
 
@@ -108,7 +109,7 @@ class StatusSentenceTests(unittest.TestCase):
 
         library = _load(build)
         sentence, accent = language.status_sentence(library, library.records_by_id["idea"])
-        self.assertEqual(sentence, "Proposal — nobody has taken a position yet")
+        self.assertEqual(sentence, "Proposed — not in force until you accept it")
         self.assertEqual(accent, "proposed")
 
     def test_active_decision_names_the_acceptance_date(self) -> None:
@@ -472,9 +473,183 @@ class ProvenanceSentenceTests(unittest.TestCase):
         library = _load(build)
         record = library.records_by_id["fact"]
         sentence = language.provenance_sentence(library, record, record.provenance[0])
-        self.assertEqual(sentence, "Recorded provenance, not otherwise described here")
+        self.assertEqual(sentence, "From a source this app does not describe yet")
         self.assertNotIn("/etc/secret-path.md", sentence)
         self.assertNotIn("some-future-kind", sentence)
+
+
+def _demo_decision(root: Path, record_id: str, provenance: list[dict[str, str]], **overrides: object) -> None:
+    metadata: dict[str, object] = {
+        "id": record_id,
+        "title": record_id.replace("-", " ").capitalize(),
+        "type": "project",
+        "record_kind": "decision",
+        "status": "draft",
+        "scope": "project:demo",
+        "created": "2026-09-10",
+        "updated": "2026-09-10",
+        "provenance": provenance,
+    }
+    metadata.update(overrides)
+    write_record(root, f"projects/demo/decisions/{record_id}.md", metadata)
+
+
+def _demo_project(root: Path) -> None:
+    write_record(
+        root,
+        "projects/demo/README.md",
+        {
+            "id": "demo",
+            "title": "Demo",
+            "type": "project",
+            "status": "active",
+            "scope": "project:demo",
+            "created": "2026-08-29",
+            "updated": "2026-08-29",
+            "provenance": [{"kind": "fixture", "reference": "demo"}],
+        },
+    )
+
+
+class ProposedByTests(unittest.TestCase):
+    """Who proposed a decision, from the first provenance entry that is not
+    an acceptance or a withdrawal (issue #53)."""
+
+    def test_each_known_kind_and_the_fallback(self) -> None:
+        cases = {
+            "by-app": ({"kind": "interface-authored", "reference": "interface:2026-09-20T10:00:00Z:create", "captured": "2026-09-20T10:00:00Z"}, "you", "Proposed by you in this app"),
+            "by-request": ({"kind": "user-request", "reference": "conversation:x"}, "you", "Proposed at your request"),
+            "by-conversation": ({"kind": "user-approved-conversation", "reference": "conversation:y"}, "conversation", "Proposed in a conversation you approved"),
+            "by-meeting": ({"kind": "referat-meeting", "reference": "referat:20260918093000-ab12cd"}, "meeting", "Proposed in a Referat meeting on 18 September 2026"),
+            "by-meeting-undated": ({"kind": "referat-meeting", "reference": "referat:not-an-id"}, "meeting", "Proposed in a Referat meeting"),
+            "by-agent": ({"kind": "agent-authored", "reference": "agent:codex"}, "agent", "Proposed by an agent"),
+            "by-unknown": ({"kind": "some-future-kind", "reference": "/etc/secret-path.md"}, "other", "Proposed from a source this app does not describe yet"),
+        }
+
+        def build(root: Path) -> None:
+            _demo_project(root)
+            for record_id, (entry, _source, _label) in cases.items():
+                _demo_decision(root, record_id, [entry])
+
+        library = _load(build)
+        for record_id, (entry, source, label) in cases.items():
+            with self.subTest(record_id=record_id):
+                proposer = language.proposed_by(library, library.records_by_id[record_id])
+                self.assertEqual(proposer["source"], source)
+                self.assertEqual(proposer["label"], label)
+                self.assertEqual(proposer["kind"], entry["kind"])
+                self.assertEqual(proposer["when"], entry.get("captured", "2026-09-10"))
+
+    def test_skips_lifecycle_entries(self) -> None:
+        def build(root: Path) -> None:
+            _demo_project(root)
+            _demo_decision(
+                root,
+                "accepted",
+                [
+                    {"kind": "decision-acceptance", "reference": "conversation:a", "captured": "2026-09-12T10:00:00Z"},
+                    {"kind": "referat-meeting", "reference": "referat:20260911080000-zz", "captured": "2026-09-11T10:00:00Z"},
+                ],
+                status="active",
+            )
+
+        library = _load(build)
+        proposer = language.proposed_by(library, library.records_by_id["accepted"])
+        self.assertEqual(proposer["source"], "meeting")
+        self.assertEqual(proposer["when"], "2026-09-11T10:00:00Z")
+
+    def test_withdrawn_decision_reads_as_withdrawn_with_its_date(self) -> None:
+        def build(root: Path) -> None:
+            _demo_project(root)
+            _demo_decision(
+                root,
+                "dropped",
+                [
+                    {"kind": "interface-authored", "reference": "interface:x"},
+                    {"kind": "decision-withdrawal", "reference": "No longer needed.", "captured": "2026-09-14T10:00:00Z"},
+                ],
+                status="archived",
+                updated="2026-09-14",
+            )
+
+        library = _load(build)
+        sentence, accent = language.status_sentence(library, library.records_by_id["dropped"])
+        self.assertEqual(sentence, "Withdrawn on 14 September 2026, without being accepted")
+        self.assertEqual(accent, "retired")
+
+
+class DecisionVocabularyTests(unittest.TestCase):
+    """The decision words a person reads must not use contract vocabulary
+    (issue #54); the exact values stay in Technical details."""
+
+    CONTRACT_WORDS = re.compile(
+        r"\b(records?|provenance|supersedes?|superseded|supersession|draft|active|archived|lineage)\b",
+        re.IGNORECASE,
+    )
+
+    def _texts(self) -> list[str]:
+        texts: list[str] = [
+            *strings.DECISION_STATUS.values(),
+            strings.DECISION_WITHDRAWN_UNDATED,
+            *strings.PILL_LABELS.values(),
+            *strings.PROJECT_GROUP_HEADERS.values(),
+            *strings.PROJECT_GROUP_EMPTY.values(),
+            strings.HOME_WAITING_HEADER,
+            strings.HOME_NO_WAITING,
+            strings.HOME_DECIDE_LINK,
+            strings.START_OPEN_DECISIONS,
+            strings.START_NO_OPEN_DECISIONS,
+            strings.LINEAGE_SUPERSEDES,
+            strings.LINEAGE_SUPERSEDED_BY,
+            strings.LINEAGE_NO_COMPARISON,
+            strings.LINEAGE_TARGET_NOT_DECISION,
+            strings.LINEAGE_CALLOUT_SUPERSEDES,
+            strings.LINEAGE_CALLOUT_WOULD_REPLACE,
+            strings.LINEAGE_CALLOUT_SUPERSEDED_BY,
+            strings.TRUST_LABELS["draft durable; not verified"],
+            strings.LIFECYCLE_STATUS["draft"],
+            strings.PROVENANCE_KIND_FALLBACK,
+            strings.DOCUMENT_RELATED_EMPTY,
+            strings.SEARCH_STATUS_FILTER["draft"],
+            strings.SEARCH_STATUS_FILTER["active"],
+            strings.SEARCH_STATUS_FILTER["superseded"],
+            *strings.DECISION_STATE_LABELS.values(),
+            *strings.DECISION_ACTION_LABELS.values(),
+            *strings.DECISION_SUMMARY.values(),
+            strings.DECISION_GUIDE_TITLE,
+            strings.DECISION_GUIDE_INTRO,
+            strings.DECISION_GUIDE_UNDO,
+            *strings.DECISION_GUIDE_STATES.values(),
+            strings.DECISION_DIALOG_ACCEPTED_TODAY,
+            strings.DECISION_DIALOG_REPLACED_BY,
+            *strings.PROPOSED_BY.values(),
+            strings.PROPOSED_BY_REFERAT_UNDATED,
+            strings.PROPOSED_BY_FALLBACK,
+        ]
+        for dialog in strings.DECISION_DIALOGS.values():
+            texts.extend(dialog.values())
+        texts.extend(value for name, value in vars(strings).items() if name.startswith("DECIDE_") and isinstance(value, str))
+        return texts
+
+    def test_no_contract_words(self) -> None:
+        # PILL_LABELS["archived"] is the pill of an archived ordinary note,
+        # not of a decision; a withdrawn decision reads "Withdrawn".
+        for text in self._texts():
+            if text == strings.PILL_LABELS["archived"]:
+                continue
+            with self.subTest(text=text):
+                self.assertIsNone(self.CONTRACT_WORDS.search(text))
+
+    def test_every_state_has_a_label_and_a_guide_line(self) -> None:
+        self.assertEqual(set(strings.DECISION_STATE_LABELS), set(strings.DECISION_GUIDE_STATES))
+        self.assertEqual(
+            list(strings.DECISION_STATE_LABELS.values()), ["Proposed", "In force", "Replaced", "Withdrawn"]
+        )
+
+    def test_every_dialog_says_whether_it_can_be_undone(self) -> None:
+        for action, dialog in strings.DECISION_DIALOGS.items():
+            with self.subTest(action=action):
+                self.assertRegex(dialog["body"], r"undo|undone")
 
 
 if __name__ == "__main__":
