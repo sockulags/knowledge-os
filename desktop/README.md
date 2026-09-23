@@ -3,8 +3,9 @@
 An Electron window around the existing Knowledge OS reader. The main process
 runs the Python core (`python -m knowledge_os.reader`, the same server as
 `kos-read`) on a free local port and loads the React UI that the core serves.
-There is no second UI: the only page of its own is a small start page for
-opening or creating a knowledge base and for showing errors.
+There is no second UI: the only pages of its own are a small start page for
+opening or creating a knowledge base and for showing errors, and the
+[Referat plugin](#referat-plugin)'s import window.
 
 `npm run dist` builds a Windows installer that bundles the core, so the
 installed app needs no Python (see [Building the Windows installer](#building-the-windows-installer)).
@@ -276,12 +277,81 @@ The preload script exposes only the workspace actions, and the main process
 refuses those calls from any page other than the start page. Navigation is
 limited to the start page and the running core's origin; web links open in
 the system browser, and every other scheme is blocked. Permission requests
-are denied.
+are denied. The Referat import window runs with the same settings, its own
+preload script, and no navigation beyond its own page (see
+[Referat plugin](#referat-plugin)).
 
 The core's write endpoints need a per-process token. The shell passes nothing:
 the UI, served from the core's own origin, reads the token from
 `GET /api/session` and sends it back in the `X-KOS-Write-Token` header. See
 "Local interface write API" in [`docs/architecture.md`](../docs/architecture.md).
+
+## Referat plugin
+
+[Referat](https://github.com/sockulags/referat) records meetings and writes
+their minutes on this computer. The Referat menu, enabled while a knowledge
+base is open, has two items:
+
+- **Record Meeting with Referat** starts the installed Referat, or does
+  nothing when it is already running (Referat has no single-instance lock).
+- **Import Meeting from Referat…** opens the import window.
+
+The import window lists Referat's meetings, newest first. Meetings Referat is
+still recording or processing are shown but cannot be imported, and meeting
+folders Referat's files could not be read from are listed with the reason.
+Choosing a finished meeting shows a preview: which minutes to import when
+Referat wrote several (the newest "Protokoll" is the default), the decisions
+found in them with a checkbox each, the target project (the one shown in the
+main window, else the one Referat was last started from) and folder (default
+`meeting-notes`), and a checkbox for the full transcript, which is off by
+default. Importing creates:
+
+- One active note titled after the meeting, with the date, duration, and
+  meeting reference, then the minutes' sections under Summary, Decisions,
+  Action items, and Open questions. Sections with other headings are kept
+  under their own heading; the transcript is added only when ticked. Voice
+  embeddings are never read.
+- One draft decision per ticked item under the decisions heading, linked to
+  the note with `related`. Decisions are drafts because of the approval
+  policy; they govern nothing until someone accepts them.
+
+The minutes are Markdown written by a language model, so sections are found
+by heading name at any heading level (or a line that is only bold text):
+Sammanfattning/Summary, Beslut/Decisions, Actionpunkter/Action items, and
+Öppna frågor/Open questions, plus a few common variants. Each top-level list
+item under the decisions heading is one decision, with nested items kept in
+its body; without a list, each sub-heading or paragraph is one. A placeholder
+such as "Inga beslut fattades." gives no decisions, and minutes without a
+decisions heading import no decisions; the preview says which case applies.
+
+Every record carries provenance `referat-meeting` with reference
+`referat:<meeting id>` (see "Local interface write API" in
+[`docs/architecture.md`](../docs/architecture.md)). Ids are the meeting's
+local date plus words from the title or decision text, such as
+`2026-09-21-planeringsmote-vecka-39`. An id that is taken gets a `-2`, `-3`,
+... suffix, both when checked beforehand and when the core answers
+`duplicate`; nothing is overwritten. Before previewing and again before
+writing, the plugin looks for records that already carry the meeting's
+reference; a meeting imported before is offered as "Already imported" with
+links to the records instead of being imported twice.
+
+All writes go through `POST /api/records` of the running core, one record at
+a time, so each is validated like any interface write and auto-committed
+when the knowledge base is a Git repository. The note is written first; if it
+fails, nothing else is written. If a decision fails, the result lists exactly
+which records were created, which were not and why, and offers to retry the
+failed decisions against the same note.
+
+The plugin lives in `src/main/plugins/referat/`, with its page
+`src/renderer/referat.html` and preload script `src/preload/referat.ts`. It
+uses [referat-sdk](https://github.com/sockulags/referat-sdk), pinned to
+`v0.1.0` and bundled into the main process. The SDK only reads Referat's
+data folder and runs in the main process; the import window's preload
+exposes eight calls (context, list meetings, preview, import, retry, launch,
+open a record, close), which the main process answers only for that window.
+Nothing passed to the window names a file path. The core and the reader have
+no Referat code. When Referat is not installed, the window says so and the
+rest of the app is unchanged.
 
 ## Development hooks
 
@@ -290,3 +360,6 @@ the UI, served from the core's own origin, reads the token from
   does not touch your recent list or settings.
 - `MAIN_VITE_KOS_UPDATE_TEST_FEED=URL`, set at build time, points the updater
   at a local test server (see [Testing an update locally](#testing-an-update-locally)).
+- `REFERAT_USER_DATA=PATH` makes the Referat plugin read meetings from that
+  folder (it holds `meetings/`) instead of the installed Referat's, for
+  example a synthetic data folder. Referat itself honours the same variable.
