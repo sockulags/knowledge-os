@@ -292,6 +292,9 @@ def provenance_sentence(library: Library, record: Record, entry: ProvenanceEntry
         if entry.reference.startswith("interface:"):
             return strings.PROVENANCE_ACCEPTED_IN_APP.format(date=format_date(entry.captured or record.updated))
         return template.format(reference=entry.reference)
+    if entry.kind == "decision-withdrawal":
+        date = entry.captured or record.updated
+        return template.format(date=format_date(date), reference=entry.reference)
     if entry.kind == "discovery":
         target = library.records_by_id.get(entry.reference)
         title = target.title if target is not None else entry.reference
