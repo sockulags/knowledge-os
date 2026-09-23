@@ -453,6 +453,35 @@ class ProvenanceSentenceTests(unittest.TestCase):
         self.assertEqual(sentence, "Copied from a file already in the repository")
         self.assertNotIn("docs/thing.md", sentence)
 
+    def test_agent_authored_names_the_agent_and_where_it_ran(self) -> None:
+        references = {
+            "agent:claude-code:my-repo": "Written by Claude Code in my-repo",
+            "agent:codex-mcp-client": "Written by Codex",
+            "agent:some-bot:web": "Written by some-bot in web",
+            "agent:bad/client:x": "Written by an agent",
+        }
+
+        def build(root: Path) -> None:
+            write_record(
+                root,
+                "knowledge/fact.md",
+                {
+                    "id": "fact",
+                    "title": "Fact",
+                    "type": "knowledge",
+                    "status": "active",
+                    "scope": "general",
+                    "created": "2026-08-29",
+                    "updated": "2026-08-29",
+                    "provenance": [{"kind": "agent-authored", "reference": reference} for reference in references],
+                },
+            )
+
+        library = _load(build)
+        record = library.records_by_id["fact"]
+        sentences = [language.provenance_sentence(library, record, entry) for entry in record.provenance]
+        self.assertEqual(sentences, list(references.values()))
+
     def test_unknown_kind_falls_back_without_leaking_its_reference(self) -> None:
         def build(root: Path) -> None:
             write_record(
@@ -522,7 +551,10 @@ class ProposedByTests(unittest.TestCase):
             "by-conversation": ({"kind": "user-approved-conversation", "reference": "conversation:y"}, "conversation", "Proposed in a conversation you approved"),
             "by-meeting": ({"kind": "referat-meeting", "reference": "referat:20260918093000-ab12cd"}, "meeting", "Proposed in a Referat meeting on 18 September 2026"),
             "by-meeting-undated": ({"kind": "referat-meeting", "reference": "referat:not-an-id"}, "meeting", "Proposed in a Referat meeting"),
-            "by-agent": ({"kind": "agent-authored", "reference": "agent:codex"}, "agent", "Proposed by an agent"),
+            "by-agent": ({"kind": "agent-authored", "reference": "agent:codex"}, "agent", "Proposed by Codex"),
+            "by-agent-in-repo": ({"kind": "agent-authored", "reference": "agent:claude-code:my-repo"}, "agent", "Proposed by Claude Code in my-repo"),
+            "by-agent-unlisted": ({"kind": "agent-authored", "reference": "agent:some-bot:web app"}, "agent", "Proposed by some-bot in web app"),
+            "by-agent-unnamed": ({"kind": "agent-authored", "reference": "not-an-agent-reference"}, "agent", "Proposed by an agent"),
             "by-unknown": ({"kind": "some-future-kind", "reference": "/etc/secret-path.md"}, "other", "Proposed from a source this app does not describe yet"),
         }
 

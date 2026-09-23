@@ -41,6 +41,7 @@ from knowledge_os.capture import (
     capture_record_text,
 )
 from knowledge_os import gitsync
+from knowledge_os.agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity, parse_agent_reference
 from knowledge_os.context_policy import trust_label
 from knowledge_os.gitsync import CommitOutcome, ConflictFile, GitSyncError, ResolveOutcome, SyncOutcome, SyncStatus
 from knowledge_os.index import validate_index
@@ -105,6 +106,10 @@ __all__ = [
     "sync_conflicts",
     "resolve_sync_conflict",
     "abort_sync",
+    # Agent writes (the MCP server, issue #59): the identity the write API
+    # accepts and the parser the reader uses to name the agent.
+    "AgentIdentity",
+    "parse_agent_reference",
     # Record has no content_sha256 field (not part of the frozen contract);
     # a view that needs one for its technical-details disclosure (acceptance
     # criterion 4) computes it on demand via this re-export, since views may
@@ -605,16 +610,24 @@ def create_record(
     metadata: dict[str, Any],
     body: str,
     project_path: str | None = None,
+    agent: AgentIdentity | None = None,
 ) -> WriteResult:
     """Create one knowledge, project, or memory record with ``kos capture``'s
     rules: create-only, draft or active (decisions draft only), and for a
     project record an optional ``project_path`` relative to
     ``projects/<project-id>/``. ``created`` and ``updated`` default to today
-    (UTC); every other field, including provenance, comes from the caller."""
+    (UTC); every other field, including provenance, comes from the caller.
+
+    ``agent`` marks an agent write: its ``agent-authored`` entry goes first in
+    the provenance (so the Decide inbox names the agent as the proposer) and
+    the commit message starts with the agent's name."""
 
     candidate = dict(metadata)
     candidate.setdefault("created", _today())
     candidate.setdefault("updated", candidate["created"])
+    if agent is not None:
+        given = candidate.get("provenance")
+        candidate["provenance"] = [agent.provenance_entry(), *(given if isinstance(given, list) else [])]
     text = render_document(candidate, body).decode("utf-8")
     try:
         result = capture_record_text(
@@ -629,7 +642,7 @@ def create_record(
         raise _write_error(exc) from exc
     else:
         outcome = WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
-    return _with_commit(workspace, outcome, "Create")
+    return _with_commit(workspace, outcome, "Create", agent)
 
 
 def edit_record(
@@ -641,6 +654,7 @@ def edit_record(
     body: str | None = None,
     confirm_non_material: bool = False,
     change_reference: str | None = None,
+    agent: AgentIdentity | None = None,
 ) -> WriteResult:
     """Edit one record's body and metadata with ``kos update``'s rules.
 
@@ -651,6 +665,10 @@ def edit_record(
     its current value if that is later. The core then refuses changes to
     identity, lifecycle, supersession, or system provenance, re-checks the
     SHA-256 under the workspace lock, and validates the staged corpus.
+
+    ``agent`` marks an agent edit: its ``agent-authored`` entry is appended
+    to the provenance unless an entry with the same reference is already
+    there, and the commit message starts with the agent's name.
     """
 
     if not SHA256_PATTERN.fullmatch(expected_sha256):
@@ -696,6 +714,13 @@ def edit_record(
         previous = metadata.get("updated")
         previous_date = previous if isinstance(previous, date) else date.fromisoformat(str(previous))
         metadata["updated"] = max(previous_date, datetime.now(UTC).date()).isoformat()
+    if agent is not None:
+        provenance = list(metadata.get("provenance") or [])
+        if not any(
+            isinstance(item, dict) and item.get("kind") == AGENT_PROVENANCE_KIND and item.get("reference") == agent.reference
+            for item in provenance
+        ):
+            metadata["provenance"] = [*provenance, agent.provenance_entry()]
     text = render_document(metadata, base.body if body is None else body).decode("utf-8")
 
     try:
@@ -713,7 +738,7 @@ def edit_record(
         raise _write_error(exc) from exc
     else:
         outcome = WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
-    return _with_commit(workspace, outcome, "Edit")
+    return _with_commit(workspace, outcome, "Edit", agent)
 
 
 # ---------------------------------------------------------------------------
@@ -728,10 +753,13 @@ def _title_at(workspace: Workspace, rel_path: str, fallback: str) -> str:
         return fallback
 
 
-def _with_commit(workspace: Workspace, result: WriteResult, verb: str) -> WriteResult:
-    """Commit the one file a write touched, e.g. ``Edit <title>``."""
+def _with_commit(workspace: Workspace, result: WriteResult, verb: str, agent: AgentIdentity | None = None) -> WriteResult:
+    """Commit the one file a write touched, e.g. ``Edit <title>``, or
+    ``Claude Code: Edit <title>`` for an agent write."""
 
     message = f"{verb} {_title_at(workspace, result.path, result.id)}"
+    if agent is not None:
+        message = f"{agent.display_name}: {message}"
     return replace(result, commit=gitsync.auto_commit(workspace, [result.path], message))
 
 
