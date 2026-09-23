@@ -44,9 +44,14 @@ export function Home() {
 
       {data.waiting_on_you.length > 0 && (
         <section className="mt-10">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
-            Waiting on you
-          </h2>
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
+              {data.sections.waiting_on_you}
+            </h2>
+            <Link to="/decide" className="text-sm text-(--color-text-muted) underline-offset-2 hover:text-(--color-text) hover:underline">
+              {data.decide_link}
+            </Link>
+          </div>
           <div className="space-y-2">
             {data.waiting_on_you.map((record) => (
               <Link
@@ -67,7 +72,7 @@ export function Home() {
 
       {data.in_force.length > 0 && (
         <section className="mt-10">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">In force</h2>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">{data.sections.in_force}</h2>
           <div className="space-y-1">
             {data.in_force.map((record) => (
               <Link
@@ -86,7 +91,7 @@ export function Home() {
       {data.recently_changed.length > 0 && (
         <section className="mt-10">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
-            Recently changed
+            {data.sections.recently_changed}
           </h2>
           <div className="space-y-1">
             {data.recently_changed.map((record) => (
@@ -107,7 +112,7 @@ export function Home() {
 
       {data.projects.length > 0 && (
         <section className="mt-10">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">Projects</h2>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">{data.sections.projects}</h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {data.projects.map((project) => (
               <Link

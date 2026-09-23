@@ -13,6 +13,7 @@ from .. import states, strings
 from ..app import get_library, json_response
 from ..library import Library
 from ..repodocs import list_repo_documents
+from .decisions import proposed_decisions
 from .common import pill_for, project_title, project_tree_json, record_index_entry
 
 
@@ -103,5 +104,8 @@ async def nav_view(request: Request) -> Response:
             "skills": skills,
             "repo_docs": repo_docs,
             "record_index": record_index,
+            # The sidebar's Decide entry and its count of proposed decisions;
+            # the shell reloads nav after every decision action.
+            "decide": {"label": strings.DECIDE_NAV_LABEL, "count": len(proposed_decisions(library))},
         }
     )
