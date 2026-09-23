@@ -338,8 +338,13 @@ can be rebuilt with `kos index`.
 
 ## Scope
 
-The CLI and standard-library SQLite FTS5 cache are local only. Retrieval and
-review are deterministic lexical FTS plus metadata and explicit relationships;
-they are not semantic fact checking or contradiction detection. No URL/PDF
-ingestion, embeddings, model calls, server, GUI, MCP/API, cloud sync, or
-Agentic Work OS coupling is included in v0.0.1.
+The CLI, the local reader server and desktop app, and the standard-library
+SQLite FTS5 cache are local only; there is no cloud or remote service.
+Retrieval and review are deterministic lexical FTS plus metadata and explicit
+relationships; they are not semantic fact checking or contradiction
+detection. No URL/PDF ingestion, embeddings, model calls, MCP, or Agentic
+Work OS coupling is included in v0.0.1. The local reader exposes a JSON API for
+editing records and decision actions, and workspaces that are their own Git
+repository get versioned writes and Git-based sync (pull, push, and conflict
+resolution) through it; see "[Sync a knowledge base with
+Git](#sync-a-knowledge-base-with-git)" above.
