@@ -2,7 +2,7 @@
 
 ``kos init PATH`` writes the workspace marker (``knowledge-os.toml``), the
 managed directory layout with its documentation README files, a Git ignore
-file for the disposable SQLite cache, and fresh indexes, so the result passes
+file for the disposable generated indexes, and fresh indexes, so the result passes
 ``kos lint`` and is searchable immediately. It refuses a folder that is not
 empty, that already is a workspace, or that lies inside another workspace, so
 it never merges into, overwrites, or corrupts something that already exists.
@@ -102,9 +102,13 @@ README_CONTENT: dict[str, str] = {
     ),
 }
 
-#: Keeps the binary SQLite cache out of the knowledge base's own Git history,
-#: matching this repository's ignore rules; ``indexes/catalog.md`` stays tracked.
-GITIGNORE_CONTENT = "indexes/catalog.sqlite3\nindexes/catalog.sqlite3-*\nindexes/.catalog.sqlite3.tmp\n"
+#: Keeps the generated indexes out of the knowledge base's own Git history.
+#: Both are rebuilt after every change and after every sync, so tracking the
+#: catalog would make two synced clones conflict on it; only the directory's
+#: README.md stays tracked.
+GITIGNORE_CONTENT = (
+    "indexes/catalog.md\nindexes/catalog.sqlite3\nindexes/catalog.sqlite3-*\nindexes/.catalog.sqlite3.tmp\n"
+)
 
 
 class WorkspaceInitError(ValueError):
