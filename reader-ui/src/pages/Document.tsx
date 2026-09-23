@@ -9,7 +9,7 @@ import { PropertiesBlock } from "../components/PropertiesBlock";
 import { TechnicalDetails } from "../components/TechnicalDetails";
 import { Markdown } from "../components/Markdown";
 import { TableOfContents } from "../components/TableOfContents";
-import { EmptyState } from "../components/EmptyState";
+import { RecordNotFound } from "../components/EmptyState";
 import { Callout, LineageCalloutRow } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { useShell } from "../components/Shell";
@@ -33,15 +33,14 @@ function RelationRow({ relation }: { relation: RelationView }) {
 
 export function Document() {
   const { recordId } = useParams<{ recordId: string }>();
-  const { refreshNav } = useShell();
+  const { refreshNav, nav } = useShell();
   // Bumped after a decision action so the page shows the new state.
   const [loadKey, setLoadKey] = useState(0);
   const { data, loading, notFound, error } = useApi(() => api.record(recordId!), [recordId, loadKey]);
 
   if (loading) return <PageSkeleton />;
-  if (notFound)
-    return <EmptyState title="Record not found" body={`No record with id "${recordId}" exists in this workspace.`} />;
-  if (error || !data) return <Callout tone="danger">{error ?? "Could not load this record."}</Callout>;
+  if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
+  if (error || !data) return <Callout tone="danger">{error ?? nav?.language.load_error ?? "Could not load this page."}</Callout>;
 
   const showToc = data.headings.length >= 3;
 

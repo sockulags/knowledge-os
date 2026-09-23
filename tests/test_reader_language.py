@@ -583,7 +583,7 @@ class DecisionVocabularyTests(unittest.TestCase):
     (issue #54); the exact values stay in Technical details."""
 
     CONTRACT_WORDS = re.compile(
-        r"\b(records?|provenance|supersedes?|superseded|supersession|draft|active|archived|lineage)\b",
+        r"\b(records?|provenance|supersedes?|superseded|supersession|draft|active|archived|lineage|scope)\b",
         re.IGNORECASE,
     )
 
@@ -650,6 +650,31 @@ class DecisionVocabularyTests(unittest.TestCase):
         for action, dialog in strings.DECISION_DIALOGS.items():
             with self.subTest(action=action):
                 self.assertRegex(dialog["body"], r"undo|undone")
+
+
+class ShellVocabularyTests(unittest.TestCase):
+    """The reader's shell-wide and catalog copy -- the not-found/load-error
+    fallbacks every record-backed page shares, the quick-find placeholder,
+    and the Everything catalog's own title and intro -- must not use
+    contract vocabulary either (issue #63's follow-up cleanup), the same
+    rule ``DecisionVocabularyTests`` already pins for decision copy."""
+
+    CONTRACT_WORDS = DecisionVocabularyTests.CONTRACT_WORDS
+
+    def _texts(self) -> list[str]:
+        return [
+            strings.DOCUMENT_NOT_FOUND_TITLE,
+            strings.DOCUMENT_NOT_FOUND_BODY,
+            strings.DOCUMENT_LOAD_ERROR,
+            strings.QUICK_FIND_PLACEHOLDER,
+            strings.EVERYTHING_TITLE,
+            strings.EVERYTHING_INTRO,
+        ]
+
+    def test_no_contract_words(self) -> None:
+        for text in self._texts():
+            with self.subTest(text=text):
+                self.assertIsNone(self.CONTRACT_WORDS.search(text))
 
 
 if __name__ == "__main__":

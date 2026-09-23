@@ -111,6 +111,8 @@ async def view(request: Request) -> Response:
     ]
     return json_response(
         {
+            "title": strings.EVERYTHING_TITLE,
+            "intro": strings.EVERYTHING_INTRO,
             "entries": entries,
             "broken": broken,
             "skills": skills,

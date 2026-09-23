@@ -2,9 +2,10 @@ import { useParams, Link } from "react-router";
 import { api } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { PageSkeleton } from "../components/Skeleton";
-import { EmptyState } from "../components/EmptyState";
+import { EmptyState, RecordNotFound } from "../components/EmptyState";
 import { Callout } from "../components/Callout";
 import { Pill } from "../components/Pill";
+import { useShell } from "../components/Shell";
 import type { Comparison, DiffBlock } from "../api/types";
 
 const BLOCK_CLASSES: Record<DiffBlock["kind"], string> = {
@@ -78,11 +79,11 @@ function ComparisonBlock({ comparison }: { comparison: Comparison }) {
 
 export function Compare() {
   const { recordId } = useParams<{ recordId: string }>();
+  const { nav } = useShell();
   const { data, loading, notFound, error } = useApi(() => api.compare(recordId!), [recordId]);
 
   if (loading) return <PageSkeleton />;
-  if (notFound)
-    return <EmptyState title="Record not found" body={`No record with id "${recordId}" exists in this workspace.`} />;
+  if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
   if (error || !data) return <Callout tone="danger">{error ?? "Could not load this comparison."}</Callout>;
 
   return (

@@ -73,10 +73,8 @@ export function Everything() {
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-6 py-12 sm:px-10">
-      <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">Everything</h1>
-      <p className="mt-1.5 text-(--color-text-muted)">
-        Every record, source, and discovery the workspace holds, in one flat list.
-      </p>
+      <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">{data.title}</h1>
+      <p className="mt-1.5 text-(--color-text-muted)">{data.intro}</p>
 
       <div className="mt-5 flex flex-wrap gap-2">
         {FILTER_KEYS.map((key) => {

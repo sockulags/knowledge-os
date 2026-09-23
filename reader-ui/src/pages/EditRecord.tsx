@@ -8,7 +8,7 @@ import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { useShell } from "../components/Shell";
 import { PageSkeleton } from "../components/Skeleton";
 import { Breadcrumb } from "../components/Breadcrumb";
-import { EmptyState } from "../components/EmptyState";
+import { RecordNotFound } from "../components/EmptyState";
 import { Callout } from "../components/Callout";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ConflictCallout, WriteFailureCallout } from "../components/WriteFailureCallout";
@@ -63,14 +63,13 @@ type Status =
 export function EditRecord() {
   const { recordId } = useParams<{ recordId: string }>();
   const navigate = useNavigate();
-  const { refreshNav } = useShell();
+  const { refreshNav, nav } = useShell();
   const [loadKey, setLoadKey] = useState(0);
   const { data, loading, notFound, error } = useApi(() => api.record(recordId!), [recordId, loadKey]);
 
   if (loading) return <PageSkeleton />;
-  if (notFound)
-    return <EmptyState title="Record not found" body={`No record with id "${recordId}" exists in this workspace.`} />;
-  if (error || !data) return <Callout tone="danger">{error ?? "Could not load this record."}</Callout>;
+  if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
+  if (error || !data) return <Callout tone="danger">{error ?? nav?.language.load_error ?? "Could not load this page."}</Callout>;
   if (!data.editing.editable || data.editing.metadata === null || data.editing.raw_body === null) {
     return (
       <div className="mx-auto w-full max-w-[720px] px-6 py-12 sm:px-10">

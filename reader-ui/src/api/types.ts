@@ -76,6 +76,16 @@ export interface NavPayload {
   record_index: RecordIndexEntry[];
   /** The sidebar's Decide entry: its label and how many proposals wait. */
   decide: { label: string; count: number };
+  /** Shell-wide copy with no page payload of its own to come from: the
+   * quick-find placeholder, and the not-found/load-error fallbacks every
+   * record-backed page shows the same way. `not_found_body` is a template;
+   * fill its `{record_id}` placeholder with the requested id. */
+  language: {
+    quick_find_placeholder: string;
+    not_found_title: string;
+    not_found_body: string;
+    load_error: string;
+  };
 }
 
 export interface HomePayload {
@@ -455,6 +465,8 @@ export interface EverythingEntry extends RecordSummary {
 }
 
 export interface EverythingPayload {
+  title: string;
+  intro: string;
   entries: EverythingEntry[];
   broken: BrokenEntry[];
   skills: { name: string; description: string }[];
