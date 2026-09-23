@@ -158,8 +158,10 @@ keeping the edits cancels the restart. Closing the window stops the core the
 same way quitting does (the whole process tree), and only then does the
 installer start, so no `kos-core.exe` from the old version keeps running and
 nothing is mid-write. The installer replaces the whole installation folder,
-including `resources\core\`. The recent list and the settings live in the
-user-data folder, which the installer does not touch.
+including `resources\core\` and the `kos` shim in `bin\`, and runs the same
+PATH step as a fresh install, which does not add a second entry. The recent
+list and the settings live in the user-data folder, which the installer does
+not touch.
 
 Help → Check for Updates Automatically turns the scheduled checks off; the
 choice is stored as `checkForUpdates` in `settings.json` in the user-data
@@ -240,6 +242,12 @@ python -m http.server 8765 --bind 127.0.0.1 --directory dist
 Install A silently (`knowledge-os-setup.exe /S`), start it, and Help → Check
 for Updates… finds B, downloads it, and offers the restart. Undo the version
 bumps afterwards.
+
+On the local server both versions' installers have the same file name, so
+electron-updater's differential download compares B's blockmap with itself,
+fails its checksum, and falls back to a full download (logged as "Cannot
+download differentially"). On GitHub the release tag is part of each download
+URL, so the old version's blockmap is a different file.
 
 electron-vite bakes the variable into the main-process bundle at build time;
 the installed app never reads it from its environment. Only a loopback

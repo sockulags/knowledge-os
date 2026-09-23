@@ -54,8 +54,9 @@ function dispatch(event: UpdateEvent): void {
   if (result.notice !== null) hooks?.notify(result.notice)
   hooks?.changed()
   if (result.startCheck) {
-    // Errors also arrive through the 'error' event, which dispatches 'failed'.
-    autoUpdater.checkForUpdates().catch((error) => log('check failed', error))
+    // Failures also arrive through the 'error' event, which logs them and
+    // dispatches 'failed', so the rejection needs no handling of its own.
+    autoUpdater.checkForUpdates().catch(() => undefined)
   }
 }
 
