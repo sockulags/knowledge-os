@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Outlet } from "react-router";
+import { useCallback, useEffect, useState } from "react";
+import { Outlet, useOutletContext } from "react-router";
 import { Menu, PanelLeftClose, PanelLeft } from "lucide-react";
 import { api } from "../api/client";
 import type { NavPayload } from "../api/types";
@@ -7,6 +7,15 @@ import { Sidebar } from "./Sidebar";
 import { QuickFind } from "./QuickFind";
 import { ThemeToggle } from "./ThemeToggle";
 import { ScrollToTop } from "./ScrollToTop";
+
+export interface ShellContext {
+  /** Reload the sidebar after a write changed titles or added a page. */
+  refreshNav: () => void;
+}
+
+export function useShell(): ShellContext {
+  return useOutletContext<ShellContext>();
+}
 
 /** The app shell: a ~260px left sidebar on a tinted ground, a centred
  * reading column, and the Ctrl K command palette. Collapses to a slide-over
@@ -17,9 +26,13 @@ export function Shell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [quickFindOpen, setQuickFindOpen] = useState(false);
 
-  useEffect(() => {
+  const refreshNav = useCallback(() => {
     api.nav().then(setNav).catch(() => setNav(null));
   }, []);
+
+  useEffect(() => {
+    refreshNav();
+  }, [refreshNav]);
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
@@ -91,7 +104,7 @@ export function Shell() {
           <ThemeToggle />
         </header>
         <main>
-          <Outlet />
+          <Outlet context={{ refreshNav } satisfies ShellContext} />
         </main>
       </div>
 

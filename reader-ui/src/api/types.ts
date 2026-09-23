@@ -168,6 +168,54 @@ export interface RecordPayload {
   headings: Heading[];
   inbound: RelationView[];
   outbound: RelationView[];
+  editing: EditingBlock;
+}
+
+export interface EditableMetadata {
+  title: string;
+  tags: string[];
+  related: string[];
+  sources: string[];
+}
+
+export interface DecisionActions {
+  accept: boolean;
+  withdraw: boolean;
+  /** The active decision this draft would replace, when it declares one. */
+  supersede: { id: string; title: string; status: string; content_sha256: string | null } | null;
+  propose_replacement: boolean;
+}
+
+/** Machine data for the editor and the decision buttons (never shown as prose). */
+export interface EditingBlock {
+  editable: boolean;
+  path: string;
+  project_id: string | null;
+  folder: string;
+  raw_body: string | null;
+  metadata: EditableMetadata | null;
+  content_sha256: string | null;
+  body_change_needs_confirmation: boolean;
+  decision_actions: DecisionActions | null;
+}
+
+export interface WriteResult {
+  id: string;
+  status: string;
+  path: string;
+  content_sha256: string;
+  index: { refreshed: boolean; count: number | null; error: string | null };
+}
+
+export interface SupersedeResult extends WriteResult {
+  replaced: Omit<WriteResult, "index">;
+}
+
+export interface WriteFailure {
+  error: string;
+  detail: string;
+  current_sha256?: string;
+  issues?: { path: string; message: string }[];
 }
 
 export interface CompareSide {
