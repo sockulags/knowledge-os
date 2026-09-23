@@ -6,11 +6,13 @@ classification, or lifecycle rules: it calls ``validate_workspace``,
 ``trust_label``, ``validate_index``, and ``content_sha256`` and reshapes
 their output into plain data.
 
-Reads never write to the workspace. The only writes are ``create_record``
-and ``edit_record`` at the end of this module, which hand a complete
-Markdown candidate to the core's own ``capture`` and ``update`` mutations
-(shared lock, staged validation, SHA-256 guard, index refresh) and translate
-the core's errors into one ``WriteError`` with a stable ``kind``.
+Reads never write to the workspace. The only writes are ``create_record``,
+``edit_record``, ``accept_record``, ``withdraw_record``, and
+``supersede_record`` at the end of this module, which hand the request to
+the core's own ``capture``, ``update``, ``decision accept``, ``decision
+withdraw``, and ``supersede`` mutations (shared lock, staged validation,
+SHA-256 guard, index refresh) and translate the core's errors into one
+``WriteError`` with a stable ``kind``.
 
 ``load_library`` runs the full corpus scan and must be called fresh per
 request (see ``app.py``); nothing here caches across calls, so a record
@@ -51,7 +53,11 @@ from knowledge_os.mutations import (
     MutationIndexError,
     RecordNotFoundError,
     StaleRevisionError,
+    SupersedeIndexError,
+    accept_decision,
+    supersede_decision,
     update_record_text,
+    withdraw_decision,
 )
 from knowledge_os.skills import Skill, load_skills
 from knowledge_os.workspace import CorpusValidationError, Issue, Workspace, WorkspaceError, validate_workspace
@@ -75,6 +81,14 @@ __all__ = [
     "WriteResult",
     "create_record",
     "edit_record",
+    "EditableSource",
+    "editable_source",
+    "DecisionActions",
+    "decision_actions",
+    "SupersedeWriteResult",
+    "accept_record",
+    "withdraw_record",
+    "supersede_record",
     # Record has no content_sha256 field (not part of the frozen contract);
     # a view that needs one for its technical-details disclosure (acceptance
     # criterion 4) computes it on demand via this re-export, since views may
@@ -679,3 +693,186 @@ def edit_record(
     except (MutationError, MetadataError, WorkspaceError) as exc:
         raise _write_error(exc) from exc
     return WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
+
+
+# ---------------------------------------------------------------------------
+# Editing reads: the exact revision an editor starts from
+# ---------------------------------------------------------------------------
+
+#: The metadata fields the interface's editor offers. ``kos update`` allows
+#: more (it refuses only identity, lifecycle, supersession, and system
+#: provenance changes); these are the ones a person edits by hand.
+EDITABLE_FIELDS = ("title", "tags", "related", "sources")
+
+
+@dataclass(frozen=True)
+class EditableSource:
+    raw_body: str
+    metadata: dict[str, Any]  # EDITABLE_FIELDS only; absent lists are []
+    content_sha256: str
+    editable: bool  # the interface edits only the types it can create
+    body_change_needs_confirmation: bool  # accepted decision: non-material edits only
+
+
+def editable_source(record: Record) -> EditableSource:
+    """Read the record's body and editable fields from one read of its bytes,
+    so the hash an editor later sends as ``expected_sha256`` describes exactly
+    the text it was given, even if the file changed after ``load_library``."""
+
+    raw = record.abs_path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        document = parse_document_text(record.abs_path, raw.decode("utf-8"))
+    except (MetadataError, UnicodeDecodeError) as exc:
+        raise LibraryError(f"record {record.id!r} cannot be parsed for editing: {exc}") from exc
+    metadata = document.metadata
+    fields: dict[str, Any] = {"title": metadata["title"]}
+    for field in EDITABLE_FIELDS[1:]:
+        fields[field] = list(metadata.get(field, ()))
+    return EditableSource(
+        raw_body=document.body,
+        metadata=fields,
+        content_sha256=digest,
+        editable=metadata["type"] in CAPTURE_DIRECTORIES,
+        body_change_needs_confirmation=(
+            metadata.get("record_kind") == "decision" and metadata["status"] in {"active", "superseded"}
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Decision lifecycle: accept, withdraw, supersede
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DecisionActions:
+    """Which lifecycle actions the interface offers on one decision.
+
+    A hint for which buttons to show, following the core's preconditions;
+    the core checks them again under the workspace lock and refuses anything
+    that no longer holds.
+    """
+
+    accept: bool
+    withdraw: bool
+    replaces: Record | None  # the active decision a draft replacement would supersede
+    propose_replacement: bool
+
+
+def decision_actions(library: Library, record: Record) -> DecisionActions | None:
+    if not record.is_decision:
+        return None
+    supersedes = [relation.record_id for relation in record.outbound if relation.field == "supersedes"]
+    draft = record.status == "draft"
+    replaces: Record | None = None
+    if draft and len(supersedes) == 1:
+        target = library.records_by_id.get(supersedes[0])
+        if target is not None and target.is_decision and target.status == "active" and target.scope == record.scope:
+            replaces = target
+    return DecisionActions(
+        accept=draft and not supersedes,
+        withdraw=draft,
+        replaces=replaces,
+        propose_replacement=record.status == "active",
+    )
+
+
+@dataclass(frozen=True)
+class SupersedeWriteResult:
+    replacement: WriteResult  # the draft that became active
+    replaced: WriteResult  # the active decision that became superseded
+
+
+def interface_reference(action: str) -> str:
+    """A provenance reference for an action taken in the interface, e.g.
+    ``interface:2026-09-22T21:02:52Z:accept``."""
+
+    stamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return f"interface:{stamp}:{action}"
+
+
+def _require_sha(value: str, name: str) -> None:
+    if not SHA256_PATTERN.fullmatch(value):
+        raise WriteError("bad_request", f"{name} must be 64 lowercase hex characters")
+
+
+def _mutation_result(result: Any, *, refreshed: bool, error: str | None) -> WriteResult:
+    return WriteResult(
+        result.id, result.status, result.path, result.sha256, refreshed, result.index_count if refreshed else None, error
+    )
+
+
+def _decision_write(call: Any) -> WriteResult:
+    try:
+        result = call()
+    except MutationIndexError as exc:
+        return _mutation_result(exc.result, refreshed=False, error=str(exc))
+    except (MutationError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+    return _mutation_result(result, refreshed=True, error=None)
+
+
+def accept_record(workspace: Workspace, record_id: str, *, expected_sha256: str) -> WriteResult:
+    """``kos decision accept`` with an ``interface:<timestamp>:accept`` reference."""
+
+    _require_sha(expected_sha256, "expected_sha256")
+    return _decision_write(
+        lambda: accept_decision(
+            workspace,
+            record_id,
+            expected_sha256=expected_sha256,
+            acceptance_reference=interface_reference("accept"),
+        )
+    )
+
+
+def withdraw_record(workspace: Workspace, record_id: str, *, expected_sha256: str, reason: str) -> WriteResult:
+    """``kos decision withdraw``; ``reason`` becomes the withdrawal provenance reference."""
+
+    _require_sha(expected_sha256, "expected_sha256")
+    if not reason.strip():
+        raise WriteError("bad_request", "reason must be a non-empty string")
+    return _decision_write(
+        lambda: withdraw_decision(workspace, record_id, expected_sha256=expected_sha256, reason=reason)
+    )
+
+
+def supersede_record(
+    workspace: Workspace,
+    new_id: str,
+    *,
+    expected_sha256: str,
+    old_id: str,
+    old_expected_sha256: str,
+) -> SupersedeWriteResult:
+    """``kos supersede OLD NEW``: activate draft ``new_id`` as the replacement
+    for active ``old_id`` with an ``interface:<timestamp>:supersede``
+    acceptance reference, checking both exact revisions."""
+
+    _require_sha(expected_sha256, "expected_sha256")
+    _require_sha(old_expected_sha256, "old_expected_sha256")
+    refreshed, error = True, None
+    try:
+        result = supersede_decision(
+            workspace,
+            old_id,
+            new_id,
+            expected_old_sha256=old_expected_sha256,
+            expected_new_sha256=expected_sha256,
+            acceptance_reference=interface_reference("supersede"),
+        )
+    except SupersedeIndexError as exc:
+        result, refreshed, error = exc.result, False, str(exc)
+    except (MutationError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+    count = result.index_count if refreshed else None
+    # Supersession rewrites both files in place, so their paths are unchanged.
+    documents, _issues = validate_workspace(workspace)
+    paths = {document.metadata["id"]: _relative_or_absolute(workspace, document.path) for document in documents}
+    return SupersedeWriteResult(
+        replacement=WriteResult(
+            new_id, result.new_status, paths.get(new_id, ""), result.new_sha256, refreshed, count, error
+        ),
+        replaced=WriteResult(old_id, result.old_status, paths.get(old_id, ""), result.old_sha256, refreshed, count, error),
+    )

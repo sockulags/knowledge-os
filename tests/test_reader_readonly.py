@@ -73,7 +73,11 @@ ADAPTER_WRITE_ENTRY_POINTS = {
         "MutationIndexError",
         "RecordNotFoundError",
         "StaleRevisionError",
+        "SupersedeIndexError",
+        "accept_decision",
+        "supersede_decision",
         "update_record_text",
+        "withdraw_decision",
     },
 }
 FORBIDDEN_WORKSPACE_NAMES = {
@@ -297,13 +301,14 @@ class ForbiddenWritePathTests(unittest.TestCase):
     """None of capture/ingest/mutations/discovery/documentation_init, nor
     the five workspace write functions, nor the core's read-write search
     helpers, are reachable from anywhere in the reader package, except the
-    adapter's named capture/update entry points."""
+    adapter's named capture, update, and decision\r
+    lifecycle entry points."""
 
     def test_the_adapter_allowance_does_not_admit_other_names(self) -> None:
         allowed = ADAPTER_WRITE_ENTRY_POINTS
-        tree = ast.parse("from knowledge_os.mutations import supersede_decision\n")
+        tree = ast.parse("from knowledge_os.mutations import update_record\n")
         self.assertIn(
-            "from knowledge_os.mutations import supersede_decision",
+            "from knowledge_os.mutations import update_record",
             forbidden_write_path_violations(tree, allowed),
         )
         tree = ast.parse("import knowledge_os.capture\n")

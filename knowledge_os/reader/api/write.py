@@ -1,14 +1,15 @@
-"""Write endpoints: ``POST /api/records`` (create) and ``PATCH
-/api/records/{record_id}`` (edit), plus ``GET /api/session``, which hands the
-UI the per-process write token.
+"""Write endpoints: ``POST /api/records`` (create), ``PATCH
+/api/records/{record_id}`` (edit), the decision lifecycle actions ``POST
+/api/records/{record_id}/accept``, ``/withdraw``, and ``/supersede``, plus
+``GET /api/session``, which hands the UI the per-process write token.
 
-Every write goes through ``library.create_record``/``library.edit_record``,
-which call the core's own capture and update mutations. This module only
+Every write goes through one ``library`` function (``create_record``,
+``edit_record``, ``accept_record``, ``withdraw_record``,
+``supersede_record``), which calls the core's own mutation. This module only
 checks where a request comes from, parses JSON, and maps
-``library.WriteError.kind`` to an HTTP status. Decision lifecycle actions
-(accept, withdraw, supersede) are meant to follow the same pattern as
-``POST /api/records/{record_id}/<action>`` with ``expected_sha256`` in the
-body.
+``library.WriteError.kind`` to an HTTP status. ``POST /api/preview`` renders
+unsaved Markdown for the editor; it writes nothing but sits behind the same
+guard, since it is only useful to the UI.
 
 Cross-site protection for a server that binds to loopback only: a write must
 be addressed to a loopback ``Host`` (defeats DNS rebinding), must not carry a
@@ -36,8 +37,20 @@ from urllib.parse import urlsplit
 from starlette.requests import Request
 from starlette.responses import Response
 
-from ..app import json_response
-from ..library import WriteError, WriteResult, create_record, edit_record
+from .. import markdown
+from ..app import get_library, json_response
+from ..library import (
+    SupersedeWriteResult,
+    WriteError,
+    WriteResult,
+    accept_record,
+    create_record,
+    edit_record,
+    path_index,
+    supersede_record,
+    withdraw_record,
+)
+from .common import strip_leading_h1
 
 WRITE_TOKEN_HEADER = "X-KOS-Write-Token"
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -206,3 +219,76 @@ async def edit_view(request: Request) -> Response:
     except WriteError as exc:
         return _write_error_response(exc)
     return json_response(_result_json(result))
+
+
+async def accept_view(request: Request) -> Response:
+    payload = await _write_payload(request)
+    if isinstance(payload, Response):
+        return payload
+    try:
+        result = accept_record(
+            request.app.state.workspace,
+            request.path_params["record_id"],
+            expected_sha256=_field(payload, "expected_sha256", str, required=True),
+        )
+    except WriteError as exc:
+        return _write_error_response(exc)
+    return json_response(_result_json(result))
+
+
+async def withdraw_view(request: Request) -> Response:
+    payload = await _write_payload(request)
+    if isinstance(payload, Response):
+        return payload
+    try:
+        result = withdraw_record(
+            request.app.state.workspace,
+            request.path_params["record_id"],
+            expected_sha256=_field(payload, "expected_sha256", str, required=True),
+            reason=_field(payload, "reason", str, required=True),
+        )
+    except WriteError as exc:
+        return _write_error_response(exc)
+    return json_response(_result_json(result))
+
+
+def _supersede_json(result: SupersedeWriteResult) -> dict[str, Any]:
+    replaced = _result_json(result.replaced)
+    del replaced["index"]
+    return {**_result_json(result.replacement), "replaced": replaced}
+
+
+async def supersede_view(request: Request) -> Response:
+    """Called on the draft replacement: it becomes active and ``old_id``, the
+    active decision it declares in ``supersedes``, becomes superseded."""
+
+    payload = await _write_payload(request)
+    if isinstance(payload, Response):
+        return payload
+    try:
+        result = supersede_record(
+            request.app.state.workspace,
+            request.path_params["record_id"],
+            expected_sha256=_field(payload, "expected_sha256", str, required=True),
+            old_id=_field(payload, "old_id", str, required=True),
+            old_expected_sha256=_field(payload, "old_expected_sha256", str, required=True),
+        )
+    except WriteError as exc:
+        return _write_error_response(exc)
+    return json_response(_supersede_json(result))
+
+
+async def preview_view(request: Request) -> Response:
+    """Render editor text the way the record page renders a saved body."""
+
+    payload = await _write_payload(request)
+    if isinstance(payload, Response):
+        return payload
+    try:
+        body = _field(payload, "body", str, required=True)
+        source_path = _field(payload, "path", str, required=False)
+    except WriteError as exc:
+        return _write_error_response(exc)
+    resolve = path_index(get_library(request)).get if source_path else None
+    html = markdown.render(strip_leading_h1(body), source_path=source_path, resolve_link=resolve)
+    return json_response({"html": html})

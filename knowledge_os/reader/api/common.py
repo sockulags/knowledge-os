@@ -129,7 +129,7 @@ def pill_for(record: Record) -> Pill | None:
     return None
 
 
-def _project_id_for_scope(scope: str) -> str | None:
+def project_id_for_scope(scope: str) -> str | None:
     if scope == "general" or not scope.startswith("project:"):
         return None
     return scope.removeprefix("project:")
@@ -159,7 +159,7 @@ def record_summary(record: Record) -> dict[str, object]:
         "record_kind": record.record_kind,
         "is_decision": record.is_decision,
         "status_pill": pill_for(record),
-        "project": _project_id_for_scope(record.scope),
+        "project": project_id_for_scope(record.scope),
         "updated": record.updated,
     }
 
@@ -367,7 +367,7 @@ def breadcrumb_for_record(library: Library, record: Record) -> list[dict[str, st
 
     workspace_name = library.workspace_name or strings.APP_NAME
     crumbs = [{"label": workspace_name, "href": "/"}]
-    project_id = _project_id_for_scope(record.scope)
+    project_id = project_id_for_scope(record.scope)
     if project_id is not None:
         crumbs.append({"label": project_title(library, project_id), "href": f"/p/{project_id}"})
     return crumbs

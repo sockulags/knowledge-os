@@ -20,10 +20,21 @@ from starlette.responses import Response
 
 from .. import language, markdown, strings
 from ..app import get_library, json_response, not_found
-from ..library import Library, Record, Relation, content_sha256, path_index
+from ..library import (
+    EditableSource,
+    Library,
+    LibraryError,
+    Record,
+    Relation,
+    content_sha256,
+    decision_actions,
+    editable_source,
+    path_index,
+)
 from .common import (
     breadcrumb_for_record,
     lineage_callouts,
+    project_id_for_scope,
     properties_block,
     record_summary,
     record_summary_with_sentence,
@@ -47,6 +58,10 @@ async def view(request: Request) -> Response:
     body = strip_leading_h1(record.body)
     headings = [h for h in markdown.headings(body) if h[0] <= 3]
     body_html = markdown.render(body, source_path=record.path, resolve_link=path_index(library).get)
+    try:
+        source = editable_source(record)
+    except (LibraryError, OSError):
+        source = None
 
     return json_response(
         {
@@ -57,14 +72,68 @@ async def view(request: Request) -> Response:
             "is_decision": record.is_decision,
             "breadcrumb": breadcrumb_for_record(library, record),
             "properties": properties_block(library, record),
-            "technical_details": technical_details(record, content_sha256(record.abs_path)),
+            "technical_details": technical_details(
+                record, source.content_sha256 if source else content_sha256(record.abs_path)
+            ),
             "lineage": lineage_callouts(library, record),
             "body_html": body_html,
             "headings": headings,
             "inbound": [relation_view(relation) for relation in record.inbound],
             "outbound": [relation_view(relation) for relation in record.outbound],
+            "editing": _editing_json(library, record, source),
         }
     )
+
+
+def _folder_in_project(record: Record, project_id: str | None) -> str:
+    """The record's folder below ``projects/<project-id>/`` ("" at the top),
+    where a new note created from this page goes by default."""
+
+    if project_id is None:
+        return ""
+    prefix = f"projects/{project_id}/"
+    if not record.path.startswith(prefix):
+        return ""
+    return "/".join(record.path[len(prefix) :].split("/")[:-1])
+
+
+def _editing_json(library: Library, record: Record, source: EditableSource | None) -> dict[str, object]:
+    """Machine data for the editor and the decision action buttons, kept
+    apart from the reader's prose: the unrendered body and editable fields,
+    read together with the hash a save sends back as ``expected_sha256``."""
+
+    project_id = project_id_for_scope(record.scope)
+    return {
+        "editable": source.editable if source else False,
+        "path": record.path,
+        "project_id": project_id,
+        "folder": _folder_in_project(record, project_id),
+        "raw_body": source.raw_body if source else None,
+        "metadata": source.metadata if source else None,
+        "content_sha256": source.content_sha256 if source else None,
+        "body_change_needs_confirmation": source.body_change_needs_confirmation if source else False,
+        "decision_actions": _decision_actions_json(library, record),
+    }
+
+
+def _decision_actions_json(library: Library, record: Record) -> dict[str, object] | None:
+    actions = decision_actions(library, record)
+    if actions is None:
+        return None
+    replaces = None
+    if actions.replaces is not None:
+        target = actions.replaces
+        try:
+            target_sha = content_sha256(target.abs_path)
+        except OSError:
+            target_sha = None
+        replaces = {"id": target.id, "title": target.title, "status": target.status, "content_sha256": target_sha}
+    return {
+        "accept": actions.accept,
+        "withdraw": actions.withdraw,
+        "supersede": replaces,
+        "propose_replacement": actions.propose_replacement,
+    }
 
 
 # ---------------------------------------------------------------------------

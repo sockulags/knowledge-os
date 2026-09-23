@@ -60,8 +60,9 @@ class OpenknowledgePivotTests(unittest.TestCase):
                 self.assertEqual(data["properties"]["status"]["pill"]["tone"], "amber")
                 self.assertIn("30 August 2026", data["properties"]["source"]["value"][0])
 
-                # No contract vocabulary anywhere outside technical_details.
-                surface = json.dumps({k: v for k, v in data.items() if k != "technical_details"})
+                # No contract vocabulary anywhere outside technical_details and
+                # the editor's machine-only editing block.
+                surface = json.dumps({k: v for k, v in data.items() if k not in {"technical_details", "editing"}})
                 for forbidden in ('"draft"', '"provenance"', '"content_sha256"', ".md"):
                     self.assertNotIn(forbidden, surface, f"{forbidden!r} leaked outside technical_details")
 

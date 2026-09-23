@@ -126,7 +126,14 @@ PROVENANCE_KIND: dict[str, str] = {
     "project-definition": "Defined when this project was created",
     "repository-documentation": "Populated from the repository's own documentation",
     "user-request": "Requested directly by you",
+    # Created with the interface's editor (see docs/architecture.md).
+    "interface-authored": "Written by you in this app",
 }
+
+#: A decision-acceptance whose reference is the interface's own
+#: ``interface:<timestamp>:<action>``: the reference is a machine stamp, so
+#: the sentence names the date instead of quoting it.
+PROVENANCE_ACCEPTED_IN_APP = "Accepted in this app on {date}"
 
 #: Fallback for every other provenance kind (see module docstring):
 #: reference-free on purpose, for the same reason the four entries above

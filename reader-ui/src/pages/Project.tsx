@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useParams, Link } from "react-router";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, FilePlus, Scale } from "lucide-react";
 import { api } from "../api/client";
 import type { GroupPayload, RecordSummary } from "../api/types";
 import { useApi } from "../hooks/useApi";
@@ -90,7 +90,25 @@ export function Project() {
 
   return (
     <div className="mx-auto w-full max-w-[760px] px-6 py-12 sm:px-10">
-      <Breadcrumb items={data.breadcrumb} />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <Breadcrumb items={data.breadcrumb} />
+        <div className="no-print ml-auto flex items-center gap-1">
+          <Link
+            to={`/p/${data.id}/new`}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+          >
+            <FilePlus size={14} />
+            New page
+          </Link>
+          <Link
+            to={`/p/${data.id}/new?kind=decision`}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+          >
+            <Scale size={14} />
+            Propose a decision
+          </Link>
+        </div>
+      </div>
       <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
 
       <div className="mt-6">

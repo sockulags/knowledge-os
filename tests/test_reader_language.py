@@ -327,6 +327,36 @@ class ProvenanceSentenceTests(unittest.TestCase):
         sentence = language.provenance_sentence(library, record, record.provenance[0])
         self.assertEqual(sentence, "A conversation you approved on 30 August 2026")
 
+    def test_interface_provenance_reads_as_written_and_accepted_in_the_app(self) -> None:
+        def build(root: Path) -> None:
+            write_record(
+                root,
+                "knowledge/choice.md",
+                {
+                    "id": "choice",
+                    "title": "Choice",
+                    "type": "knowledge",
+                    "record_kind": "decision",
+                    "status": "active",
+                    "scope": "general",
+                    "created": "2026-09-22",
+                    "updated": "2026-09-23",
+                    "provenance": [
+                        {"kind": "interface-authored", "reference": "interface:2026-09-22T10:00:00Z:create"},
+                        {
+                            "kind": "decision-acceptance",
+                            "reference": "interface:2026-09-23T08:00:00Z:accept",
+                            "captured": "2026-09-23T08:00:00Z",
+                        },
+                    ],
+                },
+            )
+
+        library = _load(build)
+        record = library.records_by_id["choice"]
+        sentences = [language.provenance_sentence(library, record, entry) for entry in record.provenance]
+        self.assertEqual(sentences, ["Written by you in this app", "Accepted in this app on 23 September 2026"])
+
     def test_repository_file_provenance_never_shows_its_path(self) -> None:
         """``repository-file``'s own reference is a workspace-relative
         path; the reading path must never show a file path (design brief),
