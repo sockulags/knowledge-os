@@ -5,6 +5,7 @@ files:
   - '!src/*'
   - '!core/*'
   - '!scripts/*'
+  - '!resources/**'
   - '!build-core/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{vitest.config.ts,eslint.config.mjs,.eslintcache,.prettierignore,.prettierrc.yaml,README.md}'
@@ -14,6 +15,12 @@ files:
 extraResources:
   - from: build-core/dist/kos-core
     to: core
+# The kos.cmd shim (see resources/bin/kos.cmd) ships at <install dir>\bin, not
+# under resources\, so the folder the installer adds to PATH holds only the
+# shim.
+extraFiles:
+  - from: resources/bin
+    to: bin
 win:
   executableName: knowledge-os
   target: nsis
@@ -27,4 +34,7 @@ nsis:
   oneClick: true
   perMachine: false
   runAfterFinish: true
+  # Adds/removes <install dir>\bin (the kos.cmd shim) on the user PATH; see
+  # build/installer.nsh.
+  include: build/installer.nsh
 npmRebuild: false
