@@ -61,6 +61,39 @@ registers an uninstaller under Installed apps. `knowledge-os-setup.exe /S`
 installs silently. Windows SmartScreen warns about
 the unsigned installer on first run. There is no auto-update.
 
+### The `kos` command
+
+The installer also puts a `kos` command on PATH, backed by the bundled core
+(no separate Python install needed):
+
+- `<install dir>\bin\kos.cmd` is a small shim
+  (`resources/bin/kos.cmd` in this checkout) that forwards every argument to
+  `<install dir>\resources\core\kos-core.exe -m knowledge_os`, preserving the
+  exit code and stdin/stdout, so `kos --root PATH lint --json` and piping
+  both work the same as running the Python CLI directly. `kos-read.cmd`
+  ships alongside it the same way, forwarding to `-m knowledge_os.reader`
+  (the standalone reader server; the shell starts the bundled core the same
+  way itself, see below).
+- The installer adds `<install dir>\bin` to the **current user's** PATH
+  (`HKCU\Environment`, not a machine-wide change, so no administrator rights
+  are needed) and broadcasts the PATH change so newly opened terminals see
+  `kos` immediately, with no reboot or sign-out required. A terminal that was
+  already open needs to be restarted to pick it up. Reinstalling or
+  upgrading does not add a second PATH entry. Uninstalling removes exactly
+  that one entry and leaves the rest of PATH untouched.
+- The PATH update runs `build/installer.nsh`'s custom NSIS install/uninstall
+  steps, which hand the actual registry edit to `build/manage-path.ps1`
+  instead of doing it in NSIS itself. NSIS's default string build caps
+  strings at 1024 characters, and a real PATH can be longer than that;
+  reading a long `HKCU\Environment\Path` into such a string and writing it
+  back would silently truncate everything past the limit. The PowerShell
+  script reads and writes that registry value through .NET's Registry API,
+  which has no such limit, so long PATH values are never touched.
+- If a pip-installed `kos` is already on PATH, both can coexist; whichever
+  directory comes first on PATH wins for a bare `kos` invocation. Run
+  `where kos` to see every `kos` on PATH in the order Windows will try them,
+  with the one that actually runs listed first.
+
 The core is a PyInstaller one-folder build (`resources\core\kos-core.exe`
 next to its `_internal\` folder), not a one-file build: it starts without
 unpacking itself to a temp folder, and it runs as a single process, so the
