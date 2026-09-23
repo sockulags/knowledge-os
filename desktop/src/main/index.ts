@@ -9,6 +9,7 @@ import { basename, join } from 'path'
 import { pathToFileURL } from 'url'
 import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
 import { decideNavigation } from './navigation'
+import { createReferatPlugin, type ReferatPlugin } from './plugins/referat'
 import {
   CoreProcess,
   initWorkspace,
@@ -48,11 +49,17 @@ let state: ShellState = { kind: 'start', recent }
 let restartPending = false
 /** Increments per open request so a slow, superseded start is discarded. */
 let openGeneration = 0
+/** The optional Referat plugin, created once the app is ready. */
+let referat: ReferatPlugin | null = null
 
 const startPageUrl =
   !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
     ? process.env['ELECTRON_RENDERER_URL']
     : pathToFileURL(join(__dirname, '../renderer/index.html')).href
+const referatPageUrl =
+  !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
+    ? `${process.env['ELECTRON_RENDERER_URL'].replace(/\/+$/, '')}/referat.html`
+    : pathToFileURL(join(__dirname, '../renderer/referat.html')).href
 
 function stopCoreSync(): void {
   core?.stopSync()
@@ -74,6 +81,7 @@ function setState(next: ShellState): void {
       void window.loadURL(startPageUrl)
     }
   }
+  referat?.workspaceChanged()
   buildMenu()
 }
 
@@ -325,6 +333,7 @@ function buildMenu(): void {
         { role: 'togglefullscreen' }
       ]
     },
+    ...(referat !== null ? [referat.menu()] : []),
     helpMenu()
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -457,6 +466,12 @@ app.whenReady().then(() => {
     autoCheckEnabled: () => settings.checkForUpdates,
     notify: showUpdateNotice,
     changed: buildMenu
+  })
+  referat = createReferatPlugin({
+    mainWindow: () => mainWindow,
+    coreUrl: () => (state.kind === 'ready' ? state.url : null),
+    pageUrl: referatPageUrl,
+    preloadPath: join(__dirname, '../preload/referat.js')
   })
   buildMenu()
   createWindow()
