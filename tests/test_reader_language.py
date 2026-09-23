@@ -357,6 +357,39 @@ class ProvenanceSentenceTests(unittest.TestCase):
         sentences = [language.provenance_sentence(library, record, entry) for entry in record.provenance]
         self.assertEqual(sentences, ["Written by you in this app", "Accepted in this app on 23 September 2026"])
 
+    def test_referat_meeting_provenance_names_the_meeting_date(self) -> None:
+        def build(root: Path) -> None:
+            write_record(
+                root,
+                "knowledge/minutes.md",
+                {
+                    "id": "minutes",
+                    "title": "Minutes",
+                    "type": "knowledge",
+                    "status": "active",
+                    "scope": "general",
+                    "created": "2026-09-23",
+                    "updated": "2026-09-23",
+                    "provenance": [
+                        {
+                            "kind": "referat-meeting",
+                            "reference": "referat:20260920120300-k3j9x2",
+                            "captured": "2026-09-23T08:00:00Z",
+                        },
+                        {"kind": "referat-meeting", "reference": "referat:not-a-meeting-id"},
+                    ],
+                },
+            )
+
+        library = _load(build)
+        record = library.records_by_id["minutes"]
+        sentences = [language.provenance_sentence(library, record, entry) for entry in record.provenance]
+        # The date is the meeting's (from its id), not the import's (captured).
+        self.assertEqual(
+            sentences,
+            ["Imported from a Referat meeting on 20 September 2026", "Imported from a Referat meeting"],
+        )
+
     def test_decision_withdrawal_names_the_date_and_reason(self) -> None:
         def build(root: Path) -> None:
             write_record(

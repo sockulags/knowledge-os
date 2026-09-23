@@ -25,6 +25,7 @@ testable without a server or a workspace on disk.
 from __future__ import annotations
 
 import datetime
+import re
 
 from . import strings
 from .library import Library, ProvenanceEntry, Record
@@ -299,7 +300,25 @@ def provenance_sentence(library: Library, record: Record, entry: ProvenanceEntry
         target = library.records_by_id.get(entry.reference)
         title = target.title if target is not None else entry.reference
         return template.format(title=title)
+    if entry.kind == "referat-meeting":
+        date = _referat_meeting_date(entry.reference)
+        return template.format(date=format_date(date)) if date else strings.PROVENANCE_REFERAT_UNDATED
     return template
+
+
+#: ``referat:<meeting id>``, where Referat's meeting id is the meeting's UTC
+#: start time (``YYYYMMDDhhmmss``) followed by a short random suffix.
+_REFERAT_REFERENCE = re.compile(r"^referat:(\d{4})(\d{2})(\d{2})\d{6}-[a-z0-9]+$")
+
+
+def _referat_meeting_date(reference: str) -> str | None:
+    match = _REFERAT_REFERENCE.fullmatch(reference.strip())
+    if match is None:
+        return None
+    try:
+        return datetime.date(int(match[1]), int(match[2]), int(match[3])).isoformat()
+    except ValueError:
+        return None
 
 
 def record_accent(record: Record) -> str | None:

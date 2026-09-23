@@ -430,6 +430,20 @@ as with `kos update`; Git history records them. A confirmed non-material
 edit of an accepted decision body gets change reference
 `interface:<UTC timestamp>:edit`.
 
+Records imported by the desktop app's Referat plugin (see
+[`desktop/README.md`](../desktop/README.md)) carry provenance
+`{"kind": "referat-meeting", "reference": "referat:<meeting id>",
+"captured": "<UTC timestamp>", "sha256": "<SHA-256 of the imported summary
+Markdown>"}`. Referat's meeting id is the meeting's UTC start time
+(`YYYYMMDDhhmmss`) plus a short random suffix, so the reader names the
+meeting date: "Imported from a Referat meeting on 20 September 2026". Like
+`interface-authored`, the kind is opaque to the core: lint does not resolve
+the reference, and nothing outside the plugin writes it. The plugin creates
+records only through `POST /api/records`, so the imported note and its draft
+decisions follow capture's rules and the approval policy, and each one is
+auto-committed like any other interface write. The plugin finds an earlier
+import of the same meeting by this reference.
+
 ## Git versioning and sync
 
 A knowledge base is meant to be its own Git repository. `knowledge_os/gitsync.py`
