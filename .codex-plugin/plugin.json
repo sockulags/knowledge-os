@@ -1,6 +1,6 @@
 {
   "name": "knowledge-os",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Approval-gated conversational capture and task-relevant repository documentation for Knowledge OS durable Markdown records, with explicit one-time global and repository initialization when needed.",
   "author": {
     "name": "Sockulags",
