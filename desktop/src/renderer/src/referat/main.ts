@@ -442,7 +442,16 @@ function renderResult(result: ImportResultView): void {
 
 async function start(): Promise<void> {
   show(element('h1', 'Import a meeting from Referat'), element('p', 'Looking for Referat…'))
-  context = await api.context()
+  try {
+    context = await api.context()
+  } catch {
+    show(
+      element('h1', 'Referat could not be checked'),
+      element('div', 'Close this window and try again once the knowledge base is open.', 'error'),
+      actions(button('Close', () => void api.close(), true))
+    )
+    return
+  }
   if (context.availability.kind !== 'available') {
     renderUnavailable(context.availability.kind)
     return

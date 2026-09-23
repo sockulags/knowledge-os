@@ -220,8 +220,9 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
   handle(REFERAT_IPC.context, async (): Promise<ImportContext> => {
     const [state, projects] = await Promise.all([
       availability(),
-      kos()
-        .projects()
+      // No projects (and so no import) when the knowledge base is closed or unreachable.
+      Promise.resolve()
+        .then(() => kos().projects())
         .catch(() => [])
     ])
     const current = await currentProject()
