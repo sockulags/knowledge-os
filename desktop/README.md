@@ -36,6 +36,8 @@ Run these in `desktop/`:
 | `npm run build:ui` | Installs `reader-ui/` dependencies and rebuilds the reader UI into `knowledge_os/reader/static/app/`. |
 | `npm run build:core` | Builds the frozen core into `build-core/dist/kos-core/`. |
 | `npm run dist` | Runs the three builds above, then writes the installer to `dist/knowledge-os-setup.exe`, with `latest.yml` and `knowledge-os-setup.exe.blockmap` for updates. |
+| `npm run dist:test` | Builds the isolated **test variant** for installer/update testing; writes `dist-test/knowledge-os-test-setup.exe`. Never use `npm run dist` for testing installs — see [Testing the installer](#testing-the-installer). |
+| `npm run test:installer` | Builds the test variant and runs the guarded install/PATH/uninstall check described below. |
 
 ## Building the Windows installer
 
@@ -223,9 +225,60 @@ release is made by hand:
    three files from the same build. Installed apps find the update at their
    next check.
 
+## Testing the installer
+
+**Never run `npm run dist`'s installer or uninstaller to test anything.** An
+earlier round of installer and update testing installed into and then
+silently uninstalled `%LOCALAPPDATA%\Programs\knowledge-os-desktop` — the same
+folder a real install uses — which deleted a real installation and its `kos`
+PATH entry. Installer and update tests must always use the **test build
+variant** instead, built by `npm run dist:test`
+(`electron-builder.test.yml`, which extends `electron-builder.yml`). It
+changes every identifier that could make a test run collide with a real
+install:
+
+| | Real (`npm run dist`) | Test (`npm run dist:test`) |
+| --- | --- | --- |
+| `appId` | `se.lucasskog.knowledgeos` | `se.lucasskog.knowledgeostest` |
+| `productName` | Knowledge OS | Knowledge OS Test |
+| app name / install dir / userData dir | `knowledge-os-desktop` | `knowledge-os-desktop-test` |
+| installer/uninstaller `.exe` | `knowledge-os-setup.exe` / `knowledge-os.exe` | `knowledge-os-test-setup.exe` / `knowledge-os-test.exe` |
+| PATH entry | `...\Programs\knowledge-os-desktop\bin` | `...\Programs\knowledge-os-desktop-test\bin` |
+| updater cache dir | `knowledge-os-desktop-updater` | `knowledge-os-desktop-test-updater` |
+| update feed | GitHub releases (`app-update.yml`) | none (`publish: null`, no `app-update.yml` is written) |
+| build output | `dist/` | `dist-test/` |
+
+The install directory and userData folder are named after the app's
+`name` (electron-builder names the NSIS install folder and Electron names the
+default userData folder after the packaged `package.json`'s `name`, not
+`productName`), so `electron-builder.test.yml` overrides it with
+`extraMetadata.name`. `build/installer.nsh` and `build/manage-path.ps1` need
+no change: they already add/remove `$INSTDIR\bin` for whatever install
+directory the running installer was given, so the different install
+directory alone gives the test variant its own PATH entry. Because the test
+build has no `publish` config, it never gets an `app-update.yml`, so it can
+never find or install an update from a real GitHub release, however it is
+started.
+
+`npm run test:installer` runs the guarded flow: it re-derives the real and
+test identifiers from `electron-builder.yml`, `electron-builder.test.yml`,
+and `package.json`, and **refuses to run** if any of them are not cleanly
+separate from the real app's (same install dir, same PATH entry, same
+`appId`, or same `productName`). Only once that guard passes does it build
+the test variant, record the current user PATH exactly as stored in the
+registry, install the test variant silently, run `kos --help` through the
+test variant's shim from a new process (with PATH rebuilt from the registry,
+the way a newly opened terminal would see it), uninstall the test variant
+silently, and verify the user PATH is byte-identical to what it recorded
+before the run — restoring that exact value immediately if it is not. It
+also snapshots the real install folder and its userData folder, if present,
+before and after, and fails loudly if either changed. The real app is never
+installed, updated, or uninstalled by this script.
+
 ## Testing an update locally
 
-An update can be tested end to end without publishing a release. The feed is
+An update can be tested end to end without publishing a release, using the
+test variant so it can never reach a real GitHub release. The feed is
 switched to electron-updater's `generic` provider on a local HTTP server by
 setting `MAIN_VITE_KOS_UPDATE_TEST_FEED` while building the app that should
 find the update:
@@ -234,18 +287,20 @@ find the update:
 # Version A, which looks for updates on the local server.
 npm version 0.1.90 --no-git-tag-version
 $env:MAIN_VITE_KOS_UPDATE_TEST_FEED = 'http://127.0.0.1:8765/'
-npm run dist            # copy dist\ away as version A
+npm run dist:test        # copy dist-test\ away as version A
 Remove-Item Env:\MAIN_VITE_KOS_UPDATE_TEST_FEED
 
 # Version B, served as the update.
 npm version 0.1.91 --no-git-tag-version
-npm run dist
-python -m http.server 8765 --bind 127.0.0.1 --directory dist
+npm run dist:test
+python -m http.server 8765 --bind 127.0.0.1 --directory dist-test
 ```
 
-Install A silently (`knowledge-os-setup.exe /S`), start it, and Help → Check
-for Updates… finds B, downloads it, and offers the restart. Undo the version
-bumps afterwards.
+Install A silently (`knowledge-os-test-setup.exe /S`), start it, and Help →
+Check for Updates… finds B, downloads it, and offers the restart. Undo the
+version bumps afterwards, and uninstall the test variant
+(`Uninstall Knowledge OS Test.exe /S`, in the test install dir under
+`%LOCALAPPDATA%\Programs\knowledge-os-desktop-test`) when done.
 
 On the local server both versions' installers have the same file name, so
 electron-updater's differential download compares B's blockmap with itself,

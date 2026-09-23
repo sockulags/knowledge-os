@@ -1,0 +1,41 @@
+# Test build variant, selected only by `npm run dist:test` (electron-builder
+# --config electron-builder.test.yml). `npm run dist` never reads this file,
+# so a release build cannot pick it up by accident.
+#
+# This overrides every identifier that a release build uses, so the test
+# variant never collides with a real install:
+# - extraMetadata.name changes the packaged app's package.json "name", which
+#   is what both the NSIS installer's default install directory
+#   (%LOCALAPPDATA%\Programs\<name>) and Electron's default userData folder
+#   (%APPDATA%\<name>) are named after - not productName (see
+#   desktop/README.md, "Building the Windows installer"). The real app has no
+#   folder or registry entry named "knowledge-os-desktop-test", so this
+#   installer/uninstaller can never touch it.
+# - appId changes the NSIS uninstall registry key (HKCU\...\Uninstall\<appId>)
+#   and the electron-updater app-user-model id.
+# - productName changes the Start-menu/desktop shortcut name, the "Installed
+#   apps" display name, and the window title.
+# - win.executableName and the nsis artifact name change the .exe names so
+#   Task Manager and Explorer never show two entries called the same thing.
+# - electron-updater's cache directory (%LOCALAPPDATA%\<name>-updater) is
+#   derived automatically from extraMetadata.name, so it changes too.
+# - publish: null removes the GitHub releases feed entirely, so no
+#   app-update.yml is written into the test build and it can never check for
+#   or install an update from a real release.
+#
+# build/installer.nsh and build/manage-path.ps1 need no change: they already
+# add/remove "$INSTDIR\bin" for whatever $INSTDIR the running installer was
+# given, so a different install directory alone gives the test variant its
+# own PATH entry.
+extends: ./electron-builder.yml
+appId: se.lucasskog.knowledgeostest
+productName: Knowledge OS Test
+extraMetadata:
+  name: knowledge-os-desktop-test
+directories:
+  output: dist-test
+publish: null
+win:
+  executableName: knowledge-os-test
+nsis:
+  artifactName: knowledge-os-test-setup.${ext}
