@@ -111,6 +111,11 @@ SCOPE_GENERAL = "Applies everywhere"
 PROVENANCE_KIND: dict[str, str] = {
     "user-approved-conversation": "A conversation you approved on {date}",  # verbatim, Sec.5
     "decision-acceptance": "Accepted in {reference}",  # verbatim, Sec.5
+    # Mirrors decision-acceptance's date-led wording; the reference is the
+    # user-supplied withdrawal reason, not a machine stamp, so it is quoted
+    # directly (see PROVENANCE_ACCEPTED_IN_APP for the analogous "in app"
+    # date-only case).
+    "decision-withdrawal": "Withdrawn on {date}: {reference}",
     "discovery": "Came from the observation {title}",  # verbatim, Sec.5
     # These four are not in the plan's own language table, but are common
     # in the real corpus (``repository-file`` and ``project-definition``
