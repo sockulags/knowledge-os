@@ -199,7 +199,10 @@ release is made by hand:
 
 1. Bump the version everywhere it is written: `version` in `pyproject.toml`,
    `__version__` in `knowledge_os/__init__.py` and
-   `knowledge_os/reader/__init__.py`, and `desktop/package.json` with its lock
+   `knowledge_os/reader/__init__.py`, the plugin manifests
+   (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
+   `.codex-plugin/plugin.json`; `tests/test_plugin_packaging.py` checks they
+   match `pyproject.toml`), and `desktop/package.json` with its lock
    file (`npm version X.Y.Z --no-git-tag-version` in `desktop/` updates both).
    The app's version, which the updater compares, is the one in
    `desktop/package.json`.

@@ -9,7 +9,7 @@
       "name": "knowledge-os",
       "source": "./",
       "description": "Approval-gated conversational capture and task-relevant repository documentation with explicit global and repository initialization.",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "category": "Productivity"
     }
   ]
