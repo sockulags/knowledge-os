@@ -107,5 +107,16 @@ async def nav_view(request: Request) -> Response:
             # The sidebar's Decide entry and its count of proposed decisions;
             # the shell reloads nav after every decision action.
             "decide": {"label": strings.DECIDE_NAV_LABEL, "count": len(proposed_decisions(library))},
+            # Shell-wide copy with no page of its own to be delivered from:
+            # the quick-find placeholder, and the not-found/load-error
+            # fallbacks every record-backed page (Document, Compare,
+            # EditRecord) shows the same way. Loaded once with the rest of
+            # the nav rather than re-fetched per page.
+            "language": {
+                "quick_find_placeholder": strings.QUICK_FIND_PLACEHOLDER,
+                "not_found_title": strings.DOCUMENT_NOT_FOUND_TITLE,
+                "not_found_body": strings.DOCUMENT_NOT_FOUND_BODY,
+                "load_error": strings.DOCUMENT_LOAD_ERROR,
+            },
         }
     )

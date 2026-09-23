@@ -76,6 +76,16 @@ export interface NavPayload {
   record_index: RecordIndexEntry[];
   /** The sidebar's Decide entry: its label and how many proposals wait. */
   decide: { label: string; count: number };
+  /** Shell-wide copy with no page payload of its own to come from: the
+   * quick-find placeholder, and the not-found/load-error fallbacks every
+   * record-backed page shows the same way. `not_found_body` is a template;
+   * fill its `{record_id}` placeholder with the requested id. */
+  language: {
+    quick_find_placeholder: string;
+    not_found_title: string;
+    not_found_body: string;
+    load_error: string;
+  };
 }
 
 export interface HomePayload {
@@ -103,7 +113,9 @@ export interface PropertyRow {
 
 export interface PropertiesBlock {
   status: PropertyRow;
-  trust: PropertyRow;
+  /** null for a decision: acceptance is what matters there, not the
+   * verified date, so the row is omitted rather than shown unconfirmed. */
+  trust: PropertyRow | null;
   applies_to: PropertyRow;
   updated: PropertyRow;
   source: PropertyRow;
@@ -447,11 +459,14 @@ export interface SearchPayload {
 
 export interface EverythingEntry extends RecordSummary {
   type_label: string;
-  trust_phrase: string;
+  /** null for a decision: see PropertiesBlock.trust. */
+  trust_phrase: string | null;
   project_title: string | null;
 }
 
 export interface EverythingPayload {
+  title: string;
+  intro: string;
   entries: EverythingEntry[];
   broken: BrokenEntry[];
   skills: { name: string; description: string }[];

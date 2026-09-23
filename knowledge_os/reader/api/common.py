@@ -191,10 +191,16 @@ def properties_block(library: Library, record: Record) -> dict[str, object]:
     """The Notion-style two-column properties block under a document's
     title: Status, Trust, Applies to, Updated, Source. Every value is a
     finished sentence from ``language.py``; nothing here inspects a raw
-    contract token."""
+    contract token.
+
+    A decision carries no Trust row at all: acceptance, not the ``verified``
+    date, is what matters for a decision, and showing a sentence like "In
+    use, but never confirmed" next to "In force" reads as the page doubting
+    its own status. The exact trust label stays reachable in Technical
+    details regardless (``technical_details`` below always includes it).
+    """
 
     status_sentence, _status_accent = language.status_sentence(library, record)
-    trust_sentence, _trust_accent = language.trust_sentence(record)
     provenance_sentences = [language.provenance_sentence(library, record, entry) for entry in record.provenance]
     # The one pill a record carries (pill_for) goes on whichever row it
     # actually describes: a decision's pill is a lifecycle state (in force
@@ -206,10 +212,13 @@ def properties_block(library: Library, record: Record) -> dict[str, object]:
     # page disagrees with itself, when the pill was only ever about trust.
     pill = pill_for(record)
     status_pill = pill if record.is_decision else None
-    trust_pill = None if record.is_decision else pill
+    trust_row = None
+    if not record.is_decision:
+        trust_sentence, _trust_accent = language.trust_sentence(record)
+        trust_row = {"label": strings.DOCUMENT_TRUST_HEADER, "value": trust_sentence, "pill": pill}
     return {
         "status": {"label": strings.DOCUMENT_STATUS_HEADER, "value": status_sentence, "pill": status_pill},
-        "trust": {"label": strings.DOCUMENT_TRUST_HEADER, "value": trust_sentence, "pill": trust_pill},
+        "trust": trust_row,
         "applies_to": {"label": "Applies to", "value": language.scope_sentence(library, record)},
         "updated": {
             "label": "Updated",

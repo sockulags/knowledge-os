@@ -102,7 +102,7 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Jump to a record, skill, or document…"
+            placeholder={nav?.language.quick_find_placeholder ?? "Jump to a page, skill, or document…"}
             className="w-full bg-transparent text-sm outline-none placeholder:text-(--color-text-faint)"
           />
         </div>

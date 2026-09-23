@@ -15,6 +15,10 @@ export interface ShellContext {
   refreshNav: () => void;
   /** Git status for the status line and the sync page. */
   sync: SyncState;
+  /** The shell's own nav payload (sidebar tree, quick-find index, and the
+   * shared `language` copy pages read shell-wide fallback text from), or
+   * null before the first load resolves. */
+  nav: NavPayload | null;
 }
 
 export function useShell(): ShellContext {
@@ -124,7 +128,7 @@ export function Shell() {
         </header>
         <SyncFailureBanner sync={sync} />
         <main key={dataVersion}>
-          <Outlet context={{ refreshNav, sync } satisfies ShellContext} />
+          <Outlet context={{ refreshNav, sync, nav } satisfies ShellContext} />
         </main>
       </div>
 

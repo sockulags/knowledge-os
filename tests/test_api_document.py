@@ -22,6 +22,7 @@ import urllib.request
 from pathlib import Path
 
 from reader_support import (
+    FIXTURE_GOVERNING_IDS,
     FIXTURE_PROJECT_ID,
     FIXTURE_PROPOSED_ID,
     REPOSITORY,
@@ -105,7 +106,26 @@ class StatusAndTrustPillPlacementTests(unittest.TestCase):
                 _status, data = _get(base_url, f"/api/records/{FIXTURE_PROPOSED_ID}")
                 self.assertIsNotNone(data["properties"]["status"]["pill"])
                 self.assertEqual(data["properties"]["status"]["pill"]["label"], "Proposed")
-                self.assertIsNone(data["properties"]["trust"]["pill"])
+                # A decision carries no Trust row at all (issue #63): the
+                # verified date does not matter next to a decision's own
+                # in-force/proposed status, and showing it there reads as
+                # the page doubting itself.
+                self.assertIsNone(data["properties"]["trust"])
+
+    def test_accepted_decision_carries_no_trust_row_either(self) -> None:
+        # The bug this guards against: an "In force" decision nobody has
+        # verified still showed "In use, but never confirmed" next to its
+        # status, which reads as the page contradicting its own "In force".
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_decision_fixture(root)
+            with serve(root, PORT) as base_url:
+                _status, data = _get(base_url, f"/api/records/{FIXTURE_GOVERNING_IDS[0]}")
+                self.assertTrue(data["properties"]["status"]["value"].startswith("In force"))
+                self.assertIsNone(data["properties"]["trust"])
+                # The exact trust label still stays reachable in Technical
+                # details, for someone who wants it.
+                self.assertEqual(data["technical_details"]["trust_label"], "active durable; not verified")
 
     def test_ordinary_record_carries_its_pill_on_trust_not_status(self) -> None:
         with serve(REPOSITORY, PORT) as base_url:

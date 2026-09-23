@@ -36,21 +36,15 @@ _SORT_FIELD = {
 def _entry(record: Record, library: Library) -> dict[str, object]:
     summary = record_summary(record)
     summary["type_label"] = language.type_label(record)
-    # The Trust column sits next to a Status pill. For a decision, that
-    # pill already carries its lifecycle (in force / waiting on you /
-    # replaced); language.catalog_phrase's decision-specific branch would
-    # repeat that same full sentence a second time ("In force — accepted
-    # ..." next to an "In force" pill), since catalog_phrase was designed
-    # for a listing with no separate Status column at all. Every other
+    # A decision carries no Trust column value at all: acceptance, not the
+    # verified date, is what matters for a decision, and a trust sentence
+    # like "In use, but never confirmed" next to its own "In force" status
+    # pill reads as the page doubting itself (the same reason its document
+    # rail carries no Trust row -- see common.properties_block). Every other
     # record type's catalog_phrase (source, discovery, ordinary durable)
-    # already answers "how much to trust this" specifically and is not
-    # redundant with its pill, so only decisions get the narrower
-    # trust_sentence here.
-    if record.is_decision:
-        trust_sentence, _accent = language.trust_sentence(record)
-        summary["trust_phrase"] = trust_sentence
-    else:
-        summary["trust_phrase"] = language.catalog_phrase(library, record)
+    # already answers "how much to trust this" specifically, so it keeps
+    # its Trust column value.
+    summary["trust_phrase"] = None if record.is_decision else language.catalog_phrase(library, record)
     summary["updated_display"] = language.format_date_short(record.updated)
     project_id = summary.get("project")
     summary["project_title"] = project_title(library, project_id) if project_id else None
@@ -117,6 +111,8 @@ async def view(request: Request) -> Response:
     ]
     return json_response(
         {
+            "title": strings.EVERYTHING_TITLE,
+            "intro": strings.EVERYTHING_INTRO,
             "entries": entries,
             "broken": broken,
             "skills": skills,

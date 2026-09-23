@@ -298,6 +298,10 @@ SEARCH_PLACEHOLDER = "Search the workspace"
 SEARCH_NO_RESULTS = "No matching records."
 SEARCH_EMPTY_QUERY = "Type something to search."
 
+#: The Ctrl K / Cmd K command palette's input placeholder (Sec. "JSON API"
+#: below; delivered through the nav payload's ``language`` block).
+QUICK_FIND_PLACEHOLDER = "Jump to a page, skill, or document…"
+
 # ---------------------------------------------------------------------------
 # Everything view
 # ---------------------------------------------------------------------------
@@ -355,9 +359,15 @@ DOCUMENT_SUPERSEDED_UNKNOWN = "Replaced, but the replacement could not be found.
 DOCUMENT_RELATED_EMPTY = "This page links to nothing else."
 DOCUMENT_INBOUND_EMPTY = "No other record points here yet."
 
-DOCUMENT_NOT_FOUND_TITLE = "Record not found"
+DOCUMENT_NOT_FOUND_TITLE = "Page not found"
 #: {record_id} is the unmatched path segment from GET /r/{record_id}.
-DOCUMENT_NOT_FOUND_BODY = 'No record with id "{record_id}" exists in this workspace.'
+DOCUMENT_NOT_FOUND_BODY = 'No page with id "{record_id}" exists in this workspace.'
+
+#: Shown in place of a page's content when it failed to load for a reason
+#: other than "not found" (a network error, a server error). Delivered
+#: through the nav payload's ``language`` block so the React shell's own
+#: fallback pages never hard-code it.
+DOCUMENT_LOAD_ERROR = "Could not load this page."
 
 RAIL_TOGGLE_HIDE = "Hide metadata"
 RAIL_TOGGLE_SHOW = "Show metadata"
@@ -552,7 +562,7 @@ SEARCH_UNAVAILABLE_TITLE = "Search is unavailable"
 # ---------------------------------------------------------------------------
 
 EVERYTHING_INTRO = (
-    "Every record, source, and discovery the workspace holds, in one flat list. "
+    "Every page, source, and discovery the workspace holds, in one flat list. "
     "Nothing here is grouped by what it means, only by what it is and how much "
     "to trust it."
 )
