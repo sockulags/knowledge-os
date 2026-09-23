@@ -53,7 +53,9 @@ describe('buildImportPlan', () => {
     expect(body).toContain('## Summary\n\nTeamet planerade nästa kvartal.')
     expect(body).toContain('## Action items\n\n- Bengt skriver migreringsplanen.')
     expect(body).toContain('## Open questions\n\n- Behöver vi en ny server?')
-    expect(body).toContain('2 of these decisions were imported as a draft decision')
+    expect(body).toContain(
+      '2 of these 3 decisions were imported as draft decisions linked to this note.'
+    )
     expect(body).not.toContain('## Transcript')
     expect(body).not.toContain('# Protokoll')
 

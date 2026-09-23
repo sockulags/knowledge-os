@@ -181,9 +181,14 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
     created.on('closed', () => {
       if (window === created) window = null
     })
-    // The window shows only its own page: no navigation, no new windows.
-    created.webContents.on('will-navigate', (event) => event.preventDefault())
-    created.webContents.on('will-redirect', (event) => event.preventDefault())
+    // The window shows only its own page (a reload is allowed): no other
+    // navigation, no new windows.
+    const ownPage = (url: string): boolean => url.split(/[?#]/)[0] === host.pageUrl
+    const guard = (event: Electron.Event, url: string): void => {
+      if (!ownPage(url)) event.preventDefault()
+    }
+    created.webContents.on('will-navigate', guard)
+    created.webContents.on('will-redirect', guard)
     created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     void created.loadURL(host.pageUrl)
   }

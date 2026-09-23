@@ -177,12 +177,27 @@ const SECTION_TITLES: Record<SectionKind, string> = {
   openQuestions: 'Open questions'
 }
 
+/** The line under the note's decisions saying which ones became draft decision records. */
+function draftsSentence(imported: number, listed: number): string {
+  if (imported === 0) return ''
+  const which =
+    imported === listed
+      ? listed === 1
+        ? 'This decision was imported as a draft decision'
+        : 'These decisions were imported as draft decisions'
+      : imported === 1
+        ? `One of these ${listed} decisions was imported as a draft decision`
+        : `${imported} of these ${listed} decisions were imported as draft decisions`
+  return `\n\n${which} linked to this note. Drafts govern nothing until someone accepts them.`
+}
+
 function noteBody(
   meeting: Meeting,
   summary: MeetingSummary,
   parsed: ParsedSummary,
   includeTranscript: boolean,
-  decisionCount: number
+  imported: number,
+  listed: number
 ): string {
   const parts: string[] = [
     [
@@ -203,11 +218,7 @@ function noteBody(
     section(SECTION_TITLES.summary, preamble)
   }
   if (sections.decisions !== undefined) {
-    const note =
-      decisionCount > 0
-        ? `\n\n${decisionCount === 1 ? 'This decision was' : `${decisionCount} of these decisions were`} imported as a draft decision linked to this note. Drafts govern nothing until someone accepts them.`
-        : ''
-    section(SECTION_TITLES.decisions, `${sections.decisions}${note}`)
+    section(SECTION_TITLES.decisions, `${sections.decisions}${draftsSentence(imported, listed)}`)
   }
   section(SECTION_TITLES.actionItems, sections.actionItems ?? '')
   section(SECTION_TITLES.openQuestions, sections.openQuestions ?? '')
@@ -263,7 +274,14 @@ export function buildImportPlan(meeting: Meeting, options: PlanOptions): ImportP
     baseId: noteBaseId(date, title),
     title,
     metadata: { title, type: 'project', status: 'active', scope, provenance },
-    body: noteBody(meeting, summary, parsed, options.includeTranscript, chosen.length)
+    body: noteBody(
+      meeting,
+      summary,
+      parsed,
+      options.includeTranscript,
+      chosen.length,
+      candidates.length
+    )
   }
   const decisions: PlannedRecord[] = chosen.map((candidate) => ({
     kind: 'decision',

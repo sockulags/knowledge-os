@@ -271,9 +271,9 @@ function renderPreview(preview: MeetingPreview): void {
       decisionBoxes.push({ index: decision.index, input })
       const text = element('span')
       text.append(element('span', decision.title, 'decision-title'))
-      if (decision.markdown.trim() !== decision.title.trim()) {
-        text.append(element('span', decision.markdown, 'decision-detail'))
-      }
+      // Anything nested under the decision in the minutes, below its first line.
+      const detail = decision.markdown.split('\n').slice(1).join('\n').trim()
+      if (detail !== '') text.append(element('span', detail, 'decision-detail'))
       row.append(input, text)
       decisions.append(row)
     }
