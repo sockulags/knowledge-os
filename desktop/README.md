@@ -34,7 +34,7 @@ Run these in `desktop/`:
 | `npm run build` | Type-checks and builds into `out/`; `npm start` runs that build. |
 | `npm run build:ui` | Installs `reader-ui/` dependencies and rebuilds the reader UI into `knowledge_os/reader/static/app/`. |
 | `npm run build:core` | Builds the frozen core into `build-core/dist/kos-core/`. |
-| `npm run dist` | Runs the three builds above, then writes the installer to `dist/knowledge-os-setup.exe`. |
+| `npm run dist` | Runs the three builds above, then writes the installer to `dist/knowledge-os-setup.exe`, with `latest.yml` and `knowledge-os-setup.exe.blockmap` for updates. |
 
 ## Building the Windows installer
 
@@ -59,7 +59,8 @@ prompt) for the app "Knowledge OS". It installs to
 folder after the npm package), adds Start menu and desktop shortcuts, and
 registers an uninstaller under Installed apps. `knowledge-os-setup.exe /S`
 installs silently. Windows SmartScreen warns about
-the unsigned installer on first run. There is no auto-update.
+the unsigned installer on first run. The installed app updates itself from
+GitHub releases (see [Updates](#updates)).
 
 ### The `kos` command
 
@@ -140,6 +141,121 @@ main process dies without running any handler, the core still exits: its stdin
 is a pipe held by the main process, and `--exit-on-stdin-eof` makes it exit
 when that pipe closes.
 
+## Updates
+
+The installed app updates itself from the
+[GitHub releases](https://github.com/sockulags/knowledge-os/releases) of this
+repository with electron-updater. It checks 10 seconds after startup and every
+4 hours after that, and whenever you choose Help → Check for Updates…. A newer
+release downloads in the background. When the download is finished the app
+asks whether to restart now; Help → Restart to Update does the same later, and
+a downloaded update is also installed silently the next time you quit. The app
+never restarts on its own.
+
+Restarting to update closes the window first, so unsaved changes in the editor
+get the same "Discard changes / Keep editing" question as closing the window;
+keeping the edits cancels the restart. Closing the window stops the core the
+same way quitting does (the whole process tree), and only then does the
+installer start, so no `kos-core.exe` from the old version keeps running and
+nothing is mid-write. The installer replaces the whole installation folder,
+including `resources\core\` and the `kos` shim in `bin\`, and runs the same
+PATH step as a fresh install, which does not add a second entry. The recent
+list and the settings live in the user-data folder, which the installer does
+not touch.
+
+Help → Check for Updates Automatically turns the scheduled checks off; the
+choice is stored as `checkForUpdates` in `settings.json` in the user-data
+folder, next to `recent-workspaces.json`. Manual checks always work.
+
+When the computer is offline or GitHub cannot be reached, an automatic check
+fails quietly: the failure is written to the log (the main process's standard
+output) and the app keeps working. A manual check then says that it could not
+check for updates. Running from a checkout (`npm run dev`, `npm start`), the
+updater is off and Check for Updates… says so.
+
+### Updates without code signing
+
+The installer is not signed. For updates this means:
+
+- electron-updater checks the Authenticode publisher of a downloaded installer
+  only when `app-update.yml` (written into the app by electron-builder) names a
+  `publisherName`. electron-builder writes one only for signed builds, so there
+  is no publisher check. What protects the download is the sha512 in
+  `latest.yml`, fetched over HTTPS from the GitHub release: the installer must
+  match it before it runs. Anyone who can publish a release on the repository
+  can therefore ship an update.
+- The update runs the downloaded installer silently from the app, so the
+  SmartScreen warning for an unsigned download usually does not appear for
+  updates; it still appears for a first install from a browser download.
+- To add signing later, configure `win.signtoolOptions` (with `publisherName`)
+  in `electron-builder.yml`. Updates then verify the publisher with no code
+  change. A release signed with a new certificate can be installed over an
+  unsigned one, but after that, every update must be signed by that publisher.
+
+## Releasing a new version
+
+Nothing is uploaded by `npm run dist` (it passes `--publish never`); the
+release is made by hand:
+
+1. Bump the version everywhere it is written: `version` in `pyproject.toml`,
+   `__version__` in `knowledge_os/__init__.py` and
+   `knowledge_os/reader/__init__.py`, and `desktop/package.json` with its lock
+   file (`npm version X.Y.Z --no-git-tag-version` in `desktop/` updates both).
+   The app's version, which the updater compares, is the one in
+   `desktop/package.json`.
+2. Commit, merge, and build from a clean checkout of that commit in a shell
+   where `MAIN_VITE_KOS_UPDATE_TEST_FEED` is not set: `npm ci`, then
+   `npm run dist`.
+3. Create a GitHub release with the tag `vX.Y.Z` (for example
+   `gh release create vX.Y.Z --title "X.Y.Z" --notes "…"`) and attach these
+   three files from `desktop/dist/`:
+   - `knowledge-os-setup.exe`
+   - `latest.yml`
+   - `knowledge-os-setup.exe.blockmap`
+
+   The release must be published, not a draft or a pre-release: installed apps
+   read `latest.yml` from the latest published release. `latest.yml` names
+   the installer by its file name and pins its size and sha512, so upload the
+   three files from the same build. Installed apps find the update at their
+   next check.
+
+## Testing an update locally
+
+An update can be tested end to end without publishing a release. The feed is
+switched to electron-updater's `generic` provider on a local HTTP server by
+setting `MAIN_VITE_KOS_UPDATE_TEST_FEED` while building the app that should
+find the update:
+
+```powershell
+# Version A, which looks for updates on the local server.
+npm version 0.1.90 --no-git-tag-version
+$env:MAIN_VITE_KOS_UPDATE_TEST_FEED = 'http://127.0.0.1:8765/'
+npm run dist            # copy dist\ away as version A
+Remove-Item Env:\MAIN_VITE_KOS_UPDATE_TEST_FEED
+
+# Version B, served as the update.
+npm version 0.1.91 --no-git-tag-version
+npm run dist
+python -m http.server 8765 --bind 127.0.0.1 --directory dist
+```
+
+Install A silently (`knowledge-os-setup.exe /S`), start it, and Help → Check
+for Updates… finds B, downloads it, and offers the restart. Undo the version
+bumps afterwards.
+
+On the local server both versions' installers have the same file name, so
+electron-updater's differential download compares B's blockmap with itself,
+fails its checksum, and falls back to a full download (logged as "Cannot
+download differentially"). On GitHub the release tag is part of each download
+URL, so the old version's blockmap is a different file.
+
+electron-vite bakes the variable into the main-process bundle at build time;
+the installed app never reads it from its environment. Only a loopback
+`http`/`https` URL (`127.0.0.1`, `localhost`, `[::1]`) is accepted and
+anything else is ignored, so a build made with the variable set by mistake can
+only look for updates on the same computer. Release builds are made without
+it, and their updater reads the GitHub feed from `app-update.yml`.
+
 ## Start page and errors
 
 The start page opens a folder, creates a new knowledge base in an empty folder
@@ -171,4 +287,6 @@ the UI, served from the core's own origin, reads the token from
 
 - `KOS_DESKTOP_WORKSPACE=PATH` opens that knowledge base at startup.
 - `KOS_DESKTOP_USER_DATA=PATH` uses a separate user-data folder, so a test run
-  does not touch your recent list.
+  does not touch your recent list or settings.
+- `MAIN_VITE_KOS_UPDATE_TEST_FEED=URL`, set at build time, points the updater
+  at a local test server (see [Testing an update locally](#testing-an-update-locally)).

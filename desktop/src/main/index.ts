@@ -18,6 +18,15 @@ import {
 } from './pythonCore'
 import { bundledCore, findRepoRoot, interpreterCandidates } from './pythonInterpreter'
 import { addRecent, loadRecent, saveRecent } from './recentWorkspaces'
+import { loadSettings, saveSettings, type AppSettings } from './settings'
+import type { UpdateNotice } from './updateFlow'
+import {
+  checkForUpdatesManually,
+  initUpdater,
+  installDownloadedUpdate,
+  updateState,
+  updatesSupported
+} from './updater'
 
 // Development and test hook: keep this run's settings apart from others.
 if (process.env['KOS_DESKTOP_USER_DATA']) {
@@ -27,12 +36,16 @@ if (process.env['KOS_DESKTOP_USER_DATA']) {
 const repoRoot = findRepoRoot(app.getAppPath(), existsSync)
 const pythonEnv = pythonEnvironment(process.env, repoRoot)
 const recentFile = join(app.getPath('userData'), 'recent-workspaces.json')
+const settingsFile = join(app.getPath('userData'), 'settings.json')
 
 let mainWindow: BrowserWindow | null = null
 let core: CoreProcess | null = null
 let pythonExecutable: string | null = null
 let recent: RecentWorkspace[] = loadRecent(recentFile)
+let settings: AppSettings = loadSettings(settingsFile)
 let state: ShellState = { kind: 'start', recent }
+/** Set by "Restart to update" until the window closes or the person keeps editing. */
+let restartPending = false
 /** Increments per open request so a slow, superseded start is discarded. */
 let openGeneration = 0
 
@@ -190,6 +203,82 @@ async function chooseAndCreate(): Promise<void> {
   await openWorkspace(result.root)
 }
 
+function setAutoCheck(enabled: boolean): void {
+  settings = { ...settings, checkForUpdates: enabled }
+  try {
+    saveSettings(settingsFile, settings)
+  } catch (error) {
+    console.error('could not save the settings', error)
+  }
+  buildMenu()
+}
+
+/**
+ * Restart into the downloaded update. Closing the window goes through the
+ * same unsaved-changes question as any other close; the install only starts
+ * once the window has actually closed, which also stops the core.
+ */
+function restartToUpdate(): void {
+  const window = mainWindow
+  if (window === null || window.isDestroyed()) {
+    stopCoreSync()
+    installDownloadedUpdate()
+    return
+  }
+  restartPending = true
+  window.close()
+}
+
+function showUpdateNotice(notice: UpdateNotice): void {
+  const window = mainWindow
+  if (window === null || window.isDestroyed()) return
+  if (notice.kind === 'message') {
+    void dialog.showMessageBox(window, {
+      type: 'info',
+      title: 'Software update',
+      message: notice.message,
+      detail: notice.detail
+    })
+    return
+  }
+  void dialog
+    .showMessageBox(window, {
+      type: 'info',
+      buttons: ['Restart to update', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update ready',
+      message: `Knowledge OS ${notice.version} is ready to install.`,
+      detail:
+        'Restart now to update, or later from Help → Restart to Update. ' +
+        'It is also installed the next time you quit.'
+    })
+    .then(({ response }) => {
+      if (response === 0) restartToUpdate()
+    })
+}
+
+function helpMenu(): MenuItemConstructorOptions {
+  const update = updateState()
+  const items: MenuItemConstructorOptions[] = [
+    { label: 'Check for Updates…', click: () => checkForUpdatesManually() },
+    {
+      label: 'Check for Updates Automatically',
+      type: 'checkbox',
+      checked: settings.checkForUpdates,
+      enabled: updatesSupported(),
+      click: (item) => setAutoCheck(item.checked)
+    }
+  ]
+  if (update.phase === 'ready') {
+    items.push(
+      { type: 'separator' },
+      { label: `Restart to Update (${update.version})`, click: () => restartToUpdate() }
+    )
+  }
+  return { label: 'Help', submenu: items }
+}
+
 function buildMenu(): void {
   const recentItems: MenuItemConstructorOptions[] =
     recent.length > 0
@@ -235,7 +324,8 @@ function buildMenu(): void {
         { type: 'separator' },
         { role: 'togglefullscreen' }
       ]
-    }
+    },
+    helpMenu()
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
@@ -272,6 +362,10 @@ function createWindow(): void {
     openGeneration++
     stopCoreSync()
     state = { kind: 'start', recent }
+    if (restartPending) {
+      restartPending = false
+      installDownloadedUpdate()
+    }
   })
 
   const guard = (event: Electron.Event, url: string): void => {
@@ -294,6 +388,8 @@ function createWindow(): void {
       detail: 'Leaving now discards them.'
     })
     if (choice === 0) event.preventDefault()
+    // Keeping the edits also cancels a pending "Restart to update".
+    else restartPending = false
   })
   window.webContents.on('will-navigate', guard)
   window.webContents.on('will-redirect', guard)
@@ -357,6 +453,11 @@ app.whenReady().then(() => {
     callback(false)
   )
   registerIpc()
+  initUpdater({
+    autoCheckEnabled: () => settings.checkForUpdates,
+    notify: showUpdateNotice,
+    changed: buildMenu
+  })
   buildMenu()
   createWindow()
 
