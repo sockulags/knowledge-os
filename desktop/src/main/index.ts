@@ -19,6 +19,12 @@ import {
 } from './pythonCore'
 import { bundledCore, findRepoRoot, interpreterCandidates } from './pythonInterpreter'
 import { addRecent, loadRecent, saveRecent } from './recentWorkspaces'
+import {
+  fetchWriteToken,
+  removeRuntimeFile,
+  runtimeFilePath,
+  writeRuntimeFile
+} from './runtimeFile'
 import { loadSettings, saveSettings, type AppSettings } from './settings'
 import type { UpdateNotice } from './updateFlow'
 import {
@@ -38,6 +44,7 @@ const repoRoot = findRepoRoot(app.getAppPath(), existsSync)
 const pythonEnv = pythonEnvironment(process.env, repoRoot)
 const recentFile = join(app.getPath('userData'), 'recent-workspaces.json')
 const settingsFile = join(app.getPath('userData'), 'settings.json')
+const runtimeFile = runtimeFilePath(app.getPath('userData'))
 
 let mainWindow: BrowserWindow | null = null
 let core: CoreProcess | null = null
@@ -51,6 +58,8 @@ let restartPending = false
 let openGeneration = 0
 /** The optional Referat plugin, created once the app is ready. */
 let referat: ReferatPlugin | null = null
+/** The core process id the runtime file for agents currently describes, if any. */
+let publishedCorePid: number | null = null
 
 const startPageUrl =
   !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
@@ -62,8 +71,40 @@ const referatPageUrl =
     : pathToFileURL(join(__dirname, '../renderer/referat.html')).href
 
 function stopCoreSync(): void {
+  unpublishRuntime()
   core?.stopSync()
   core = null
+}
+
+/**
+ * Tell agents where the open knowledge base's core listens: `kos mcp` reads
+ * the runtime file on every tool call (see runtimeFile.ts). Failing to write
+ * it only means agents report that the app is not open.
+ */
+async function publishRuntime(started: CoreProcess, root: string): Promise<void> {
+  const pid = started.pid
+  if (pid === undefined) return
+  try {
+    const writeToken = await fetchWriteToken(started.url)
+    if (core !== started) return
+    writeRuntimeFile(runtimeFile, {
+      port: Number(new URL(started.url).port),
+      writeToken,
+      workspaceRoot: root,
+      workspaceName: started.name || basename(root),
+      appVersion: app.getVersion(),
+      corePid: pid
+    })
+    publishedCorePid = pid
+  } catch (error) {
+    console.error('could not write the runtime file for agents', error)
+  }
+}
+
+function unpublishRuntime(): void {
+  if (publishedCorePid === null) return
+  removeRuntimeFile(runtimeFile, publishedCorePid)
+  publishedCorePid = null
 }
 
 function setState(next: ShellState): void {
@@ -128,6 +169,7 @@ async function openWorkspace(root: string): Promise<void> {
   const generation = ++openGeneration
   const previous = core
   core = null
+  unpublishRuntime()
   setState({ kind: 'starting', root, recent })
   await previous?.stop()
 
@@ -148,6 +190,7 @@ async function openWorkspace(root: string): Promise<void> {
   started.onUnexpectedExit((detail) => {
     if (core !== started) return
     core = null
+    unpublishRuntime()
     showError(root, {
       error: 'early-exit',
       message: 'The Python core stopped unexpectedly.',
@@ -165,12 +208,14 @@ async function openWorkspace(root: string): Promise<void> {
     console.error('could not save the recent workspaces list', error)
   }
   setState({ kind: 'ready', root, name: started.name, url: started.url, recent })
+  void publishRuntime(started, root)
 }
 
 async function showStart(): Promise<void> {
   openGeneration++
   const previous = core
   core = null
+  unpublishRuntime()
   await previous?.stop()
   setState({ kind: 'start', recent })
 }

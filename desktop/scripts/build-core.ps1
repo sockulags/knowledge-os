@@ -3,7 +3,7 @@
 # PyInstaller's work folder also live under desktop\build-core (git-ignored).
 #
 # Knowledge OS itself is frozen from this checkout; only its runtime
-# dependencies (from pyproject.toml, including the reader extra) and
+# dependencies (from pyproject.toml, including the reader and mcp extras) and
 # PyInstaller are installed into the build venv. Installing the package would
 # write setuptools build output into the repository.
 
@@ -29,7 +29,8 @@ $pyproject = Join-Path $repo 'pyproject.toml'
 $requirements = & $python -c @"
 import sys, tomllib
 project = tomllib.load(open(sys.argv[1], 'rb'))['project']
-print('\n'.join(project['dependencies'] + project['optional-dependencies']['reader']))
+extras = project['optional-dependencies']
+print('\n'.join(project['dependencies'] + extras['reader'] + extras['mcp']))
 "@ $pyproject
 if ($LASTEXITCODE -ne 0) { throw 'Reading the dependencies from pyproject.toml failed.' }
 
@@ -47,6 +48,9 @@ Invoke-Checked 'PyInstaller' {
 $core = Join-Path $build 'dist\kos-core\kos-core.exe'
 Invoke-Checked 'kos-core -m knowledge_os --help' { & $core -m knowledge_os --help | Out-Null }
 Invoke-Checked 'kos-core -m knowledge_os.reader --help' { & $core -m knowledge_os.reader --help | Out-Null }
+# The MCP server imports the MCP SDK at start and exits cleanly when stdin
+# closes, so an empty stdin proves the SDK was bundled.
+Invoke-Checked 'kos-core -m knowledge_os mcp' { $null | & $core -m knowledge_os mcp | Out-Null }
 
 $size = (Get-ChildItem -LiteralPath (Split-Path -Parent $core) -Recurse -File | Measure-Object -Property Length -Sum).Sum
 Write-Host ("Built {0} ({1:N1} MB)" -f $core, ($size / 1MB))
