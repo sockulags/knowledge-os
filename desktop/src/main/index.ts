@@ -280,6 +280,21 @@ function createWindow(): void {
     event.preventDefault()
     if (decision === 'open-external') void shell.openExternal(url)
   }
+  // The reader's editor cancels `beforeunload` while it has unsaved changes.
+  // Electron then keeps the page without asking, so ask here: on window
+  // close, quit, or reload, the person decides whether to discard the edits.
+  window.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(window, {
+      type: 'warning',
+      buttons: ['Discard changes', 'Keep editing'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Unsaved changes',
+      message: 'You have changes that are not saved.',
+      detail: 'Leaving now discards them.'
+    })
+    if (choice === 0) event.preventDefault()
+  })
   window.webContents.on('will-navigate', guard)
   window.webContents.on('will-redirect', guard)
   window.webContents.setWindowOpenHandler(({ url }) => {
