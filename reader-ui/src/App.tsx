@@ -11,6 +11,7 @@ import { Everything } from "./pages/Everything";
 import { Skill } from "./pages/Skill";
 import { RepoDoc } from "./pages/RepoDoc";
 import { NotFound } from "./pages/NotFound";
+import { Sync } from "./pages/Sync";
 
 // A data router (rather than <BrowserRouter>) because the editor's
 // unsaved-changes guard needs useBlocker, which only data routers support.
@@ -28,6 +29,7 @@ const router = createBrowserRouter([
       { path: "f/*", element: <RepoDoc /> },
       { path: "search", element: <Search /> },
       { path: "everything", element: <Everything /> },
+      { path: "sync", element: <Sync /> },
       { path: "*", element: <NotFound /> },
     ],
   },

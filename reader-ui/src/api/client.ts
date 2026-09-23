@@ -12,6 +12,8 @@ import type {
   RecordPayload,
   SearchPayload,
   SkillPayload,
+  ConflictsPayload,
+  SyncStatus,
   WorkspacePayload,
 } from "./types";
 
@@ -45,4 +47,6 @@ export const api = {
   doc: (path: string) => request<DocPayload>(`/api/docs/${path}`),
   search: (query: string) => request<SearchPayload>(`/api/search${query}`),
   everything: (query: string) => request<EverythingPayload>(`/api/everything${query}`),
+  syncStatus: () => request<SyncStatus>("/api/sync/status"),
+  syncConflicts: () => request<ConflictsPayload>("/api/sync/conflicts"),
 };

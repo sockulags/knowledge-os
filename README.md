@@ -39,7 +39,7 @@ contract.
 A knowledge base does not have to live in this repository. `kos init PATH`
 creates an empty, valid workspace in a new or empty folder: the
 `knowledge-os.toml` marker, the managed directories with their README files, a
-`.gitignore` for the SQLite cache, and fresh indexes. It refuses a folder that
+`.gitignore` for the generated indexes, and fresh indexes. It refuses a folder that
 is not empty, that already is a workspace, or that lies inside another
 workspace. The workspace name defaults to the folder name in kebab-case; pass
 `--name` to choose it.
@@ -54,6 +54,29 @@ Every command, indexing, and the reader work against any workspace root; the
 reader's UI bundle ships inside the installed package. The records in this
 repository remain its own project documentation. The desktop shell in
 [`desktop/`](desktop/README.md) opens and creates knowledge bases the same way.
+
+## Sync a knowledge base with Git
+
+Make the knowledge base folder its own Git repository with an upstream branch:
+
+```powershell
+cd D:\notes\my-kb
+git init -b main
+git add -A
+git commit -m "Initial knowledge base"
+git remote add origin <url>
+git push -u origin main
+```
+
+The app then commits every change it writes (only the files that change, with
+messages such as `Edit <title>`), shows branch, commits to push and pull,
+uncommitted changes, and the last sync time in its header, and syncs with the
+Sync button: fetch and merge, rebuild the indexes, then push. Conflicting files
+are shown side by side on the Sync page; choose a version or write a merged one,
+and the sync finishes only when the result passes `kos lint`. Git must be on
+`PATH` and uses your own identity, credential helper, and SSH agent; the app
+never asks for credentials. CLI commands do not commit. See "Git versioning and
+sync" in [`docs/architecture.md`](docs/architecture.md).
 
 ## Documentation skill
 

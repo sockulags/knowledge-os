@@ -4,7 +4,7 @@
 // docs/architecture.md). Failures come back as data, not exceptions, so a
 // page can show a conflict, lint issues, or a refusal in place.
 
-import type { SupersedeResult, WriteFailure, WriteResult } from "./types";
+import type { ResolveResult, SupersedeResult, SyncResult, SyncStatus, WriteFailure, WriteResult } from "./types";
 
 interface Session {
   token: string;
@@ -29,9 +29,12 @@ function loadSession(): Promise<Session> {
   return session;
 }
 
+/** Dispatched on `window` after every successful write. */
+export const WRITE_EVENT = "kos:write";
+
 export type Outcome<T> = { ok: true; data: T } | { ok: false; status: number; failure: WriteFailure };
 
-async function send<T>(method: "POST" | "PATCH", path: string, body: unknown, retried = false): Promise<Outcome<T>> {
+export async function send<T>(method: "POST" | "PATCH", path: string, body: unknown, retried = false): Promise<Outcome<T>> {
   let current: Session;
   try {
     current = await loadSession();
@@ -50,7 +53,11 @@ async function send<T>(method: "POST" | "PATCH", path: string, body: unknown, re
     return { ok: false, status: 0, failure: { error: "unavailable", detail: "Could not reach the core. Is it still running?" } };
   }
   const payload = await response.json().catch(() => ({ error: "unavailable", detail: `Unexpected response (${response.status}).` }));
-  if (response.ok) return { ok: true, data: payload as T };
+  if (response.ok) {
+    // The core commits each write to Git; the status line listens for this.
+    window.dispatchEvent(new Event(WRITE_EVENT));
+    return { ok: true, data: payload as T };
+  }
   // A restarted core has a new token; fetch it once and retry.
   if (response.status === 403 && !retried && typeof payload.detail === "string" && payload.detail.includes("header")) {
     session = null;
@@ -89,6 +96,15 @@ export const write = {
       old_expected_sha256: oldExpectedSha256,
     }),
   preview: (body: string, path?: string) => send<{ html: string }>("POST", "/api/preview", { body, path }),
+};
+
+/** Git sync (see "Git sync API" in docs/architecture.md). A failed sync
+ * carries the fresh repository status, and a stopped pull its conflicts. */
+export const sync = {
+  run: () => send<SyncResult>("POST", "/api/sync", {}),
+  resolve: (path: string, choice: "ours" | "theirs" | "merged", content?: string) =>
+    send<ResolveResult>("POST", "/api/sync/resolve", { path, choice, content }),
+  abort: () => send<{ status: SyncStatus }>("POST", "/api/sync/abort", {}),
 };
 
 /** A provenance reference for something done in this interface, matching the

@@ -40,6 +40,7 @@ from starlette.responses import Response
 from .. import markdown
 from ..app import get_library, json_response
 from ..library import (
+    CommitOutcome,
     SupersedeWriteResult,
     WriteError,
     WriteResult,
@@ -159,6 +160,19 @@ def _result_json(result: WriteResult) -> dict[str, Any]:
             "count": result.index_count,
             "error": result.index_error,
         },
+        "commit": _commit_json(result.commit),
+    }
+
+
+def _commit_json(commit: CommitOutcome | None) -> dict[str, Any] | None:
+    if commit is None:
+        return None
+    return {
+        "committed": commit.committed,
+        "sha": commit.sha,
+        "message": commit.message,
+        "skipped": commit.skipped,
+        "detail": commit.detail,
     }
 
 
@@ -255,6 +269,7 @@ async def withdraw_view(request: Request) -> Response:
 def _supersede_json(result: SupersedeWriteResult) -> dict[str, Any]:
     replaced = _result_json(result.replaced)
     del replaced["index"]
+    del replaced["commit"]  # one commit covers both files; it is reported on the replacement
     return {**_result_json(result.replacement), "replaced": replaced}
 
 

@@ -12,7 +12,10 @@ Reads never write to the workspace. The only writes are ``create_record``,
 the core's own ``capture``, ``update``, ``decision accept``, ``decision
 withdraw``, and ``supersede`` mutations (shared lock, staged validation,
 SHA-256 guard, index refresh) and translate the core's errors into one
-``WriteError`` with a stable ``kind``.
+``WriteError`` with a stable ``kind``. After a successful write they commit
+the touched files to the workspace's own Git repository through
+``knowledge_os.gitsync``; the Git sync functions at the very end hand the
+sync endpoints to the same module.
 
 ``load_library`` runs the full corpus scan and must be called fresh per
 request (see ``app.py``); nothing here caches across calls, so a record
@@ -25,7 +28,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -37,7 +40,9 @@ from knowledge_os.capture import (
     DuplicateRecordError,
     capture_record_text,
 )
+from knowledge_os import gitsync
 from knowledge_os.context_policy import trust_label
+from knowledge_os.gitsync import CommitOutcome, ConflictFile, GitSyncError, ResolveOutcome, SyncOutcome, SyncStatus
 from knowledge_os.index import validate_index
 from knowledge_os.model import (
     SHA256_PATTERN,
@@ -89,6 +94,17 @@ __all__ = [
     "accept_record",
     "withdraw_record",
     "supersede_record",
+    "CommitOutcome",
+    "ConflictFile",
+    "GitSyncError",
+    "ResolveOutcome",
+    "SyncOutcome",
+    "SyncStatus",
+    "sync_status",
+    "run_sync",
+    "sync_conflicts",
+    "resolve_sync_conflict",
+    "abort_sync",
     # Record has no content_sha256 field (not part of the frozen contract);
     # a view that needs one for its technical-details disclosure (acceptance
     # criterion 4) computes it on demand via this re-export, since views may
@@ -559,6 +575,7 @@ class WriteResult:
     index_refreshed: bool
     index_count: int | None
     index_error: str | None  # set when the canonical write succeeded but reindexing failed
+    commit: CommitOutcome | None = None  # the local Git commit made for this write, or why none was made
 
 
 def _today() -> str:
@@ -607,10 +624,12 @@ def create_record(
         )
     except CaptureIndexError as exc:
         written = exc.result
-        return WriteResult(written.id, written.status, written.path, written.sha256, False, None, str(exc))
+        outcome = WriteResult(written.id, written.status, written.path, written.sha256, False, None, str(exc))
     except (CaptureError, MetadataError, WorkspaceError) as exc:
         raise _write_error(exc) from exc
-    return WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
+    else:
+        outcome = WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
+    return _with_commit(workspace, outcome, "Create")
 
 
 def edit_record(
@@ -689,10 +708,31 @@ def edit_record(
         )
     except MutationIndexError as exc:
         written = exc.result
-        return WriteResult(written.id, written.status, written.path, written.sha256, False, None, str(exc))
+        outcome = WriteResult(written.id, written.status, written.path, written.sha256, False, None, str(exc))
     except (MutationError, MetadataError, WorkspaceError) as exc:
         raise _write_error(exc) from exc
-    return WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
+    else:
+        outcome = WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
+    return _with_commit(workspace, outcome, "Edit")
+
+
+# ---------------------------------------------------------------------------
+# Local Git commits after a write
+# ---------------------------------------------------------------------------
+
+
+def _title_at(workspace: Workspace, rel_path: str, fallback: str) -> str:
+    try:
+        return str(parse_document(workspace.root / rel_path).metadata.get("title") or fallback)
+    except (MetadataError, OSError, UnicodeDecodeError):
+        return fallback
+
+
+def _with_commit(workspace: Workspace, result: WriteResult, verb: str) -> WriteResult:
+    """Commit the one file a write touched, e.g. ``Edit <title>``."""
+
+    message = f"{verb} {_title_at(workspace, result.path, result.id)}"
+    return replace(result, commit=gitsync.auto_commit(workspace, [result.path], message))
 
 
 # ---------------------------------------------------------------------------
@@ -817,7 +857,7 @@ def accept_record(workspace: Workspace, record_id: str, *, expected_sha256: str)
     """``kos decision accept`` with an ``interface:<timestamp>:accept`` reference."""
 
     _require_sha(expected_sha256, "expected_sha256")
-    return _decision_write(
+    result = _decision_write(
         lambda: accept_decision(
             workspace,
             record_id,
@@ -825,6 +865,7 @@ def accept_record(workspace: Workspace, record_id: str, *, expected_sha256: str)
             acceptance_reference=interface_reference("accept"),
         )
     )
+    return _with_commit(workspace, result, "Accept decision")
 
 
 def withdraw_record(workspace: Workspace, record_id: str, *, expected_sha256: str, reason: str) -> WriteResult:
@@ -833,9 +874,10 @@ def withdraw_record(workspace: Workspace, record_id: str, *, expected_sha256: st
     _require_sha(expected_sha256, "expected_sha256")
     if not reason.strip():
         raise WriteError("bad_request", "reason must be a non-empty string")
-    return _decision_write(
+    result = _decision_write(
         lambda: withdraw_decision(workspace, record_id, expected_sha256=expected_sha256, reason=reason)
     )
+    return _with_commit(workspace, result, "Withdraw decision")
 
 
 def supersede_record(
@@ -870,9 +912,52 @@ def supersede_record(
     # Supersession rewrites both files in place, so their paths are unchanged.
     documents, _issues = validate_workspace(workspace)
     paths = {document.metadata["id"]: _relative_or_absolute(workspace, document.path) for document in documents}
-    return SupersedeWriteResult(
-        replacement=WriteResult(
-            new_id, result.new_status, paths.get(new_id, ""), result.new_sha256, refreshed, count, error
-        ),
-        replaced=WriteResult(old_id, result.old_status, paths.get(old_id, ""), result.old_sha256, refreshed, count, error),
+    replacement = WriteResult(
+        new_id, result.new_status, paths.get(new_id, ""), result.new_sha256, refreshed, count, error
     )
+    replaced = WriteResult(old_id, result.old_status, paths.get(old_id, ""), result.old_sha256, refreshed, count, error)
+    message = (
+        f"Supersede decision {_title_at(workspace, replaced.path, old_id)} "
+        f"with {_title_at(workspace, replacement.path, new_id)}"
+    )
+    commit = gitsync.auto_commit(workspace, [replacement.path, replaced.path], message)
+    return SupersedeWriteResult(replacement=replace(replacement, commit=commit), replaced=replaced)
+
+
+# ---------------------------------------------------------------------------
+# Git sync: status, pull-then-push, and conflict resolution
+# ---------------------------------------------------------------------------
+
+
+def sync_status(workspace: Workspace) -> SyncStatus:
+    """Branch, upstream, ahead/behind, uncommitted changes, and last sync; never contacts the remote."""
+
+    return gitsync.status(workspace)
+
+
+def run_sync(workspace: Workspace) -> SyncOutcome:
+    """Pull then push, or finish a sync whose conflicts are all resolved.
+
+    Raises ``GitSyncError``; a pull that stops on conflicts raises kind
+    ``conflict`` with the conflicted paths.
+    """
+
+    outcome = gitsync.sync(workspace)
+    if outcome.state == "conflict":
+        raise GitSyncError("conflict", outcome.detail or "the pull stopped on conflicts", conflicts=outcome.conflicts)
+    return outcome
+
+
+def sync_conflicts(workspace: Workspace) -> tuple[ConflictFile, ...]:
+    return gitsync.list_conflicts(workspace)
+
+
+def resolve_sync_conflict(workspace: Workspace, path: str, choice: str, content: str | None) -> ResolveOutcome:
+    try:
+        return gitsync.resolve_conflict(workspace, path, choice, content)
+    except WorkspaceError as exc:
+        raise GitSyncError("failed", str(exc)) from exc
+
+
+def abort_sync(workspace: Workspace) -> None:
+    gitsync.abort_merge(workspace)

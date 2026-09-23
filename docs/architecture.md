@@ -349,7 +349,9 @@ module that calls them. The routes create and edit only `knowledge`,
   `change_reference`. Answers `200`.
 
 A successful write returns `{"id", "status", "path", "content_sha256",
-"index": {"refreshed", "count", "error"}}`. `content_sha256` is the new
+"index": {"refreshed", "count", "error"}, "commit": {"committed", "sha",
+"message", "skipped", "detail"}}` (see "Git versioning and sync" below for
+`commit`). `content_sha256` is the new
 revision's hash, which the next edit sends as `expected_sha256`. If the
 canonical write succeeded but reindexing failed, the write still answers
 `201`/`200` with `index.refreshed: false` and the recovery message in
@@ -427,6 +429,96 @@ the interface uses it only when creating a record. Edits add no provenance,
 as with `kos update`; Git history records them. A confirmed non-material
 edit of an accepted decision body gets change reference
 `interface:<UTC timestamp>:edit`.
+
+## Git versioning and sync
+
+A knowledge base is meant to be its own Git repository. `knowledge_os/gitsync.py`
+calls the `git` executable found on `PATH` (no Git library); in the packaged
+app a missing `git` is reported as `git_missing` with an install hint. The
+workspace root must be the repository's top level: a workspace nested inside
+another repository is treated as not versioned, so the interface never commits
+into an unrelated project. `kos init` ignores `indexes/catalog.md` and the
+SQLite files; `indexes/` is never committed by the interface, and the status
+warns when generated index files are still tracked.
+
+**Auto-commit.** After each successful interface write (create, edit, accept,
+withdraw, supersede) the adapter commits exactly the paths that write touched
+(`git add --all -- PATHS` then `git commit --only -- PATHS`), so unrelated
+modified, untracked, or staged changes stay as they were. Messages are
+`Create <title>`, `Edit <title>`, `Accept decision <title>`, `Withdraw
+decision <title>`, and `Supersede decision <old title> with <new title>`. The
+commit uses the repository's configured identity; when `user.name` or
+`user.email` is missing, nothing is committed and `commit.skipped` is
+`no_identity`. The write itself never fails because of Git: `commit` is
+`{"committed": false, "skipped": KIND, "detail": MESSAGE}` for `not_a_repo`,
+`git_missing`, `no_identity`, `merge_in_progress`, `nothing_to_commit`, or a
+Git failure. CLI mutations (`kos capture`, `kos update`, `kos decision ...`,
+`kos supersede`, discovery commands, `kos ingest`) do not commit; commit their
+results with Git yourself.
+
+**Sync.** Sync pulls, then pushes, against the current branch's configured
+upstream (`branch.<name>.remote` and `.merge`). Pull is `git fetch` followed by
+`git merge` of the remote-tracking branch, not a rebase: a merge stops at most
+once, leaves the standard recoverable `MERGE_HEAD` state that `git merge
+--abort` undoes, never rewrites local commits, and Git refuses to start it
+when uncommitted changes would be overwritten or the index holds staged
+changes. After a pull that changed files the indexes are rebuilt. The time of the last successful sync is
+kept in `.git/kos-last-sync`, outside the working tree.
+
+Every Git call runs under the workspace advisory lock, with a timeout (45 s
+for fetch and push, 30 s for local commands) after which the process tree is
+killed, with no terminal (`stdin` closed) and with prompts disabled
+(`GIT_TERMINAL_PROMPT=0`, empty `GIT_ASKPASS`, `SSH_ASKPASS_REQUIRE=never`,
+`GCM_INTERACTIVE=never`, and `ssh -o BatchMode=yes` unless the user set their
+own SSH command). Existing credential helpers and SSH agents keep working; a
+credential Git would have to ask for becomes an `auth` error. Credentials are
+never requested, stored, or logged, and `user:password@` in URLs is redacted
+from every message.
+
+**Conflicts.** When the merge stops on conflicts the repository stays in the
+merge state. The conflicted files are listed with both versions; each is
+resolved by choosing this computer's version (`ours`), the incoming version
+(`theirs`), or a merged text, which is written and staged. A file resolved
+earlier in the same merge can be chosen again (it is put back in conflict with
+`git checkout -m`). Only files this merge put in conflict can be written.
+Running sync again with no conflicts left runs `kos lint` over the whole
+corpus; if it fails, nothing is committed and the issues are returned.
+Otherwise the merge is committed as `Sync with <upstream> (resolved
+conflicts)`, the indexes are rebuilt, and the result is pushed. Aborting
+restores the state before the pull.
+
+Endpoints use the write API's guard: every route applies the loopback host
+and origin checks, and the `POST` routes also need the write token and a JSON
+body. Git runs in a worker thread so a slow remote does not stall other
+requests. Every sync response carries a fresh `status`.
+
+- `GET /api/sync/status` never contacts the remote and answers
+  `{"available", "reason", "detail", "branch", "upstream", "remotes",
+  "ahead", "behind", "uncommitted", "merging", "conflicts", "last_sync",
+  "identity": {"name", "email"} | null, "warnings"}`. `ahead` and `behind`
+  are counted against the remote-tracking branch as of the last fetch;
+  `uncommitted` counts changed paths outside `indexes/`.
+- `POST /api/sync` with `{}` answers `{"state": "synced", "pulled",
+  "pushed", "reindexed", "index_error", "status"}`, or finishes a merge whose
+  conflicts are all resolved.
+- `GET /api/sync/conflicts` answers `{"files": [{"path", "ours", "theirs",
+  "working", "binary", "resolved"}], "status"}`; `ours`/`theirs` are `null`
+  when that side deleted the file.
+- `POST /api/sync/resolve` with `{"path", "choice": "ours" | "theirs" |
+  "merged", "content"}` (`content` only for `merged`) answers `{"path",
+  "remaining", "issues", "status"}`, where `issues` are the lint findings for
+  that file.
+- `POST /api/sync/abort` with `{}` runs `git merge --abort` and answers
+  `{"status"}`.
+
+A refused sync answers `{"error": KIND, "detail", "status"}` plus
+`conflicts: [PATH]` for `conflict` and `issues` for `lint`. Statuses: `409`
+for `git_missing`, `not_a_repo`, `no_branch`, `no_identity`, `no_upstream`
+(the detail says how to add a remote or set an upstream), `blocked` (the pull
+would overwrite uncommitted changes), `conflict`, and `no_merge`; `400` for
+`not_conflicted` and malformed bodies; `422` for `lint`; `502` for `auth`,
+`network`, `timeout`, and `rejected` (the remote moved during the sync); `500`
+for any other Git failure.
 
 ## CLI contract
 
