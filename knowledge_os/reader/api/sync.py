@@ -36,6 +36,7 @@ from .write import _field, _same_machine_error, _write_payload
 _STATUS_BY_KIND = {
     "git_missing": 409,
     "not_a_repo": 409,
+    "source_repo": 409,
     "no_branch": 409,
     "no_identity": 409,
     "no_upstream": 409,

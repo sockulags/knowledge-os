@@ -37,6 +37,7 @@ import os
 import re
 import shutil
 import subprocess
+import tomllib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -87,13 +88,14 @@ _NETWORK_MARKERS = (
 class GitSyncError(Exception):
     """A Git operation that could not be done, with a stable ``kind``.
 
-    Kinds: ``git_missing``, ``not_a_repo``, ``no_branch``, ``no_identity``,
-    ``no_upstream``, ``auth``, ``network``, ``timeout``, ``rejected``
-    (the remote refused the push), ``blocked`` (Git refused to merge over
-    local changes), ``conflict`` (the merge stopped on conflicts),
-    ``not_conflicted`` (a resolve named a file that is not in conflict),
-    ``lint`` (resolved files leave the corpus invalid), ``no_merge``, and
-    ``failed`` (any other Git failure).
+    Kinds: ``git_missing``, ``not_a_repo``, ``source_repo`` (the workspace is
+    the Knowledge OS source repository itself), ``no_branch``,
+    ``no_identity``, ``no_upstream``, ``auth``, ``network``, ``timeout``,
+    ``rejected`` (the remote refused the push), ``blocked`` (Git refused to
+    merge over local changes), ``conflict`` (the merge stopped on
+    conflicts), ``not_conflicted`` (a resolve named a file that is not in
+    conflict), ``lint`` (resolved files leave the corpus invalid),
+    ``no_merge``, and ``failed`` (any other Git failure).
     """
 
     def __init__(
@@ -317,6 +319,29 @@ def _same_path(left: Path, right: Path) -> bool:
     return a == b
 
 
+def _is_knowledge_os_source_repository(root: Path) -> bool:
+    """Whether ``root`` is the Knowledge OS source repository's own top level.
+
+    Detected without relying on remote URLs (a clone or fork must be caught
+    too): the root declares the ``knowledge-os`` project in ``pyproject.toml``
+    and has the ``knowledge_os/`` package directory next to it. A workspace
+    can otherwise legitimately be pointed at this repository's top level (it
+    is a valid workspace, with its own ``knowledge-os.toml`` marker), so this
+    check exists to stop the app from committing records into the code
+    repository on whatever branch happens to be checked out, or pushing them
+    with the sync button.
+    """
+
+    pyproject = root / "pyproject.toml"
+    if not (pyproject.is_file() and (root / "knowledge_os").is_dir()):
+        return False
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return data.get("project", {}).get("name") == "knowledge-os"
+
+
 def open_repository(workspace: Workspace) -> Repository:
     """Return the repository whose top level is this workspace, or raise."""
 
@@ -341,6 +366,12 @@ def open_repository(workspace: Workspace) -> Repository:
             "not_a_repo",
             f"This knowledge base lies inside the Git repository at {toplevel} instead of being its own repository, "
             "so the app does not commit or sync it.",
+        )
+    if _is_knowledge_os_source_repository(workspace.root):
+        raise GitSyncError(
+            "source_repo",
+            "This is the Knowledge OS source repository; the app does not commit or sync here. Point it at a "
+            "different workspace to version and sync your records with Git.",
         )
     return Repository(workspace, git, git_dir)
 

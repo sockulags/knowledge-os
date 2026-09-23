@@ -6,6 +6,7 @@ import { relativeTime } from "../hooks/useSync";
 const UNAVAILABLE: Record<string, string> = {
   not_a_repo: "Not in Git",
   git_missing: "Git not found",
+  source_repo: "Source repo",
 };
 
 /** The shell's Git status line: branch, commits to push and to pull,
