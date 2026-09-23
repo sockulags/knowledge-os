@@ -28,7 +28,7 @@ import datetime
 import re
 
 from . import strings
-from .library import Library, ProvenanceEntry, Record
+from .library import Library, ProvenanceEntry, Record, parse_agent_reference
 
 __all__ = [
     "format_date",
@@ -310,7 +310,22 @@ def provenance_sentence(library: Library, record: Record, entry: ProvenanceEntry
     if entry.kind == "referat-meeting":
         date = _referat_meeting_date(entry.reference)
         return template.format(date=format_date(date)) if date else strings.PROVENANCE_REFERAT_UNDATED
+    if entry.kind == "agent-authored":
+        return agent_sentence(entry.reference, template, strings.PROVENANCE_AGENT_NO_PLACE, strings.PROVENANCE_AGENT_UNKNOWN)
     return template
+
+
+def agent_sentence(reference: str, with_place: str, without_place: str, unknown: str) -> str:
+    """Fill an ``agent-authored`` sentence from its ``agent:<client>:<place>``
+    reference: the agent's name (``claude-code`` reads as Claude Code) and
+    where it ran, or ``unknown`` when the reference names no agent."""
+
+    agent = parse_agent_reference(reference)
+    if agent is None:
+        return unknown
+    if agent.place is None:
+        return without_place.format(agent=agent.display_name)
+    return with_place.format(agent=agent.display_name, place=agent.place)
 
 
 #: ``referat:<meeting id>``, where Referat's meeting id is the meeting's UTC
@@ -368,6 +383,10 @@ def proposed_by(library: Library, record: Record) -> dict[str, str | None]:
     elif entry.kind == "discovery":
         target = library.records_by_id.get(entry.reference)
         label = template.format(title=target.title if target is not None else entry.reference)
+    elif entry.kind == "agent-authored":
+        label = agent_sentence(
+            entry.reference, template, strings.PROPOSED_BY_AGENT_NO_PLACE, strings.PROPOSED_BY_AGENT_UNKNOWN
+        )
     else:
         label = template
     return {"source": _PROPOSER_SOURCE.get(entry.kind, "other"), "label": label, "kind": entry.kind, "when": when}

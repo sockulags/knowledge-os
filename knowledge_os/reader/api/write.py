@@ -40,6 +40,7 @@ from starlette.responses import Response
 from .. import markdown
 from ..app import get_library, json_response
 from ..library import (
+    AgentIdentity,
     CommitOutcome,
     SupersedeWriteResult,
     WriteError,
@@ -149,6 +150,25 @@ def _field(payload: dict[str, Any], name: str, kind: type, *, required: bool) ->
     return value
 
 
+def _agent(payload: dict[str, Any]) -> AgentIdentity | None:
+    """The optional ``agent`` object of a create or edit: ``{"client":
+    "claude-code", "place": "my-repo"}``. It marks the write as an agent's
+    (``agent-authored`` provenance and a commit message naming the agent).
+    Any caller with the write token may send it; it labels, it does not
+    authenticate."""
+
+    value = _field(payload, "agent", dict, required=False)
+    if value is None:
+        return None
+    place = value.get("place")
+    if place is not None and not isinstance(place, str):
+        raise WriteError("bad_request", "agent.place must be a JSON string")
+    identity = AgentIdentity.create(value.get("client"), place)
+    if identity is None:
+        raise WriteError("bad_request", "agent.client must be a non-empty JSON string")
+    return identity
+
+
 def _result_json(result: WriteResult) -> dict[str, Any]:
     return {
         "id": result.id,
@@ -205,6 +225,7 @@ async def create_view(request: Request) -> Response:
             metadata=metadata,
             body=body,
             project_path=project_path,
+            agent=_agent(payload),
         )
     except WriteError as exc:
         return _write_error_response(exc)
@@ -229,6 +250,7 @@ async def edit_view(request: Request) -> Response:
             body=body,
             confirm_non_material=confirm,
             change_reference=reference,
+            agent=_agent(payload),
         )
     except WriteError as exc:
         return _write_error_response(exc)

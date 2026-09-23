@@ -17,6 +17,7 @@
     "projects"
   ],
   "skills": "./skills/",
+  "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "Knowledge OS",
     "shortDescription": "Approved capture and repository documentation",
@@ -28,7 +29,8 @@
       "Capture approved Knowledge OS records",
       "Initialize global Codex and Claude documentation guidance",
       "Initialize repository project bindings",
-      "Retrieve and maintain task-relevant documentation"
+      "Retrieve and maintain task-relevant documentation",
+      "Search, write notes, and propose decisions through the running Knowledge OS app"
     ],
     "defaultPrompt": [
       "Capture durable decisions only after I approve them."

@@ -21,11 +21,13 @@ Agentic Work OS.
 
 The product does not include URLs, PDFs, embeddings, semantic search or
 reranking, LLM trust decisions, contradiction or backlink subsystems, arbitrary
-record merging, MCP, a remote or shared API, cloud or multi-user behavior, a
+record merging, a remote or shared API, cloud or multi-user behavior, a
 database as canonical storage, WAL/journal/transaction infrastructure, or
 background workers. The local interface (the `kos-read` JSON API and the
 desktop app that shows it) reads one workspace and writes to it only through
-the core mutations described under "Local interface write API". The Codex plugin is a thin distribution surface for the conversational
+the core mutations described under "Local interface write API". The one MCP
+surface, `kos mcp` (see "Agent access over MCP"), is a client of that local
+API and never opens a workspace itself. The Codex plugin is a thin distribution surface for the conversational
 capture skill, not a second storage or execution system.
 
 ## Workspace and filesystem
@@ -242,7 +244,9 @@ fallback. After setup and approval it invokes the selected launcher with
 `sys.prefix != sys.base_prefix` with that launcher and omits `--user` inside a
 virtual environment; non-venv setup uses `--user`. Deterministic storage,
 schema validation, provenance, locking, and index refresh remain owned by
-Knowledge OS.
+Knowledge OS. When the plugin's MCP server tools are available (see "Agent
+access over MCP"), the capture and documentation skills use them after
+approval instead of the CLI, which stays as the fallback.
 
 ## Skills
 
@@ -347,6 +351,18 @@ module that calls them. The routes create and edit only `knowledge`,
   to identity, lifecycle, supersession, and system provenance are refused.
   An accepted decision's body changes only with `confirm_non_material` and
   `change_reference`. Answers `200`.
+
+Both routes accept an optional `"agent": {"client": "...", "place": "..."}`
+that marks the write as an agent's (see "Agent access over MCP"). `client` is
+required in it; both parts are cleaned to letters, digits, spaces, `.`, `_`,
+and `-`, and at most 60 characters. A create puts `{"kind":
+"agent-authored", "reference": "agent:<client>:<place>", "captured": "<UTC
+timestamp>"}` first in the record's provenance (`:<place>` is omitted when
+there is none); an edit appends the same entry unless one with that reference
+is already there. The auto-commit message then starts with the agent's name,
+e.g. `Claude Code: Create <title>`. Any caller holding the write token may
+send `agent` or write `agent-authored` provenance directly: the kind labels
+agent work, it does not authenticate it.
 
 A successful write returns `{"id", "status", "path", "content_sha256",
 "index": {"refreshed", "count", "error"}, "commit": {"committed", "sha",
@@ -485,7 +501,9 @@ withdraw, supersede) the adapter commits exactly the paths that write touched
 (`git add --all -- PATHS` then `git commit --only -- PATHS`), so unrelated
 modified, untracked, or staged changes stay as they were. Messages are
 `Create <title>`, `Edit <title>`, `Accept decision <title>`, `Withdraw
-decision <title>`, and `Supersede decision <old title> with <new title>`. The
+decision <title>`, and `Supersede decision <old title> with <new title>`. A
+create or edit that carries `agent` is prefixed with the agent's name, as in
+`Claude Code: Create <title>` or `Codex: Edit <title>`. The
 commit uses the repository's configured identity; when `user.name` or
 `user.email` is missing, nothing is committed and `commit.skipped` is
 `no_identity`. The write itself never fails because of Git: `commit` is
@@ -559,6 +577,62 @@ would overwrite uncommitted changes), `conflict`, and `no_merge`; `400` for
 `network`, `timeout`, and `rejected` (the remote moved during the sync); `500`
 for any other Git failure.
 
+## Agent access over MCP
+
+The accepted `agent-access` decision gives agents a narrow interface: `kos
+mcp` (`knowledge_os/agent_access/`), an MCP server on stdio built on the
+official MCP Python SDK (the optional `mcp` extra, bundled in the desktop
+app's frozen core, so the installed `kos` shim runs it without Python). It
+serves seven tools: `search`, `read_page`, `list_projects`, `list_folder`,
+`write_note`, `propose_decision`, and `list_proposed_decisions`. None accepts,
+withdraws, or supersedes a decision; `write_note` refuses to edit a decision
+(or a source, synthesis, or discovery), and `propose_decision` always creates
+a `draft` decision, optionally declaring `supersedes`.
+
+The server never opens a workspace. On every tool call it reads the desktop
+app's runtime file, `runtime.json` in the app's user-data folder
+(`%APPDATA%\knowledge-os-desktop` on Windows, `KOS_DESKTOP_USER_DATA` when
+set, or `KOS_RUNTIME_FILE` naming the file). The app writes it while a
+knowledge base is open and removes it when the core stops:
+
+```json
+{"version": 1, "app_version": "0.2.0", "port": 51234,
+ "url": "http://127.0.0.1:51234", "write_token": "...",
+ "workspace": {"root": "D:\notes\kb", "name": "kb"},
+ "core_pid": 1234, "shell_pid": 999, "written_at": "2026-09-23T20:00:00.000Z"}
+```
+
+The file is readable only by the current user (on Windows an access list with
+that user as the only entry, without inheritance; elsewhere mode `0600`). A
+file is used only when `core_pid` is alive and `GET /api/session` on its port
+returns the same write token; otherwise it is stale. The server then calls the
+local API above with that token, sending `agent` with the MCP client's
+`clientInfo.name` and a place: `--place`, else `KOS_AGENT_PLACE`, else the
+name of the working directory the client started it in. Only a directory name
+is used, never a path.
+
+Tool results are JSON objects, also sent as text. A refusal is an error
+result `{"ok": false, "error", "message", "next_step", "written"}`:
+`app_not_open` (no runtime file) and `app_not_responding` (stale file) write
+nothing; `request_failed` means the app stopped answering during a request,
+so a write may have happened (`written: "unknown"`); `bad_request`,
+`not_found`, `conflict` (with `current_sha256`), `duplicate`, `validation`
+(with `issues`), `forbidden`, `not_allowed`, and `search_unavailable` wrote
+nothing.
+
+The reader describes `agent-authored` provenance as "Written by <agent> in
+<place>" and the Decide inbox as "Proposed by <agent> in <place>", where a
+known client name reads as the product (`claude-code` is Claude Code,
+`codex-mcp-client` Codex) and any other name as itself.
+`knowledge_os/agent_identity.py` holds the reference format and the names.
+
+The protection is a guardrail, not a lock: an agent with shell access can
+still run `kos` or edit Markdown directly, and any holder of the write token
+can claim to be an agent. Provenance and Git history make agent writes and
+every acceptance visible. The Claude Code and Codex plugins register the
+server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
+`.codex-plugin/mcp.json`).
+
 ## CLI contract
 
 - `kos ingest PATH` captures one local UTF-8 Markdown/text source with a full
@@ -592,6 +666,8 @@ for any other Git failure.
   guidance and the global workspace location after direct authorization.
 - `kos documentation init-repo --repo PATH --project ID[=RELATIVE_PATH]`
   writes one portable repository binding for one or more project scopes.
+- `kos mcp [--place LABEL]` serves the agent tools over MCP on stdio through
+  the running desktop app (see "Agent access over MCP"); it ignores `--root`.
 
 Read-only context and review require a current SQLite cache and never rebuild
 it implicitly. `kos index` is always safe to run as the derived-state repair

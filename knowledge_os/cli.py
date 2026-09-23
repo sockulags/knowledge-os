@@ -174,6 +174,21 @@ def build_parser() -> argparse.ArgumentParser:
     init_repo_parser.add_argument("--user-home", type=Path)
     init_repo_parser.add_argument("--replace", action="store_true")
     init_repo_parser.add_argument("--json", action="store_true", dest="as_json")
+
+    mcp = commands.add_parser(
+        "mcp",
+        help="serve the agent tools over MCP (stdio) through the running Knowledge OS app",
+        description=(
+            "Serve the agent tools (search, read_page, list_projects, list_folder, write_note, "
+            "propose_decision, list_proposed_decisions) over MCP on stdin/stdout. Every call goes through "
+            "the local API of the Knowledge OS desktop app and the knowledge base open there; --root is "
+            "ignored and nothing works while the app is closed."
+        ),
+    )
+    mcp.add_argument(
+        "--place",
+        help="label for where the agent runs, recorded with its writes (default: KOS_AGENT_PLACE or the working directory's name)",
+    )
     return parser
 
 
@@ -253,6 +268,10 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Initialized {args.documentation_command}: {len(result['changed_paths'])} file(s) changed")
             return 0
+        if args.command == "mcp":
+            from .agent_access.server import run as run_mcp
+
+            return run_mcp(args.place)
         if args.command == "init":
             created = init_workspace(args.path, name=args.name)
             if args.as_json:

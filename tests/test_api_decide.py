@@ -219,7 +219,7 @@ class DecideApiTests(unittest.TestCase):
             "alpha-plain": ("you", "Proposed by you in this app"),
             "alpha-replacement": ("conversation", "Proposed in a conversation you approved"),
             "beta-referat": ("meeting", "Proposed in a Referat meeting on 18 September 2026"),
-            "beta-agent": ("agent", "Proposed by an agent"),
+            "beta-agent": ("agent", "Proposed by Codex in some-repo"),
             "beta-unknown": ("other", "Proposed from a source this app does not describe yet"),
             "general-request": ("you", "Proposed at your request"),
         }

@@ -78,6 +78,57 @@ and the sync finishes only when the result passes `kos lint`. Git must be on
 never asks for credentials. CLI commands do not commit. See "Git versioning and
 sync" in [`docs/architecture.md`](docs/architecture.md).
 
+## Agents (MCP)
+
+Agents such as Claude Code and Codex working in other repositories use the knowledge base through
+an MCP server, `kos mcp`; people and scripts keep the `kos` command line (see the accepted decision
+`projects/knowledge-os/decisions/agent-access.md`). The server works only through the running
+desktop app: it talks to the app's local API and acts on the knowledge base open there, so agent
+writes get the same validation, conflict checks, and Git commits as your own edits and show up in
+the app as they happen. When the app is closed or no knowledge base is open, every tool says so and
+nothing is written.
+
+| Tool | What it does |
+| --- | --- |
+| `search` | Full-text search (`query`, optional `project`, `limit`). |
+| `read_page` | One page by `id`: Markdown content, state, project, folder, links, provenance, and `content_sha256`. |
+| `list_projects` | Project ids, titles, and top-level folders. |
+| `list_folder` | A project folder's overview, pages, and subfolders (`project`, optional `folder`). |
+| `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. |
+| `propose_decision` | Create a decision as a draft (`title`, `content`, optional `project`, `folder`, `supersedes`, `related`). |
+| `list_proposed_decisions` | The Decide inbox: drafts waiting for a person, with who proposed them. |
+
+There is no tool to accept, withdraw, or supersede a decision; those stay yours, in the app or the
+command line. Failures come back as structured results with an `error` kind (`app_not_open`,
+`app_not_responding`, `conflict`, `duplicate`, `validation`, `not_found`, `not_allowed`, ...), a
+`message`, a `next_step`, and whether anything was `written`.
+
+Every agent write carries provenance `agent-authored` with reference `agent:<client>:<place>`:
+the client name the agent reports over MCP (`claude-code`, `codex-mcp-client`, ...) and where it
+ran, which is `kos mcp --place LABEL`, else `KOS_AGENT_PLACE`, else the name (never the path) of
+the directory the agent started the server in. The app shows it as "Proposed by Claude Code in
+my-repo", and the commit reads `Claude Code: Create <title>`. This is a guardrail, not a lock: an
+agent with shell access can still run `kos` or edit files; provenance and Git history make its
+writes visible.
+
+**Setup.** Install the desktop app (it puts `kos` on PATH with the MCP server built in) or, in a
+checkout, `pip install -e ".[reader,mcp]"`. Then:
+
+- Claude Code: install the plugin (below); it registers the `knowledge-os` MCP server. Without the
+  plugin: `claude mcp add knowledge-os -- kos mcp` (add `--scope user` to use it in every project).
+- Codex: install the plugin from this repository's marketplace; `.codex-plugin/mcp.json`
+  registers the server. Without the plugin, add to `~/.codex/config.toml`:
+
+  ```toml
+  [mcp_servers.knowledge-os]
+  command = "kos"
+  args = ["mcp"]
+  ```
+
+Open the knowledge base in the app before asking the agent to use it. The server finds the app
+through a runtime file the app keeps in its user-data folder while a knowledge base is open (see
+"Agents and the runtime file" in [`desktop/README.md`](desktop/README.md)).
+
 ## Documentation skill
 
 The automatically discoverable `knowledge-os-documentation` skill supports one-time setup and
@@ -342,8 +393,9 @@ The CLI, the local reader server and desktop app, and the standard-library
 SQLite FTS5 cache are local only; there is no cloud or remote service.
 Retrieval and review are deterministic lexical FTS plus metadata and explicit
 relationships; they are not semantic fact checking or contradiction
-detection. No URL/PDF ingestion, embeddings, model calls, MCP, or Agentic
-Work OS coupling is included in v0.0.1. The local reader exposes a JSON API for
+detection. No URL/PDF ingestion, embeddings, model calls, or Agentic Work OS
+coupling is included. The only MCP surface is `kos mcp`, which works through
+the running desktop app (see [Agents (MCP)](#agents-mcp)). The local reader exposes a JSON API for
 editing records and decision actions, and workspaces that are their own Git
 repository get versioned writes and Git-based sync (pull, push, and conflict
 resolution) through it; see "[Sync a knowledge base with

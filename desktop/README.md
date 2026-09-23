@@ -13,12 +13,12 @@ installed app needs no Python (see [Building the Windows installer](#building-th
 ## Requirements
 
 - Node.js 22 or newer and npm.
-- Python 3.11 or newer with Knowledge OS and its reader dependencies. From the
-  repository root:
+- Python 3.11 or newer with Knowledge OS and its reader dependencies (add the
+  `mcp` extra to run `kos mcp` for agents). From the repository root:
 
   ```powershell
   py -3.11 -m venv .venv
-  .\.venv\Scripts\python -m pip install -e ".[reader]"
+  .\.venv\Scripts\python -m pip install -e ".[reader,mcp]"
   ```
 
 ## Scripts
@@ -52,9 +52,10 @@ This needs Windows, Node.js 22 or newer, and Python 3.11 reachable as
 `py -3.11` (the Python launcher from the python.org installer). No virtual
 environment has to be prepared: `build:core` creates its own in
 `build-core\venv`, installs the dependencies listed in `pyproject.toml`
-(including the `reader` extra) and a pinned PyInstaller into it, and freezes
-Knowledge OS from this checkout with `core\kos-core.spec`. It then runs the
-frozen core once as a smoke test. `build-core\` and `dist\` are git-ignored.
+(including the `reader` and `mcp` extras) and a pinned PyInstaller into it,
+and freezes Knowledge OS from this checkout with `core\kos-core.spec`. It then
+runs the frozen core once as a smoke test, including starting `kos mcp`.
+`build-core\` and `dist\` are git-ignored.
 
 The installer is an unsigned, per-user NSIS installer (no administrator
 prompt) for the app "Knowledge OS". It installs to
@@ -143,6 +144,48 @@ and the `py` launcher each run the real interpreter as a child process. If the
 main process dies without running any handler, the core still exits: its stdin
 is a pipe held by the main process, and `--exit-on-stdin-eof` makes it exit
 when that pipe closes.
+
+## Agents and the runtime file
+
+Agents reach the open knowledge base through `kos mcp`, the MCP server in the
+core (see "Agent access over MCP" in
+[`docs/architecture.md`](../docs/architecture.md)). It finds the running core
+through `runtime.json` in the user-data folder
+(`%APPDATA%\knowledge-os-desktop\runtime.json` for the installed app, or
+under `KOS_DESKTOP_USER_DATA`):
+
+```json
+{
+  "version": 1,
+  "app_version": "0.2.0",
+  "port": 51234,
+  "url": "http://127.0.0.1:51234",
+  "write_token": "...",
+  "workspace": { "root": "D:\\notes\\my-kb", "name": "my-kb" },
+  "core_pid": 1234,
+  "shell_pid": 999,
+  "written_at": "2026-09-23T20:00:00.000Z"
+}
+```
+
+Once the core answers, the shell reads the write token from `GET /api/session`
+and writes the file (`src/main/runtimeFile.ts`). Opening another knowledge
+base rewrites it; closing the knowledge base, closing the window, quitting, and
+a core that stops unexpectedly remove it. It is removed only while it still
+names this app's core, so a second app instance's file is left alone. A crash
+can leave a file behind; `kos mcp` uses a file only when `core_pid` is alive and
+the port hands out the same write token, and otherwise tells the agent the app
+is not answering.
+
+The file holds the write token, so only the current user may read it. On
+Windows it is written to a temporary file first, whose access list is then set
+with `icacls FILE /inheritance:r /grant:r *<your SID>:F` (the SID comes from
+`whoami /user`): inherited entries are removed, so Administrators and SYSTEM
+lose their inherited access and the current user is the only entry. Only then
+is it renamed to `runtime.json`. If that fails, no file is written and agents
+report that the app is not open. On macOS and Linux the file is created with
+mode `0600`. Run `icacls "%APPDATA%\knowledge-os-desktop\runtime.json"` to see
+its access list.
 
 ## Updates
 
@@ -341,7 +384,9 @@ preload script, and no navigation beyond its own page (see
 
 The core's write endpoints need a per-process token. The shell passes nothing:
 the UI, served from the core's own origin, reads the token from
-`GET /api/session` and sends it back in the `X-KOS-Write-Token` header. See
+`GET /api/session` and sends it back in the `X-KOS-Write-Token` header. The
+shell reads the same token for the runtime file that `kos mcp` uses (see
+[Agents and the runtime file](#agents-and-the-runtime-file)). See
 "Local interface write API" in [`docs/architecture.md`](../docs/architecture.md).
 
 ## Referat plugin

@@ -1,5 +1,11 @@
 # Documentation workflow
 
+When the Knowledge OS MCP tools are available, the same steps use them: `search` for `kos search`,
+`read_page` for `kos inspect`, `list_projects` and `list_folder` to reach overviews and folder
+pages, `write_note` (with `expected_sha256` from `read_page` for edits) for `kos capture` and
+`kos update`, and `propose_decision` for a new decision. The app validates, reindexes, and commits
+MCP writes itself, so the lint and index step after a write applies to the CLI fallback only.
+
 ## Select records
 
 1. Read `~/.knowledge-os/config.toml` and the nearest optional `.knowledge-os-project.toml`.

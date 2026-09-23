@@ -144,7 +144,17 @@ PROVENANCE_KIND: dict[str, str] = {
     # The reference is ``referat:<meeting id>``; the meeting id starts with
     # the meeting's UTC start time, which gives the date.
     "referat-meeting": "Imported from a Referat meeting on {date}",
+    # Written by an agent through the MCP server (see docs/architecture.md).
+    # The reference is ``agent:<client>:<place>``; {agent} is the agent's
+    # name (``claude-code`` reads as Claude Code) and {place} where it ran,
+    # a directory name or a configured label, never a path.
+    "agent-authored": "Written by {agent} in {place}",
 }
+
+#: ``agent-authored`` provenance without a place, or whose reference does not
+#: name an agent.
+PROVENANCE_AGENT_NO_PLACE = "Written by {agent}"
+PROVENANCE_AGENT_UNKNOWN = "Written by an agent"
 
 #: ``referat-meeting`` provenance whose reference does not carry a readable
 #: meeting id, so no meeting date can be named.
@@ -955,8 +965,10 @@ PROPOSED_BY: dict[str, str] = {
     "user-request": "Proposed at your request",
     "user-approved-conversation": "Proposed in a conversation you approved",
     "referat-meeting": "Proposed in a Referat meeting on {date}",
-    "agent-authored": "Proposed by an agent",
+    "agent-authored": "Proposed by {agent} in {place}",
     "discovery": "Proposed from the observation {title}",
 }
+PROPOSED_BY_AGENT_NO_PLACE = "Proposed by {agent}"
+PROPOSED_BY_AGENT_UNKNOWN = "Proposed by an agent"
 PROPOSED_BY_REFERAT_UNDATED = "Proposed in a Referat meeting"
 PROPOSED_BY_FALLBACK = "Proposed from a source this app does not describe yet"
