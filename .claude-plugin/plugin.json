@@ -6,5 +6,11 @@
     "name": "Sockulags",
     "url": "https://github.com/sockulags"
   },
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "mcpServers": {
+    "knowledge-os": {
+      "command": "kos",
+      "args": ["mcp"]
+    }
+  }
 }

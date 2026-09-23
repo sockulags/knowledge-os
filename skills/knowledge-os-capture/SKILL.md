@@ -22,9 +22,41 @@ add another approval ceremony.
 ## Capture boundary
 
 Never write before approval. If no item is approved, do not create a candidate file and do not call
-Knowledge OS. Do not use Agentic Work OS, a daemon, hook, cloud service, server, MCP, background
-worker, silent save, model verification, or fact checking. Saving preserves the conversation's
-provenance and uncertainty; it does not verify the claim.
+Knowledge OS. Do not use Agentic Work OS, a daemon, hook, cloud service, background worker, silent
+save, model verification, or fact checking. The only server this skill uses is the Knowledge OS MCP
+server described below, and only after approval. Saving preserves the conversation's provenance and
+uncertainty; it does not verify the claim.
+
+## Capture with the Knowledge OS MCP tools
+
+When the `knowledge-os` MCP server's tools are available in this session (the plugin registers
+`kos mcp`), capture through them instead of the CLI. They write to the knowledge base open in the
+Knowledge OS desktop app, with its validation, conflict checks, and a Git commit that names this
+agent, and they record this agent as the author in provenance. They need no Python setup and no
+`KNOWLEDGE_OS_ROOT`.
+
+1. Before proposing, `search` (and `list_proposed_decisions` for decisions) so a proposal extends
+   or points at what already exists instead of duplicating it. Use `list_projects` to name the
+   destination project in the proposal.
+2. After approval, save an approved lesson or preference with `write_note` (title, content,
+   project and folder when it belongs to a project, `status: draft` unless the person asked for it
+   to be current). To change an existing page, `read_page` it and send the complete new content
+   with its `content_sha256` as `expected_sha256`.
+3. Save an approved decision with `propose_decision`, with `supersedes` when it replaces a decision
+   in force. It is stored as a proposal that governs nothing until the person accepts it in the
+   app's Decide inbox; say so. There is no tool to accept, withdraw, or supersede, and approval to
+   save is not acceptance.
+4. Report the returned `id`, `path`, and whether `commit.committed` is true. A `conflict`,
+   `duplicate`, or `validation` result wrote nothing; follow its `next_step`.
+
+If a tool reports `app_not_open` or `app_not_responding`, nothing was written: tell the person to
+open the Knowledge OS app with their knowledge base and offer to save again then. Do not fall back
+to the CLI to write while the app is closed. A preference that must live in `memory/` has no MCP
+tool; use the CLI fallback for it.
+
+## CLI fallback
+
+Use this path only when the MCP tools are not available in the session.
 
 Before creating any candidate, derive `pluginRoot` from the absolute path of this loaded
 `skills/knowledge-os-capture/SKILL.md`: it is the directory two levels above that file. Verify that

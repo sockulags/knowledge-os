@@ -133,6 +133,38 @@ class PluginPackagingTests(unittest.TestCase):
         self.assertEqual(entry["category"], "Productivity")
         self.assertIn("repository documentation", entry["description"])
 
+    def test_both_plugins_register_the_kos_mcp_server(self) -> None:
+        expected = {"knowledge-os": {"command": "kos", "args": ["mcp"]}}
+
+        claude = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(claude["mcpServers"], expected)
+
+        codex = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(codex["mcpServers"], "./.codex-plugin/mcp.json")
+        servers = json.loads((ROOT / codex["mcpServers"]).read_text(encoding="utf-8"))
+        self.assertEqual(servers, {"mcpServers": expected})
+        # No root .mcp.json: Claude Code would otherwise offer the server as a
+        # project server to anyone working in this repository.
+        self.assertFalse((ROOT / ".mcp.json").exists())
+
+        # The command the plugins run exists and takes no workspace argument.
+        from knowledge_os.cli import build_parser
+
+        args = build_parser().parse_args(["mcp"])
+        self.assertEqual(args.command, "mcp")
+
+    def test_skills_prefer_the_mcp_tools_and_keep_a_cli_fallback(self) -> None:
+        tools = ("search", "read_page", "write_note", "propose_decision", "list_proposed_decisions")
+        for name in ("knowledge-os-capture", "knowledge-os-documentation"):
+            with self.subTest(skill=name):
+                body = (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+                self.assertIn("MCP", body)
+                for tool in tools[:3]:
+                    self.assertIn(f"`{tool}`", body)
+                self.assertIn("CLI fallback", body)
+        capture = (ROOT / "skills" / "knowledge-os-capture" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("`propose_decision`", capture)
+
     def test_capture_skill_keeps_approval_and_safe_noop_contract(self) -> None:
         body = (ROOT / "skills" / "knowledge-os-capture" / "SKILL.md").read_text(encoding="utf-8")
         for required in (

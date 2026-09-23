@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "knowledge-os": {
+      "command": "kos",
+      "args": ["mcp"]
+    }
+  }
+}
