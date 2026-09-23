@@ -133,7 +133,15 @@ PROVENANCE_KIND: dict[str, str] = {
     "user-request": "Requested directly by you",
     # Created with the interface's editor (see docs/architecture.md).
     "interface-authored": "Written by you in this app",
+    # Imported by the desktop app's Referat plugin (see docs/architecture.md).
+    # The reference is ``referat:<meeting id>``; the meeting id starts with
+    # the meeting's UTC start time, which gives the date.
+    "referat-meeting": "Imported from a Referat meeting on {date}",
 }
+
+#: ``referat-meeting`` provenance whose reference does not carry a readable
+#: meeting id, so no meeting date can be named.
+PROVENANCE_REFERAT_UNDATED = "Imported from a Referat meeting"
 
 #: A decision-acceptance whose reference is the interface's own
 #: ``interface:<timestamp>:<action>``: the reference is a machine stamp, so
