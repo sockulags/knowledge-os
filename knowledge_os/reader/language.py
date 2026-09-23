@@ -38,6 +38,7 @@ __all__ = [
     "trust_sentence",
     "scope_sentence",
     "provenance_sentence",
+    "proposed_by",
     "record_accent",
     "catalog_phrase",
     "type_label",
@@ -187,8 +188,14 @@ def _decision_status_sentence(library: Library, record: Record) -> tuple[str, st
         date = format_date(successor.accepted_at) or format_date(successor.updated)
         sentence = strings.DECISION_STATUS["superseded"].format(title=successor.title, date=date)
         return sentence, "retired"
+    if record.status == "archived":
+        withdrawal = next((e for e in record.provenance if e.kind == "decision-withdrawal"), None)
+        date = format_date(withdrawal.captured if withdrawal and withdrawal.captured else record.updated)
+        if date is None:
+            return strings.DECISION_WITHDRAWN_UNDATED, "retired"
+        return strings.DECISION_STATUS["archived"].format(date=date), "retired"
     # A decision with no other recognised status (an invalid corpus, since
-    # decisions are restricted to draft/active/superseded); degrade to the
+    # decisions are restricted to draft/active/superseded/archived); degrade to the
     # ordinary lifecycle table rather than raising.
     return strings.LIFECYCLE_STATUS.get(record.status, record.status), _LIFECYCLE_ACCENT.get(record.status)
 
@@ -319,6 +326,51 @@ def _referat_meeting_date(reference: str) -> str | None:
         return datetime.date(int(match[1]), int(match[2]), int(match[3])).isoformat()
     except ValueError:
         return None
+
+
+#: Provenance kinds that record a lifecycle step taken on a decision, not
+#: where the decision came from; ``proposed_by`` skips them.
+_LIFECYCLE_PROVENANCE_KINDS = ("decision-acceptance", "decision-withdrawal")
+
+#: Provenance kind -> who or what proposed, as a stable key the interface can
+#: use (an icon, a filter). Any other kind is "other".
+_PROPOSER_SOURCE: dict[str, str] = {
+    "interface-authored": "you",
+    "user-request": "you",
+    "user-approved-conversation": "conversation",
+    "referat-meeting": "meeting",
+    "agent-authored": "agent",
+    "discovery": "observation",
+}
+
+
+def proposed_by(library: Library, record: Record) -> dict[str, str | None]:
+    """Who or what proposed a decision, and when, from its provenance.
+
+    Reads the first provenance entry that is not a lifecycle step (an
+    acceptance or a withdrawal). Returns ``source`` (``you``,
+    ``conversation``, ``meeting``, ``agent``, ``observation``, or ``other``
+    for a kind with no sentence yet), the finished ``label``, the raw
+    ``kind`` (for Technical details, never shown as prose), and ``when``:
+    the entry's ``captured`` timestamp, or the record's ``created`` date.
+    """
+
+    entry = next((e for e in record.provenance if e.kind not in _LIFECYCLE_PROVENANCE_KINDS), None)
+    if entry is None:
+        return {"source": "other", "label": strings.PROPOSED_BY_FALLBACK, "kind": None, "when": record.created}
+    when = entry.captured or record.created
+    template = strings.PROPOSED_BY.get(entry.kind)
+    if template is None:
+        label = strings.PROPOSED_BY_FALLBACK
+    elif entry.kind == "referat-meeting":
+        date = _referat_meeting_date(entry.reference)
+        label = template.format(date=format_date(date)) if date else strings.PROPOSED_BY_REFERAT_UNDATED
+    elif entry.kind == "discovery":
+        target = library.records_by_id.get(entry.reference)
+        label = template.format(title=target.title if target is not None else entry.reference)
+    else:
+        label = template
+    return {"source": _PROPOSER_SOURCE.get(entry.kind, "other"), "label": label, "kind": entry.kind, "when": when}
 
 
 def record_accent(record: Record) -> str | None:

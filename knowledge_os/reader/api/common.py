@@ -26,7 +26,7 @@ import re
 from typing import TypedDict
 
 from .. import grouping, language, strings
-from ..library import Library, ProvenanceEntry, Record, Relation
+from ..library import Library, ProvenanceEntry, Record, Relation, content_sha256, decision_actions
 
 __all__ = [
     "Pill",
@@ -43,6 +43,8 @@ __all__ = [
     "project_tree_json",
     "breadcrumb_for_record",
     "strip_leading_h1",
+    "decision_language",
+    "decision_actions_json",
 ]
 
 #: A leading level-1 heading only, on the first non-blank line of a
@@ -104,11 +106,13 @@ def pill_for(record: Record) -> Pill | None:
 
     if record.is_decision:
         if record.status == "draft":
-            return {"label": strings.PILL_LABELS["waiting"], "tone": "amber"}
+            return {"label": strings.PILL_LABELS["proposed"], "tone": "amber"}
         if record.status == "active":
             return {"label": strings.PILL_LABELS["in_force"], "tone": "green"}
         if record.status == "superseded":
             return {"label": strings.PILL_LABELS["replaced"], "tone": "grey"}
+        if record.status == "archived":
+            return {"label": strings.PILL_LABELS["withdrawn"], "tone": "grey"}
         if record.status in _LIFECYCLE_PILL_KEY:
             label = strings.PILL_LABELS[_LIFECYCLE_PILL_KEY[record.status]]
             return {"label": label, "tone": "grey"}
@@ -290,10 +294,11 @@ def lineage_callouts(library: Library, record: Record) -> list[dict[str, object]
         if relation.field != "supersedes":
             continue
         title = relation.title or relation.record_id
+        template = strings.LINEAGE_CALLOUT_WOULD_REPLACE if record.status == "draft" else strings.LINEAGE_CALLOUT_SUPERSEDES
         callouts.append(
             {
                 "kind": "supersedes",
-                "text": strings.LINEAGE_CALLOUT_SUPERSEDES.format(title=title),
+                "text": template.format(title=title),
                 "compare_href": f"/r/{record.id}/compare",
             }
         )
@@ -371,3 +376,110 @@ def breadcrumb_for_record(library: Library, record: Record) -> list[dict[str, st
     if project_id is not None:
         crumbs.append({"label": project_title(library, project_id), "href": f"/p/{project_id}"})
     return crumbs
+
+
+# ---------------------------------------------------------------------------
+# Decisions: the shared vocabulary, the "How decisions work" guide, and the
+# finished text of each action's confirmation dialog. Used by the record
+# page and the Decide inbox alike, so both say the same thing.
+# ---------------------------------------------------------------------------
+
+#: Lifecycle status -> the key the interface uses for that state (never the
+#: raw status, which stays in Technical details).
+_DECISION_STATES = {"draft": "proposed", "active": "in_force", "superseded": "replaced", "archived": "withdrawn"}
+
+
+def decision_language() -> dict[str, object]:
+    """The decision words the interface needs that do not depend on one
+    decision: button labels, and the guide with one line per state."""
+
+    return {
+        "labels": dict(strings.DECISION_ACTION_LABELS),
+        "guide": {
+            "title": strings.DECISION_GUIDE_TITLE,
+            "intro": strings.DECISION_GUIDE_INTRO,
+            "undo": strings.DECISION_GUIDE_UNDO,
+            "states": [
+                {"key": key, "label": strings.DECISION_STATE_LABELS[state], "text": strings.DECISION_GUIDE_STATES[state]}
+                for state, key in _DECISION_STATES.items()
+            ],
+        },
+    }
+
+
+def _change(subject: str | None, before: str, after: str) -> dict[str, str | None]:
+    return {"subject": subject, "from": before, "to": after}
+
+
+def _dialog(action: str, changes: list[dict[str, str | None]], **fields: str) -> dict[str, object]:
+    copy = strings.DECISION_DIALOGS[action]
+    return {
+        "title": copy["title"],
+        "body": copy["body"].format(**fields),
+        "confirm": copy["confirm"],
+        "history": copy["history"],
+        "changes": changes,
+    }
+
+
+def decision_actions_json(library: Library, record: Record) -> dict[str, object] | None:
+    """Which lifecycle actions a decision offers, the sentence above its
+    buttons, and the finished text of each confirmation dialog; ``None`` for
+    a record that is not a decision. ``supersede`` names the decision in
+    force a proposed replacement would retire, with its current hash."""
+
+    actions = decision_actions(library, record)
+    if actions is None:
+        return None
+    labels = strings.DECISION_STATE_LABELS
+    project = language.scope_sentence(library, record)
+    replaces = None
+    dialogs: dict[str, object] = {}
+    if actions.accept:
+        dialogs["accept"] = _dialog(
+            "accept",
+            [_change(None, labels["draft"], strings.DECISION_DIALOG_ACCEPTED_TODAY)],
+            title=record.title,
+            project=project,
+        )
+    if actions.withdraw:
+        dialogs["withdraw"] = _dialog(
+            "withdraw", [_change(None, labels["draft"], labels["archived"])], title=record.title
+        )
+    if actions.replaces is not None:
+        target = actions.replaces
+        try:
+            target_sha = content_sha256(target.abs_path)
+        except OSError:
+            target_sha = None
+        replaces = {"id": target.id, "title": target.title, "status": target.status, "content_sha256": target_sha}
+        dialogs["supersede"] = _dialog(
+            "supersede",
+            [
+                _change(record.title, labels["draft"], strings.DECISION_DIALOG_ACCEPTED_TODAY),
+                _change(target.title, labels["active"], strings.DECISION_DIALOG_REPLACED_BY.format(title=record.title)),
+            ],
+            title=record.title,
+            old=target.title,
+        )
+
+    if record.status == "draft":
+        if replaces is not None:
+            summary = strings.DECISION_SUMMARY["proposed_replacement"].format(title=replaces["title"])
+        elif not actions.accept:
+            summary = strings.DECISION_SUMMARY["proposed_blocked"]
+        else:
+            summary = strings.DECISION_SUMMARY["proposed"]
+    elif record.status == "active":
+        summary = strings.DECISION_SUMMARY["in_force"]
+    else:
+        summary = None
+
+    return {
+        "accept": actions.accept,
+        "withdraw": actions.withdraw,
+        "supersede": replaces,
+        "propose_replacement": actions.propose_replacement,
+        "summary": summary,
+        "dialogs": dialogs,
+    }

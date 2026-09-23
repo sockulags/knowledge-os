@@ -4,6 +4,7 @@
 
 import type {
   ComparePayload,
+  DecidePayload,
   DocPayload,
   EverythingPayload,
   HomePayload,
@@ -40,6 +41,8 @@ export const api = {
   workspace: () => request<WorkspacePayload>("/api/workspace"),
   nav: () => request<NavPayload>("/api/nav"),
   home: () => request<HomePayload>("/api/home"),
+  proposedDecisions: (project: string | null) =>
+    request<DecidePayload>(`/api/decisions/proposed${project ? `?project=${encodeURIComponent(project)}` : ""}`),
   project: (id: string) => request<ProjectPayload>(`/api/projects/${encodeURIComponent(id)}`),
   record: (id: string) => request<RecordPayload>(`/api/records/${encodeURIComponent(id)}`),
   compare: (id: string) => request<ComparePayload>(`/api/records/${encodeURIComponent(id)}/compare`),

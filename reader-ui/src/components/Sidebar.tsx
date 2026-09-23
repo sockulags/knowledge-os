@@ -1,10 +1,22 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
-import { ChevronRight, Home, LayoutGrid, Search, FolderKanban, BookOpen, FolderClosed } from "lucide-react";
+import { ChevronRight, Home, Inbox, LayoutGrid, Search, FolderKanban, BookOpen, FolderClosed } from "lucide-react";
 import type { NavPayload, TreeNode } from "../api/types";
 import { TreeNodeView } from "./ProjectTree";
 
-function NavRow({ to, icon, label, active }: { to: string; icon: ReactNode; label: string; active: boolean }) {
+function NavRow({
+  to,
+  icon,
+  label,
+  active,
+  count,
+}: {
+  to: string;
+  icon: ReactNode;
+  label: string;
+  active: boolean;
+  count?: number;
+}) {
   return (
     <Link
       to={to}
@@ -13,7 +25,15 @@ function NavRow({ to, icon, label, active }: { to: string; icon: ReactNode; labe
       }`}
     >
       {icon}
-      {label}
+      <span className="flex-1">{label}</span>
+      {count !== undefined && count > 0 && (
+        <span
+          className="min-w-5 rounded-full bg-(--color-accent-amber-bg) px-1.5 py-0.5 text-center text-xs font-medium leading-none text-(--color-accent-amber-text)"
+          data-testid="decide-count"
+        >
+          {count}
+        </span>
+      )}
     </Link>
   );
 }
@@ -79,6 +99,15 @@ export function Sidebar({
 
       <nav className="space-y-0.5">
         <NavRow to="/" icon={<Home size={15} />} label="Home" active={location.pathname === "/"} />
+        {nav && (
+          <NavRow
+            to="/decide"
+            icon={<Inbox size={15} />}
+            label={nav.decide.label}
+            active={location.pathname === "/decide"}
+            count={nav.decide.count}
+          />
+        )}
         <NavRow
           to="/everything"
           icon={<LayoutGrid size={15} />}

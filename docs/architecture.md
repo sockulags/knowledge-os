@@ -417,6 +417,31 @@ non-decision, otherwise `accept`, `withdraw`, `propose_replacement`, and
 `supersede`, which names the active decision a draft replacement would
 retire with its current `content_sha256`). `decision_actions` only decides
 which buttons the interface shows; the core re-checks every precondition.
+It also carries `summary` (the sentence above the buttons) and `dialogs`,
+the finished text of each available action's confirmation (`title`, `body`,
+`confirm`, `history`, and `changes: [{"subject", "from", "to"}]`). A
+decision's payload adds `decision_language` (button labels and the "How
+decisions work" guide, one line per state); it is `null` for other records.
+All of these words come from `strings.py`.
+
+`GET /api/decisions/proposed` is the Decide inbox: every draft decision,
+newest first by the `captured` time of its first provenance entry that is
+not an acceptance or withdrawal (the record's `created` date when there is
+none), then by title. `?project=<id>` narrows it to one project, and
+`general` to decisions that apply everywhere. The answer is `{"title",
+"intro", "count", "count_label", "project", "filter_label",
+"all_projects_label", "projects": [{"id", "title", "count"}], "items",
+"empty": {"title", "body"}, "open_label", "language"}`, where `count` and
+`projects` ignore the filter and `language` is `decision_language`. Each
+item is `{"id", "title", "excerpt", "project": {"id", "title"},
+"proposed_by": {"source", "label", "kind"}, "proposed_at",
+"proposed_display", "proposed_exact", "replaces": {"id", "title",
+"sentence"} | null, "effect", "status_pill", "content_sha256", "actions"}`,
+with `actions` shaped like `decision_actions`. `proposed_by.source` is
+`you`, `conversation`, `meeting`, `agent`, `observation`, or `other`; a
+provenance kind without a sentence in `strings.PROPOSED_BY` reads as a
+generic fallback. `GET /api/nav` adds `decide: {"label", "count"}` for the
+sidebar.
 
 Records authored in the interface carry provenance
 `{"kind": "interface-authored", "reference": "interface:<UTC

@@ -83,13 +83,23 @@ export function Document() {
           <PropertiesBlock properties={data.properties} />
         </div>
         <TechnicalDetails details={data.technical_details} />
-        <DecisionActions
-          record={data}
-          onDone={() => {
-            setLoadKey((value) => value + 1);
-            refreshNav();
-          }}
-        />
+        {data.decision_language && data.editing.decision_actions && (
+          <DecisionActions
+            target={{
+              id: data.id,
+              title: data.title,
+              content_sha256: data.editing.content_sha256,
+              actions: data.editing.decision_actions,
+              project_id: data.editing.project_id,
+              folder: data.editing.folder,
+            }}
+            language={data.decision_language}
+            onDone={() => {
+              setLoadKey((value) => value + 1);
+              refreshNav();
+            }}
+          />
+        )}
 
         <Markdown html={data.body_html} />
 
@@ -114,7 +124,7 @@ export function Document() {
                 Links to
               </h3>
               {data.outbound.length === 0 ? (
-                <p className="text-sm text-(--color-text-faint)">This record points at nothing else.</p>
+                <p className="text-sm text-(--color-text-faint)">This page links to nothing else.</p>
               ) : (
                 <div className="space-y-0.5">
                   {data.outbound.map((relation, index) => (

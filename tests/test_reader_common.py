@@ -93,7 +93,7 @@ class PillForDecisionTests(unittest.TestCase):
 
         library = _load(build)
         pill = common.pill_for(library.records_by_id["idea"])
-        self.assertEqual(pill, {"label": "Waiting on you", "tone": "amber"})
+        self.assertEqual(pill, {"label": "Proposed", "tone": "amber"})
 
 
 if __name__ == "__main__":

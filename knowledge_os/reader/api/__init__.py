@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from starlette.routing import Route
 
-from . import docs, everything, home, project, record, search, skill, sync, workspace_nav, write
+from . import decisions, docs, everything, home, project, record, search, skill, sync, workspace_nav, write
 
 
 def build_api_routes() -> list[Route]:
@@ -36,6 +36,7 @@ def build_api_routes() -> list[Route]:
         Route("/api/workspace", workspace_nav.workspace_view, name="api-workspace"),
         Route("/api/nav", workspace_nav.nav_view, name="api-nav"),
         Route("/api/home", home.view, name="api-home"),
+        Route("/api/decisions/proposed", decisions.proposed_view, name="api-decisions-proposed"),
         Route("/api/projects/{project_id}", project.view, name="api-project"),
         Route("/api/records/{record_id}", record.view, name="api-record"),
         Route("/api/records/{record_id}/compare", record.compare_view, name="api-record-compare"),

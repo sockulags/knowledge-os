@@ -12,6 +12,7 @@ import { Skill } from "./pages/Skill";
 import { RepoDoc } from "./pages/RepoDoc";
 import { NotFound } from "./pages/NotFound";
 import { Sync } from "./pages/Sync";
+import { Decide } from "./pages/Decide";
 
 // A data router (rather than <BrowserRouter>) because the editor's
 // unsaved-changes guard needs useBlocker, which only data routers support.
@@ -20,6 +21,7 @@ const router = createBrowserRouter([
     element: <Shell />,
     children: [
       { index: true, element: <Home /> },
+      { path: "decide", element: <Decide /> },
       { path: "p/:projectId", element: <Project /> },
       { path: "p/:projectId/new", element: <NewRecord /> },
       { path: "r/:recordId", element: <Document /> },

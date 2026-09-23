@@ -27,12 +27,13 @@ from ..library import (
     Record,
     Relation,
     content_sha256,
-    decision_actions,
     editable_source,
     path_index,
 )
 from .common import (
     breadcrumb_for_record,
+    decision_actions_json,
+    decision_language,
     lineage_callouts,
     project_id_for_scope,
     properties_block,
@@ -81,6 +82,7 @@ async def view(request: Request) -> Response:
             "inbound": [relation_view(relation) for relation in record.inbound],
             "outbound": [relation_view(relation) for relation in record.outbound],
             "editing": _editing_json(library, record, source),
+            "decision_language": decision_language() if record.is_decision else None,
         }
     )
 
@@ -112,27 +114,7 @@ def _editing_json(library: Library, record: Record, source: EditableSource | Non
         "metadata": source.metadata if source else None,
         "content_sha256": source.content_sha256 if source else None,
         "body_change_needs_confirmation": source.body_change_needs_confirmation if source else False,
-        "decision_actions": _decision_actions_json(library, record),
-    }
-
-
-def _decision_actions_json(library: Library, record: Record) -> dict[str, object] | None:
-    actions = decision_actions(library, record)
-    if actions is None:
-        return None
-    replaces = None
-    if actions.replaces is not None:
-        target = actions.replaces
-        try:
-            target_sha = content_sha256(target.abs_path)
-        except OSError:
-            target_sha = None
-        replaces = {"id": target.id, "title": target.title, "status": target.status, "content_sha256": target_sha}
-    return {
-        "accept": actions.accept,
-        "withdraw": actions.withdraw,
-        "supersede": replaces,
-        "propose_replacement": actions.propose_replacement,
+        "decision_actions": decision_actions_json(library, record),
     }
 
 

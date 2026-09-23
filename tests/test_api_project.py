@@ -60,9 +60,9 @@ class RealCorpusProjectTests(unittest.TestCase):
 
                 # Sec.4/design brief group labels, not the old "GOVERNING NOW".
                 self.assertEqual(data["groups"]["governing"]["header"], "In force now")
-                self.assertEqual(data["groups"]["proposed"]["header"], "Waiting on you")
+                self.assertEqual(data["groups"]["proposed"]["header"], "Proposed — waiting on you")
                 self.assertEqual(data["groups"]["historical"]["header"], "Replaced")
-                self.assertEqual(data["groups"]["historical"]["empty_text"], "No decision has been superseded yet.")
+                self.assertEqual(data["groups"]["historical"]["empty_text"], "No decision has been replaced yet.")
 
     def test_page_tree_includes_decisions_unlike_the_meaning_groups(self) -> None:
         """The sidebar/page tree mirrors the whole project directory
