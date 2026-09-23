@@ -21,6 +21,17 @@ extraResources:
 extraFiles:
   - from: resources/bin
     to: bin
+# Updates come from this repository's GitHub releases. electron-builder writes
+# the feed into the app as app-update.yml and, next to the installer,
+# latest.yml and the blockmap that each release must publish; `npm run dist`
+# passes --publish never, so building never uploads anything.
+# No win.signtoolOptions/publisherName: the installer is unsigned, and without
+# a publisherName in app-update.yml electron-updater skips the publisher check
+# (see src/main/updater.ts and desktop/README.md).
+publish:
+  provider: github
+  owner: sockulags
+  repo: knowledge-os
 win:
   executableName: knowledge-os
   target: nsis
