@@ -141,7 +141,7 @@ export function Everything() {
                 <td className="px-3 py-2">
                   <Pill pill={entry.status_pill} />
                 </td>
-                <td className="px-3 py-2 text-(--color-text-muted)">{entry.trust_phrase}</td>
+                <td className="px-3 py-2 text-(--color-text-muted)">{entry.trust_phrase ?? "—"}</td>
               </tr>
             ))}
           </tbody>

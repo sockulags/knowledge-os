@@ -103,7 +103,9 @@ export interface PropertyRow {
 
 export interface PropertiesBlock {
   status: PropertyRow;
-  trust: PropertyRow;
+  /** null for a decision: acceptance is what matters there, not the
+   * verified date, so the row is omitted rather than shown unconfirmed. */
+  trust: PropertyRow | null;
   applies_to: PropertyRow;
   updated: PropertyRow;
   source: PropertyRow;
@@ -447,7 +449,8 @@ export interface SearchPayload {
 
 export interface EverythingEntry extends RecordSummary {
   type_label: string;
-  trust_phrase: string;
+  /** null for a decision: see PropertiesBlock.trust. */
+  trust_phrase: string | null;
   project_title: string | null;
 }
 
