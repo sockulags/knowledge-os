@@ -187,6 +187,35 @@ class AutoCommitTests(GitTestCase):
         self.assertIn("inside the Git repository", result.commit.detail)
         self.assertEqual(subprocess.run(["git", "rev-parse", "-q", "--verify", "HEAD"], cwd=outer).returncode, 1)
 
+    def test_source_repository_itself_is_not_committed_or_synced(self) -> None:
+        # A workspace whose root looks like the Knowledge OS source
+        # repository (a `pyproject.toml` declaring the `knowledge-os`
+        # project next to a `knowledge_os/` package directory) is a valid
+        # workspace on its own, but the app must not commit or sync it.
+        root = init_workspace(self.base / "source-like")
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "knowledge-os"\nversion = "0.0.1"\n', encoding="utf-8"
+        )
+        (root / "knowledge_os").mkdir()
+        git(root, "init", "--quiet", "-b", "main")
+        configure(root, "Dev")
+
+        workspace = Workspace(root)
+        result = library.create_record(workspace, metadata=note("guarded", "Guarded"), body="Text.\n")
+        self.assertFalse(result.commit.committed)
+        self.assertEqual(result.commit.skipped, "source_repo")
+        self.assertIn("Knowledge OS source repository", result.commit.detail)
+        self.assertEqual(subprocess.run(["git", "rev-parse", "-q", "--verify", "HEAD"], cwd=root).returncode, 1)
+
+        status = library.sync_status(workspace)
+        self.assertFalse(status.available)
+        self.assertEqual(status.reason, "source_repo")
+        self.assertIn("does not commit or sync here", status.detail)
+
+        with self.assertRaises(gitsync.GitSyncError) as caught:
+            library.run_sync(workspace)
+        self.assertEqual(caught.exception.kind, "source_repo")
+
     def test_missing_identity_is_reported_not_invented(self) -> None:
         root = init_workspace(self.base / "anon")
         git(root, "init", "--quiet", "-b", "main")
