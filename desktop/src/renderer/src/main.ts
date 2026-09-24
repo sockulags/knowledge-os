@@ -4,6 +4,7 @@
 
 import './style.css'
 import mark from '../../../build/icon.svg'
+import { CLONE_TEXT } from '../../shared/cloneText'
 import type { ErrorKind, RecentWorkspace, ShellState } from '../../shared/types'
 
 const api = window.kosDesktop
@@ -51,7 +52,8 @@ function mainActions(): HTMLElement {
   const actions = element('div', undefined, 'actions')
   actions.append(
     button('Open knowledge base…', api.openWorkspace, true),
-    button('Create new knowledge base…', api.createWorkspace)
+    button('Create new knowledge base…', api.createWorkspace),
+    button(CLONE_TEXT.startButton, api.cloneWorkspace)
   )
   return actions
 }
@@ -73,7 +75,13 @@ function render(state: ShellState): void {
   const nodes: HTMLElement[] = []
   switch (state.kind) {
     case 'start':
-      nodes.push(brand(), element('p', 'Open a knowledge base folder or create a new, empty one.'))
+      nodes.push(
+        brand(),
+        element(
+          'p',
+          'Open a knowledge base folder, create a new, empty one, or clone one from a Git repository.'
+        )
+      )
       if (state.notice) {
         const notice = element('p', state.notice, 'notice')
         notice.setAttribute('role', 'status')

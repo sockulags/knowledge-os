@@ -9,6 +9,8 @@ import { basename, join } from 'path'
 import { pathToFileURL } from 'url'
 import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
 import appIcon from '../../build/icon.ico?asset'
+import { CLONE_TEXT } from '../shared/cloneText'
+import { createCloneWindow, type CloneWindow } from './cloneWindow'
 import { decideNavigation } from './navigation'
 import { createReferatPlugin, type ReferatPlugin } from './plugins/referat'
 import {
@@ -60,6 +62,8 @@ let restartPending = false
 let openGeneration = 0
 /** The optional Referat plugin, created once the app is ready. */
 let referat: ReferatPlugin | null = null
+/** The Clone Knowledge Base window, created once the app is ready. */
+let cloneWindow: CloneWindow | null = null
 /** The core process id the runtime file for agents currently describes, if any. */
 let publishedCorePid: number | null = null
 
@@ -71,6 +75,10 @@ const referatPageUrl =
   !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
     ? `${process.env['ELECTRON_RENDERER_URL'].replace(/\/+$/, '')}/referat.html`
     : pathToFileURL(join(__dirname, '../renderer/referat.html')).href
+const clonePageUrl =
+  !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
+    ? `${process.env['ELECTRON_RENDERER_URL'].replace(/\/+$/, '')}/clone.html`
+    : pathToFileURL(join(__dirname, '../renderer/clone.html')).href
 
 function stopCoreSync(): void {
   unpublishRuntime()
@@ -373,6 +381,7 @@ function buildMenu(): void {
           accelerator: 'CmdOrCtrl+N',
           click: () => void chooseAndCreate()
         },
+        { label: CLONE_TEXT.menuItem, click: () => cloneWindow?.show() },
         { label: 'Open Recent', submenu: recentItems },
         {
           label: 'Reopen the Last Knowledge Base on Start',
@@ -500,6 +509,7 @@ function registerIpc(): void {
   handle(IPC.getState, async () => state)
   handle(IPC.openWorkspace, () => chooseAndOpen())
   handle(IPC.createWorkspace, () => chooseAndCreate())
+  handle(IPC.cloneWorkspace, async () => cloneWindow?.show())
   handle(IPC.showStart, () => showStart())
   handle(IPC.retry, async () => {
     if (state.kind !== 'error') return
@@ -528,7 +538,10 @@ process.on('uncaughtException', (error) => {
   console.error(error)
   app.exit(1)
 })
-app.on('will-quit', stopCoreSync)
+app.on('will-quit', () => {
+  cloneWindow?.cancelRunning()
+  stopCoreSync()
+})
 
 function pathKind(path: string): PathKind {
   try {
@@ -568,6 +581,15 @@ app.whenReady().then(() => {
     coreUrl: () => (state.kind === 'ready' ? state.url : null),
     pageUrl: referatPageUrl,
     preloadPath: join(__dirname, '../preload/referat.js')
+  })
+  cloneWindow = createCloneWindow({
+    mainWindow: () => mainWindow,
+    pageUrl: clonePageUrl,
+    preloadPath: join(__dirname, '../preload/clone.js'),
+    defaultParent: () => join(app.getPath('documents'), 'Knowledge bases'),
+    python: ensurePython,
+    pythonEnv,
+    open: (root) => openWorkspace(root)
   })
   buildMenu()
   createWindow()

@@ -4,6 +4,7 @@ export const IPC = {
   stateChanged: 'shell:state-changed',
   openWorkspace: 'workspace:open',
   createWorkspace: 'workspace:create',
+  cloneWorkspace: 'workspace:clone',
   openRecent: 'workspace:open-recent',
   showStart: 'workspace:show-start',
   retry: 'workspace:retry'
@@ -46,6 +47,8 @@ export interface DesktopApi {
   openWorkspace: () => Promise<void>
   /** Shows a folder picker for an empty folder and creates a workspace there with `kos init`. */
   createWorkspace: () => Promise<void>
+  /** Shows the Clone Knowledge Base window. */
+  cloneWorkspace: () => Promise<void>
   openRecent: (root: string) => Promise<void>
   showStart: () => Promise<void>
   /** Retries the failed action shown on the error screen, re-checking Python first. */
