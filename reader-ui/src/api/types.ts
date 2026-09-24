@@ -360,6 +360,8 @@ export interface WriteFailure {
 /** GET /api/sync/status: the repository as it is on this computer; never
  * contacts the remote. */
 export interface SyncStatus {
+  /** Where the guided setup stands (issue #56); null only from an older core. */
+  setup: SyncSetupSummary | null;
   available: boolean;
   reason: string | null;
   detail: string | null;
@@ -374,6 +376,57 @@ export interface SyncStatus {
   last_sync: string | null;
   identity: { name: string; email: string } | null;
   warnings: string[];
+}
+
+/** The guided sync setup's state: `init` (not in Git or no commit),
+ * `remote` (no remote), `publish` (no upstream), `ready`, or a state the app
+ * cannot set up (`git_missing`, `source_repo`, `nested`, `detached`,
+ * `repo_error`). `sentence` explains it (null when ready); `label` is the
+ * sync bar's short text. */
+export interface SyncSetupSummary {
+  state: string;
+  sentence: string | null;
+  label: string | null;
+}
+
+/** GET /api/sync/setup: the summary plus what the setup steps need. All
+ * copy comes from `language` (strings.SYNC_SETUP_LABELS); templates hold
+ * `{count}`, `{branch}`, `{name}`, `{email}`, or `{url}`. */
+export interface SyncSetup extends SyncSetupSummary {
+  branch: string | null;
+  remote: string | null;
+  remote_url: string | null;
+  identity: { name: string; email: string } | null;
+  language: Record<string, string>;
+}
+
+export interface SyncSetupResponse {
+  setup: SyncSetup;
+  status: SyncStatus;
+}
+
+export interface SyncSetupInitResult extends SyncSetupResponse {
+  created_repository: boolean;
+  files: number;
+  sha: string;
+}
+
+export interface SyncRemoteCheck {
+  url: string;
+  empty: boolean;
+  branches: string[];
+  branch: string | null;
+  related: boolean | null;
+}
+
+export interface SyncConnectResult extends SyncSetupResponse {
+  state: "published" | "synced";
+  remote: string;
+  branch: string;
+  pushed: number;
+  pulled: number;
+  reindexed: boolean;
+  index_error: string | null;
 }
 
 export interface SyncResult {

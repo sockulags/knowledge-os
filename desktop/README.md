@@ -4,7 +4,8 @@ An Electron window around the existing Knowledge OS reader. The main process
 runs the Python core (`python -m knowledge_os.reader`, the same server as
 `kos-read`) on a free local port and loads the React UI that the core serves.
 There is no second UI: the only pages of its own are a small start page for
-opening or creating a knowledge base and for showing errors, and the
+opening or creating a knowledge base and for showing errors, the
+[Clone Knowledge Base](#clone-a-knowledge-base) window, and the
 [Referat plugin](#referat-plugin)'s import window.
 
 `npm run dist` builds a Windows installer that bundles the core, so the
@@ -411,6 +412,36 @@ base, a core that stopped while starting or later, and a refused `kos init`,
 and shows the core's own output. A knowledge base with lint issues still opens;
 the reader shows those issues itself.
 
+## Clone a knowledge base
+
+File → Clone Knowledge Base… (and Clone from a URL… on the start page) opens
+a small window of its own (`src/main/cloneWindow.ts`, `src/renderer/clone.html`,
+its own preload script) that asks for a Git URL, a folder to save in (by
+default `Documents\Knowledge bases`, or any folder chosen with Choose…), and a
+folder name, which follows the URL's last segment until it is edited
+(`src/shared/clone.ts`). The window checks the URL and name while you type;
+all its text is in `src/shared/cloneText.ts`.
+
+Git runs in the Python core, not in Electron: the main process starts
+`kos clone URL PATH --json --cancel-on-stdin-eof` (`src/main/cloneRunner.ts`),
+so cloning uses the same Git runner as sync (Git from `PATH`, prompts
+disabled, the computer's own credential helper or SSH agent, timeouts that
+kill the process tree, and passwords redacted from every message; see "Git
+versioning and sync" in [`docs/architecture.md`](../docs/architecture.md)).
+The window shows the core's progress events and a Cancel button. Cancel, or
+closing the window, closes the core's stdin: the core stops Git and removes
+what the clone wrote; after 20 seconds the main process kills the process
+tree itself. A target folder that is not empty is refused, a repository
+without `knowledge-os.toml` is reported and left where it was cloned, and a
+knowledge base with lint findings is offered with Open anyway. Otherwise its
+index is rebuilt and it opens in the main window, which keeps the previous
+knowledge base open until then. No credential is asked for or stored; a URL
+with a password in it is refused.
+
+Setting up sync for a knowledge base that is not in Git yet, has no remote,
+or has never been published is done in the reader, on its Sync page (see
+"Guided setup" in [`docs/architecture.md`](../docs/architecture.md)).
+
 ## Security
 
 The window runs with `contextIsolation`, `sandbox`, and no `nodeIntegration`.
@@ -420,7 +451,8 @@ limited to the start page and the running core's origin; web links open in
 the system browser, and every other scheme is blocked. Permission requests
 are denied. The Referat import window runs with the same settings, its own
 preload script, and no navigation beyond its own page (see
-[Referat plugin](#referat-plugin)).
+[Referat plugin](#referat-plugin)); so does the Clone Knowledge Base window,
+whose calls the main process answers for that window only.
 
 The core's write endpoints need a per-process token. The shell passes nothing:
 the UI, served from the core's own origin, reads the token from

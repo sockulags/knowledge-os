@@ -57,6 +57,21 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--name", help="workspace name (default: derived from the folder name)")
     init.add_argument("--json", action="store_true", dest="as_json")
 
+    clone = commands.add_parser("clone", help="clone a knowledge base from a Git URL and rebuild its indexes")
+    clone.add_argument("url", help="Git URL of the knowledge base (https://, ssh://, git@host:path, or a folder path)")
+    clone.add_argument("path", type=Path, help="new or empty folder to clone into")
+    clone.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="write one JSON object per line: progress events, then the result or the error",
+    )
+    clone.add_argument(
+        "--cancel-on-stdin-eof",
+        action="store_true",
+        help="cancel the clone (and remove what it wrote) when stdin closes; used by the desktop app",
+    )
+
     ingest = commands.add_parser("ingest", help="ingest one local Markdown or text file")
     ingest.add_argument("path", type=Path)
     _root_option(ingest)
@@ -387,6 +402,71 @@ def _inspect(workspace: Workspace, record_id: str, full: bool) -> int:
     return 0
 
 
+def _clone(args: argparse.Namespace) -> int:
+    """``kos clone URL PATH``: clone, check, and index a knowledge base.
+
+    With ``--json`` every line on stdout is one JSON object: ``{"event":
+    "progress", "phase", "line", "percent"}`` while it runs, then ``{"event":
+    "done", "root", "name", "reindexed", "index_error", "issues"}`` or
+    ``{"event": "error", "error": KIND, "detail"}``.
+    """
+
+    import threading
+
+    from .gitsetup import clone_workspace
+    from .gitsync import GitSyncError
+
+    def emit(payload: dict[str, object]) -> None:
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True), flush=True)
+
+    cancel = threading.Event()
+    if args.cancel_on_stdin_eof:
+
+        def watch_stdin() -> None:
+            try:
+                while sys.stdin.buffer.readline():
+                    pass
+            except (OSError, ValueError):
+                pass
+            cancel.set()
+
+        threading.Thread(target=watch_stdin, daemon=True).start()
+
+    def progress(report) -> None:  # type: ignore[no-untyped-def]
+        if args.as_json:
+            emit({"event": "progress", "phase": report.phase, "line": report.line, "percent": report.percent})
+        elif report.line:
+            print(report.line, file=sys.stderr, flush=True)
+
+    try:
+        outcome = clone_workspace(args.url, args.path, on_progress=progress, cancel=cancel)
+    except GitSyncError as exc:
+        if args.as_json:
+            emit({"event": "error", "error": exc.kind, "detail": exc.message})
+        else:
+            print(f"ERROR: {exc.message}", file=sys.stderr)
+        return 1
+    issues = [{"path": path, "message": message} for path, message in outcome.issues]
+    if args.as_json:
+        emit(
+            {
+                "event": "done",
+                "root": str(outcome.root),
+                "name": outcome.name,
+                "reindexed": outcome.reindexed,
+                "index_error": outcome.index_error,
+                "issues": issues,
+            }
+        )
+    else:
+        print(f"Cloned knowledge base to {outcome.root}")
+        for issue in issues:
+            print(f"{issue['path']}: {issue['message']}")
+        if outcome.reindexed:
+            print("Index refreshed")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -431,6 +511,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Initialized workspace at {created}")
             return 0
+        if args.command == "clone":
+            return _clone(args)
         workspace = _workspace(args)
         if args.command == "lint":
             return _lint(workspace)

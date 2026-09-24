@@ -17,15 +17,18 @@ export function SyncBar({ sync }: { sync: SyncState }) {
   const { status, busy } = sync;
   if (status === null) return null;
 
+  const setupState = status.setup?.state;
+  const needsSetup = setupState === "init" || setupState === "remote" || setupState === "publish";
+
   if (!status.available) {
     return (
       <Link
         to="/sync"
-        title={status.detail ?? undefined}
+        title={status.setup?.sentence ?? status.detail ?? undefined}
         className="flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-xs text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text-muted)"
       >
         <GitBranch size={13} />
-        {UNAVAILABLE[status.reason ?? ""] ?? "Sync unavailable"}
+        {status.setup?.label ?? UNAVAILABLE[status.reason ?? ""] ?? "Sync unavailable"}
       </Link>
     );
   }
@@ -51,7 +54,7 @@ export function SyncBar({ sync }: { sync: SyncState }) {
       <Link
         to="/sync"
         className="flex min-w-0 items-center gap-2.5 rounded-(--radius-control) px-2 py-1 text-xs text-(--color-text-muted) tabular-nums transition-colors hover:bg-(--color-bg-hover)"
-        title={`${status.upstream ? `${status.branch} tracks ${status.upstream}` : "This branch has no upstream to sync with"}. ${lastSync}.`}
+        title={status.upstream ? `${status.branch} tracks ${status.upstream}. ${lastSync}.` : (status.setup?.sentence ?? "This branch has no upstream to sync with.")}
       >
         <span className="flex items-center gap-1 font-medium text-(--color-text)">
           <GitBranch size={13} />
@@ -69,7 +72,7 @@ export function SyncBar({ sync }: { sync: SyncState }) {
             </span>
           </>
         ) : (
-          <span className="text-(--color-accent-amber-text)">No upstream</span>
+          <span className="text-(--color-accent-amber-text)">{needsSetup ? status.setup?.label : "No upstream"}</span>
         )}
         {status.uncommitted > 0 && (
           <span className="flex items-center gap-1 text-(--color-accent-amber-text)">
@@ -81,6 +84,7 @@ export function SyncBar({ sync }: { sync: SyncState }) {
         {status.identity === null && <span className="text-(--color-accent-red-text)">No Git identity</span>}
         <span className="hidden truncate xl:inline">{lastSync}</span>
       </Link>
+      {!needsSetup && (
       <button
         type="button"
         disabled={busy}
@@ -93,6 +97,7 @@ export function SyncBar({ sync }: { sync: SyncState }) {
         <RefreshCw size={13} className={busy ? "animate-spin" : undefined} />
         {busy ? "Syncing…" : "Sync"}
       </button>
+      )}
     </div>
   );
 }

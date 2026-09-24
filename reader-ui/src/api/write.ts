@@ -8,7 +8,11 @@ import type {
   ResolveResult,
   StructureResult,
   SupersedeResult,
+  SyncConnectResult,
+  SyncRemoteCheck,
   SyncResult,
+  SyncSetupInitResult,
+  SyncSetupResponse,
   SyncStatus,
   WriteFailure,
   WriteResult,
@@ -144,6 +148,21 @@ export const sync = {
   resolve: (path: string, choice: "ours" | "theirs" | "merged", content?: string) =>
     send<ResolveResult>("POST", "/api/sync/resolve", { path, choice, content }),
   abort: () => send<{ status: SyncStatus }>("POST", "/api/sync/abort", {}),
+};
+
+/** The guided sync setup (issue #56). `url` omitted means the remote the
+ * repository already names. Credentials are never sent: Git signs in with
+ * the computer's own credential helper or SSH key. */
+export const syncSetup = {
+  init: (identity?: { name: string; email: string }) =>
+    send<SyncSetupInitResult>("POST", "/api/sync/setup/init", identity ?? {}),
+  identity: (name: string, email: string) =>
+    send<SyncSetupResponse & { identity: { name: string; email: string } }>("POST", "/api/sync/setup/identity", {
+      name,
+      email,
+    }),
+  check: (url?: string) => send<SyncSetupResponse & { check: SyncRemoteCheck }>("POST", "/api/sync/setup/check", { url }),
+  connect: (url?: string) => send<SyncConnectResult>("POST", "/api/sync/setup/connect", { url }),
 };
 
 /** A provenance reference for something done in this interface, matching the

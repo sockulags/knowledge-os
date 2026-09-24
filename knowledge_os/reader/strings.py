@@ -1018,3 +1018,94 @@ PROPOSED_BY_AGENT_NO_PLACE = "Proposed by {agent}"
 PROPOSED_BY_AGENT_UNKNOWN = "Proposed by an agent"
 PROPOSED_BY_REFERAT_UNDATED = "Proposed in a Referat meeting"
 PROPOSED_BY_FALLBACK = "Proposed from a source this app does not describe yet"
+
+
+# ---------------------------------------------------------------------------
+# Sync setup (issue #56): the sync bar's label and the sync page's guided
+# setup for a knowledge base that is not in Git, has no remote, or has never
+# published its branch. Served by ``GET /api/sync/setup`` (and the short
+# label and sentence with every ``GET /api/sync/status``).
+# ---------------------------------------------------------------------------
+
+#: One sentence per setup state (``gitsetup.SetupStatus.state``). ``{remote}``
+#: is the remote's address, ``{branch}`` the local branch, ``{folder}`` the
+#: enclosing repository, ``{detail}`` Git's own message. ``ready`` has none.
+SYNC_SETUP_SENTENCES: dict[str, str] = {
+    "init": "This knowledge base is not versioned with Git yet, so changes are not recorded and nothing can be synced.",
+    "remote": "This knowledge base is versioned with Git, but it has no remote repository to sync with yet.",
+    "publish": "The branch {branch} has never been published to {remote}, so there is nothing to sync with yet.",
+    "git_missing": "Git is not installed, so this knowledge base cannot be versioned or synced. Install Git from "
+    "https://git-scm.com and restart the app.",
+    "source_repo": "This is the Knowledge OS source repository; the app does not version or sync it.",
+    "nested": "This knowledge base lies inside another Git repository ({folder}), so the app does not version or "
+    "sync it on its own.",
+    "detached": "The repository is not on a branch, so it cannot sync. Check out a branch with Git first.",
+    "repo_error": "Git could not read this repository: {detail}",
+}
+
+#: The sync bar's short label per setup state that is not ``ready``.
+SYNC_SETUP_BAR: dict[str, str] = {
+    "init": "Set up sync",
+    "remote": "Set up sync",
+    "publish": "Set up sync",
+    "git_missing": "Git not found",
+    "source_repo": "Source repo",
+    "nested": "Not synced",
+    "detached": "Not on a branch",
+    "repo_error": "Git error",
+}
+
+#: Everything the guided setup on the sync page says. ``{count}``,
+#: ``{branch}``, ``{name}``, ``{email}``, and ``{url}`` are filled by the page.
+SYNC_SETUP_LABELS: dict[str, str] = {
+    "heading": "Set up sync",
+    "intro": "Sync keeps this knowledge base the same on every computer you use, through a Git repository "
+    "you host (for example on GitHub, GitLab, or a shared folder).",
+    "step_init": "Version with Git",
+    "step_remote": "Connect a remote",
+    "step_publish": "Publish",
+    # Step 1: git init and the first commit.
+    "init_body": "Git records every change to this knowledge base as a commit. Starting creates a Git repository "
+    "in this folder and records the current files as the first commit. The generated search index is left out. "
+    "Nothing leaves this computer.",
+    "init_action": "Start versioning…",
+    "init_confirm_title": "Start versioning with Git?",
+    "init_confirm_body": "A Git repository is created in this knowledge base's folder, and every current file "
+    "except the generated search index is recorded as the first commit. You keep working as before; each "
+    "change you make in the app is then committed for you.",
+    "init_confirm_action": "Start versioning",
+    "init_done": "Versioning started: {count} files were recorded in the first commit.",
+    # The author identity.
+    "identity_heading": "Who is making the changes?",
+    "identity_missing": "Git does not know your name and email yet. It records them with every commit.",
+    "identity_help": "Saved for this knowledge base only. To use them in every repository, run "
+    '`git config --global user.name "Your Name"` and `git config --global user.email you@example.com` instead.',
+    "identity_name": "Name",
+    "identity_email": "Email",
+    "identity_save": "Save for this knowledge base",
+    "identity_saved": "Git records changes as {name} <{email}>.",
+    # Steps 2 and 3: the remote and the first push.
+    "remote_body": "Create an empty repository on your Git host (without a README or licence), then paste its "
+    "address here. Git signs in with what is already set up on this computer (a credential helper or an SSH "
+    "key); the app never asks for or stores a password.",
+    "publish_body": "This knowledge base already names the remote below. Test it, then publish the branch "
+    "{branch} to start syncing.",
+    "url_label": "Repository address",
+    "url_placeholder": "https://github.com/you/notes.git or git@github.com:you/notes.git",
+    "check_action": "Test connection",
+    "checking": "Testing…",
+    "check_empty": "The repository answers and is empty. Publishing sends this knowledge base's history to it.",
+    "check_related": "The repository answers and its branch {branch} shares history with this knowledge base. "
+    "Connecting syncs with it: its changes are merged here and yours are sent there. Nothing is overwritten.",
+    "check_unrelated": "The repository already has commits that do not belong to this knowledge base, so it "
+    "cannot be used here. Nothing was changed. Use a new, empty repository, or open this one with "
+    "File → Clone Knowledge Base… instead.",
+    "publish_action": "Publish",
+    "connect_action": "Connect and sync",
+    "publishing": "Publishing…",
+    "published": "Published to {url}. Sync is set up: use Sync to send and receive changes.",
+    "connected": "Connected to {url} and synced. Sync is set up.",
+    "failed": "Setup did not finish.",
+    "cancel": "Cancel",
+    "working": "Working…",
+}

@@ -68,7 +68,12 @@ See "Structure editing" in [`docs/architecture.md`](docs/architecture.md).
 
 ## Sync a knowledge base with Git
 
-Make the knowledge base folder its own Git repository with an upstream branch:
+The knowledge base folder must be its own Git repository with an upstream
+branch. In the app, the Sync page walks you through it: start versioning (a
+first commit of the current files), paste the address of an empty repository,
+test it, and publish. On another computer, File → Clone Knowledge Base… clones
+it from its URL and opens it (`kos clone URL PATH` does the same from the
+command line). By hand, the setup is:
 
 ```powershell
 cd D:\notes\my-kb

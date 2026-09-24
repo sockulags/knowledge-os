@@ -1,9 +1,10 @@
 import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 
-// Two pages, each with its own preload script: the start page and the
-// Referat import window. Sandboxed preload scripts cannot load shared
-// chunks, so the two preload entries share no code.
+// Three pages, each with its own preload script: the start page, the
+// Referat import window, and the Clone Knowledge Base window. Sandboxed
+// preload scripts cannot load shared chunks, so the preload entries share
+// no code.
 export default defineConfig({
   main: {},
   preload: {
@@ -11,7 +12,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
-          referat: resolve(__dirname, 'src/preload/referat.ts')
+          referat: resolve(__dirname, 'src/preload/referat.ts'),
+          clone: resolve(__dirname, 'src/preload/clone.ts')
         }
       }
     }
@@ -21,7 +23,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
-          referat: resolve(__dirname, 'src/renderer/referat.html')
+          referat: resolve(__dirname, 'src/renderer/referat.html'),
+          clone: resolve(__dirname, 'src/renderer/clone.html')
         }
       }
     }
