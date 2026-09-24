@@ -48,6 +48,12 @@ export interface WorkspacePayload {
 
 export interface TreeNode {
   name: string;
+  /** The folder's path inside its project; "" for the project's top level. */
+  path: string;
+  /** False for a folder that only groups project records filed outside the
+   * project directory (such as observations); it cannot be moved or used as
+   * a move target. */
+  in_project: boolean;
   overview: RecordSummary | null;
   records: RecordSummary[];
   broken: BrokenEntry[];
@@ -318,6 +324,23 @@ export interface CommitInfo {
   message: string | null;
   skipped: string | null;
   detail: string | null;
+}
+
+/** A structure change: a created project or folder, or a moved or renamed
+ * page or folder. `changed` lists every file created, moved, or rewritten
+ * (links to a moved file are rewritten), all recorded in one commit. */
+export interface StructureResult {
+  id: string | null;
+  title: string | null;
+  status: string | null;
+  path: string;
+  content_sha256: string | null;
+  project: string;
+  folder: string;
+  scope_changed: boolean;
+  changed: { id: string | null; old_path: string | null; path: string; content_sha256: string }[];
+  index: { refreshed: boolean; count: number | null; error: string | null };
+  commit: CommitInfo | null;
 }
 
 export interface SupersedeResult extends WriteResult {

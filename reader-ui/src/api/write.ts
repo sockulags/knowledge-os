@@ -4,7 +4,15 @@
 // docs/architecture.md). Failures come back as data, not exceptions, so a
 // page can show a conflict, lint issues, or a refusal in place.
 
-import type { ResolveResult, SupersedeResult, SyncResult, SyncStatus, WriteFailure, WriteResult } from "./types";
+import type {
+  ResolveResult,
+  StructureResult,
+  SupersedeResult,
+  SyncResult,
+  SyncStatus,
+  WriteFailure,
+  WriteResult,
+} from "./types";
 
 interface Session {
   token: string;
@@ -96,6 +104,37 @@ export const write = {
       old_expected_sha256: oldExpectedSha256,
     }),
   preview: (body: string, path?: string) => send<{ html: string }>("POST", "/api/preview", { body, path }),
+};
+
+const projectPath = (id: string) => `/api/projects/${encodeURIComponent(id)}`;
+
+export interface FolderMoveRequest {
+  path: string;
+  to_project?: string;
+  to_parent?: string;
+  name?: string;
+  title?: string;
+  allow_scope_change?: boolean;
+}
+
+/** Projects, folders, moves, and renames (see "Structure editing" in
+ * docs/architecture.md). Each is one commit. */
+export const structure = {
+  createProject: (id: string, title: string) =>
+    send<StructureResult>("POST", "/api/projects", { id, title }),
+  createFolder: (projectId: string, path: string, title: string) =>
+    send<StructureResult>("POST", `${projectPath(projectId)}/folders`, { path, title }),
+  movePage: (id: string, expectedSha256: string, project: string, folder: string, allowScopeChange: boolean) =>
+    send<StructureResult>("POST", `${recordPath(id)}/move`, {
+      expected_sha256: expectedSha256,
+      project,
+      folder,
+      allow_scope_change: allowScopeChange,
+    }),
+  renamePage: (id: string, expectedSha256: string, title: string) =>
+    send<StructureResult>("POST", `${recordPath(id)}/rename`, { expected_sha256: expectedSha256, title }),
+  moveFolder: (projectId: string, request: FolderMoveRequest) =>
+    send<StructureResult>("POST", `${projectPath(projectId)}/folders/move`, request),
 };
 
 /** Git sync (see "Git sync API" in docs/architecture.md). A failed sync

@@ -30,7 +30,9 @@ export function ConfirmDialog({
   useEffect(() => {
     // Focus a field if the dialog asks for one, otherwise Cancel, so a
     // stray Enter never confirms an action.
-    const focusable = panelRef.current?.querySelector<HTMLElement>("textarea, input, button[data-cancel]");
+    const focusable = panelRef.current?.querySelector<HTMLElement>(
+      "textarea:not(:disabled), input:not(:disabled), button[data-cancel]",
+    );
     focusable?.focus();
   }, []);
 

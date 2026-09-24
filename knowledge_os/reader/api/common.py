@@ -373,17 +373,25 @@ def relative_date(value: str | None, *, today: datetime.date | None = None) -> s
     return f"{years} year{'s' if years != 1 else ''} ago"
 
 
-def _tree_node_json(node: grouping.ProjectTreeNode, parent: str = "") -> dict[str, object]:
+def _tree_node_json(node: grouping.ProjectTreeNode, project_id: str, parent: str = "") -> dict[str, object]:
     # ``path`` is the folder's path inside the project ("" for the top
     # level): what the structure endpoints take to name a folder.
+    # ``in_project`` is false for a folder that only groups project-scoped
+    # records filed elsewhere (a retained discovery under discoveries/), which
+    # the structure endpoints cannot move.
     path = f"{parent}/{node.name}" if parent else node.name
+    children = [_tree_node_json(child, project_id, path) for child in node.children]
+    prefix = f"projects/{project_id}/{path}/" if path else f"projects/{project_id}/"
+    here = [node.overview, *node.records] if node.overview is not None else list(node.records)
     return {
         "name": node.name,
         "path": path,
+        "in_project": any(record.path.startswith(prefix) for record in here)
+        or any(child["in_project"] for child in children),
         "overview": record_summary(node.overview) if node.overview is not None else None,
         "records": [record_summary(record) for record in node.records],
         "broken": [{"path": item.path, "message": item.message} for item in node.broken],
-        "children": [_tree_node_json(child, path) for child in node.children],
+        "children": children,
     }
 
 
@@ -395,7 +403,7 @@ def project_tree_json(project_id: str, records: list[Record], broken: list) -> d
     list alike."""
 
     tree = grouping.build_project_tree(project_id, records, broken)
-    return _tree_node_json(tree)
+    return _tree_node_json(tree, project_id)
 
 
 def breadcrumb_for_record(library: Library, record: Record) -> list[dict[str, str]]:

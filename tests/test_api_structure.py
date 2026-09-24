@@ -162,6 +162,7 @@ class StructureApiTests(unittest.TestCase):
         self.assertEqual(tree["path"], "")
         notes = tree["children"][0]
         self.assertEqual((notes["path"], notes["overview"]["id"]), ("notes", "gamma-notes"))
+        self.assertTrue(notes["in_project"])
         self.assertEqual(notes["children"][0]["path"], "notes/deep")
         self.assert_clean_and_valid()
 

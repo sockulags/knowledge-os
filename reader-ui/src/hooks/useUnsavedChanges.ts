@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useBlocker, type Blocker } from "react-router";
 
+/** How many mounted pages hold unsaved edits right now. Structure changes
+ * (moving or renaming pages and folders) rewrite files and reload the page,
+ * so they wait until this is zero instead of risking typed text. */
+let unsavedPages = 0;
+
+export function hasUnsavedChanges(): boolean {
+  return unsavedPages > 0;
+}
+
 /** Warn before losing unsaved edits: an in-app navigation is held by the
  * returned blocker (the page shows its own confirm dialog), and a reload or
  * window close raises the browser's native prompt, which the desktop shell
@@ -19,6 +28,7 @@ export function useUnsavedChanges(dirty: boolean): { blocker: Blocker; allowNext
 
   useEffect(() => {
     if (!dirty) return;
+    unsavedPages += 1;
     function handleBeforeUnload(event: BeforeUnloadEvent) {
       if (!dirtyRef.current) return;
       event.preventDefault();
@@ -26,7 +36,10 @@ export function useUnsavedChanges(dirty: boolean): { blocker: Blocker; allowNext
       event.returnValue = "";
     }
     window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      unsavedPages -= 1;
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
   }, [dirty]);
 
   const allowNextNavigation = useCallback(() => {
