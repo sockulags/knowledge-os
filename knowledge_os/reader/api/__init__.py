@@ -14,7 +14,20 @@ from __future__ import annotations
 
 from starlette.routing import Route
 
-from . import decisions, docs, everything, home, project, record, search, skill, sync, workspace_nav, write
+from . import (
+    decisions,
+    docs,
+    everything,
+    home,
+    project,
+    record,
+    search,
+    skill,
+    structure,
+    sync,
+    workspace_nav,
+    write,
+)
 
 
 def build_api_routes() -> list[Route]:
@@ -31,6 +44,23 @@ def build_api_routes() -> list[Route]:
         Route("/api/records/{record_id}/withdraw", write.withdraw_view, methods=["POST"], name="api-record-withdraw"),
         Route(
             "/api/records/{record_id}/supersede", write.supersede_view, methods=["POST"], name="api-record-supersede"
+        ),
+        Route("/api/records/{record_id}/move", structure.move_page_view, methods=["POST"], name="api-record-move"),
+        Route(
+            "/api/records/{record_id}/rename", structure.rename_page_view, methods=["POST"], name="api-record-rename"
+        ),
+        Route("/api/projects", structure.create_project_view, methods=["POST"], name="api-project-create"),
+        Route(
+            "/api/projects/{project_id}/folders",
+            structure.create_folder_view,
+            methods=["POST"],
+            name="api-folder-create",
+        ),
+        Route(
+            "/api/projects/{project_id}/folders/move",
+            structure.move_folder_view,
+            methods=["POST"],
+            name="api-folder-move",
         ),
         Route("/api/preview", write.preview_view, methods=["POST"], name="api-preview"),
         Route("/api/workspace", workspace_nav.workspace_view, name="api-workspace"),

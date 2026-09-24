@@ -8,6 +8,7 @@ import { QuickFind } from "./QuickFind";
 import { ThemeToggle } from "./ThemeToggle";
 import { ScrollToTop } from "./ScrollToTop";
 import { SyncBar, SyncFailureBanner } from "./SyncBar";
+import { StructureProvider } from "./Structure";
 import { useSync, type SyncState } from "../hooks/useSync";
 import { MAC, isQuickSwitchShortcut } from "../lib/quickSwitch";
 
@@ -67,7 +68,18 @@ export function Shell() {
     return () => window.removeEventListener("keydown", handleKey);
   }, []);
 
+  // After a structure change: reload the sidebar, and the page too unless
+  // it holds unsaved edits (the provider decides).
+  const structureChanged = useCallback(
+    (reloadPage: boolean) => {
+      loadNav();
+      if (reloadPage) setDataVersion((value) => value + 1);
+    },
+    [loadNav],
+  );
+
   return (
+    <StructureProvider nav={nav} onChanged={structureChanged}>
     <div className="flex min-h-screen">
       <ScrollToTop />
       {/* Desktop sidebar: sticky and self-start so it stays pinned to the
@@ -135,5 +147,6 @@ export function Shell() {
 
       <QuickFind open={quickFindOpen} onClose={() => setQuickFindOpen(false)} nav={nav} />
     </div>
+    </StructureProvider>
   );
 }

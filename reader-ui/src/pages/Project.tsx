@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useParams, Link } from "react-router";
-import { ChevronRight, FilePlus, Scale } from "lucide-react";
+import { ChevronRight, FilePlus, FolderPlus, Scale } from "lucide-react";
 import { api } from "../api/client";
 import type { GroupPayload, RecordSummary } from "../api/types";
 import { useApi } from "../hooks/useApi";
@@ -12,7 +12,9 @@ import { Markdown } from "../components/Markdown";
 import { Pill } from "../components/Pill";
 import { EmptyState } from "../components/EmptyState";
 import { Callout } from "../components/Callout";
-import { TreeNodeView } from "../components/ProjectTree";
+import { ProjectPageTree } from "../components/ProjectTree";
+import { useShell } from "../components/Shell";
+import { useStructure } from "../components/Structure";
 
 function GroupSection({ group }: { group: GroupPayload }) {
   return (
@@ -80,6 +82,8 @@ function Collapsible({ title, defaultOpen, children }: { title: string; defaultO
 export function Project() {
   const { projectId } = useParams<{ projectId: string }>();
   const { data, loading, notFound, error } = useApi(() => api.project(projectId!), [projectId]);
+  const structure = useStructure();
+  const { nav } = useShell();
 
   if (loading) return <PageSkeleton />;
   if (notFound)
@@ -87,6 +91,8 @@ export function Project() {
   if (error || !data) return <Callout tone="danger">{error ?? "Could not load this project."}</Callout>;
 
   const treeHasContent = data.tree.records.length > 0 || data.tree.children.length > 0 || data.tree.broken.length > 0;
+  // The project's short name, as the sidebar shows it.
+  const projectName = nav?.projects.find((project) => project.id === data.id)?.title ?? data.title;
 
   return (
     <div className="mx-auto w-full max-w-[760px] px-6 py-12 sm:px-10">
@@ -100,6 +106,14 @@ export function Project() {
             <FilePlus size={14} />
             New page
           </Link>
+          <button
+            type="button"
+            onClick={() => structure.newFolder(data.id, "", projectName)}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+          >
+            <FolderPlus size={14} />
+            New folder
+          </button>
           <Link
             to={`/p/${data.id}/new?kind=decision`}
             className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
@@ -131,14 +145,7 @@ export function Project() {
           <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
             Pages in this project
           </h3>
-          <div className="rounded-lg border border-(--color-border) bg-(--color-bg-raised) p-2">
-            {data.tree.records.map((record) => (
-              <TreeNodeView key={record.id} node={{ name: record.title, overview: record, records: [], broken: [], children: [] }} depth={0} />
-            ))}
-            {data.tree.children.map((child) => (
-              <TreeNodeView key={child.name} node={child} depth={0} />
-            ))}
-          </div>
+          <ProjectPageTree projectId={data.id} projectTitle={projectName} tree={data.tree} />
         </section>
       )}
 

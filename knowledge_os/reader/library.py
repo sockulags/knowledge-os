@@ -8,9 +8,11 @@ their output into plain data.
 
 Reads never write to the workspace. The only writes are ``create_record``,
 ``edit_record``, ``accept_record``, ``withdraw_record``, and
-``supersede_record`` at the end of this module, which hand the request to
-the core's own ``capture``, ``update``, ``decision accept``, ``decision
-withdraw``, and ``supersede`` mutations (shared lock, staged validation,
+``supersede_record``, plus the structure changes ``create_project``,
+``create_folder``, ``rename_page``, ``move_page``, and ``move_folder``, at the
+end of this module, which hand the request to the core's own ``capture``,
+``update``, ``decision accept``, ``decision withdraw``, ``supersede``, and
+``structure`` mutations (shared lock, staged validation,
 SHA-256 guard, index refresh) and translate the core's errors into one
 ``WriteError`` with a stable ``kind``. After a successful write they commit
 the touched files to the workspace's own Git repository through
@@ -66,6 +68,17 @@ from knowledge_os.mutations import (
     withdraw_decision,
 )
 from knowledge_os.skills import Skill, load_skills
+from knowledge_os.structure import (
+    ChangedFile,
+    StructureIndexError,
+    StructureResult,
+    clean_folder,
+    create_folder as core_create_folder,
+    create_project as core_create_project,
+    move_folder as core_move_folder,
+    move_record as core_move_record,
+    rename_record as core_rename_record,
+)
 from knowledge_os.workspace import CorpusValidationError, Issue, Workspace, WorkspaceError, validate_workspace
 
 from . import strings
@@ -106,6 +119,14 @@ __all__ = [
     "sync_conflicts",
     "resolve_sync_conflict",
     "abort_sync",
+    # Structure editing (issue #52): projects, folders, moves, and renames.
+    "ChangedFile",
+    "StructureWriteResult",
+    "create_project",
+    "create_folder",
+    "move_page",
+    "rename_page",
+    "move_folder",
     # Agent writes (the MCP server, issue #59): the identity the write API
     # accepts and the parser the reader uses to name the agent.
     "AgentIdentity",
@@ -748,7 +769,9 @@ def edit_record(
 
 def _title_at(workspace: Workspace, rel_path: str, fallback: str) -> str:
     try:
-        return str(parse_document(workspace.root / rel_path).metadata.get("title") or fallback)
+        # README.md root records are not named after their ID.
+        document = parse_document(workspace.root / rel_path, check_filename=False)
+        return str(document.metadata.get("title") or fallback)
     except (MetadataError, OSError, UnicodeDecodeError):
         return fallback
 
@@ -950,6 +973,228 @@ def supersede_record(
     )
     commit = gitsync.auto_commit(workspace, [replacement.path, replaced.path], message)
     return SupersedeWriteResult(replacement=replace(replacement, commit=commit), replaced=replaced)
+
+
+# ---------------------------------------------------------------------------
+# Structure: create projects and folders, move and rename pages and folders
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StructureWriteResult:
+    """A structure change as written: the main record (or the folder, when a
+    moved folder has no page of its own), every file created, moved, or
+    rewritten in ``changed``, and the one commit that recorded all of them."""
+
+    id: str | None
+    title: str | None
+    status: str | None
+    path: str
+    content_sha256: str | None
+    project: str
+    folder: str
+    scope_changed: bool
+    changed: tuple[ChangedFile, ...]
+    index_refreshed: bool
+    index_count: int | None
+    index_error: str | None
+    commit: CommitOutcome | None = None
+
+
+def _interface_provenance(action: str) -> list[dict[str, str]]:
+    stamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return [{"kind": "interface-authored", "reference": f"interface:{stamp}:{action}", "captured": stamp}]
+
+
+def _folder_label(workspace: Workspace, project_id: str, folder: str) -> str:
+    """How a commit message names a place: the folder page's title, else the
+    folder name, and the project overview's title for the top level."""
+
+    if not folder:
+        return _title_at(workspace, f"projects/{project_id}/README.md", project_id)
+    return _title_at(workspace, f"projects/{project_id}/{folder}/README.md", folder.rsplit("/", 1)[-1])
+
+
+def _structure_write(workspace: Workspace, call: Any, message: Any) -> StructureWriteResult:
+    """Run one core structure change, then commit every path it touched as
+    one commit with ``message(result)``."""
+
+    refreshed, error = True, None
+    try:
+        result: StructureResult = call()
+    except StructureIndexError as exc:
+        result, refreshed, error = exc.result, False, str(exc)
+    except (MutationError, CaptureError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+    commit = gitsync.auto_commit(workspace, result.touched, message(result))
+    return StructureWriteResult(
+        id=result.id,
+        title=result.title,
+        status=result.status,
+        path=result.path,
+        content_sha256=result.sha256,
+        project=result.project,
+        folder=result.folder,
+        scope_changed=result.scope_changed,
+        changed=result.changed,
+        index_refreshed=refreshed,
+        index_count=result.index_count if refreshed else None,
+        index_error=error,
+        commit=commit,
+    )
+
+
+def create_project(
+    workspace: Workspace, *, project_id: str, title: str, description: str | None = None
+) -> StructureWriteResult:
+    """``kos project create``: the new project's overview ``projects/<id>/README.md``."""
+
+    return _structure_write(
+        workspace,
+        lambda: core_create_project(
+            workspace, project_id, title=title, provenance=_interface_provenance("create"), body=description
+        ),
+        lambda result: f"Create project {result.title}",
+    )
+
+
+def create_folder(
+    workspace: Workspace,
+    *,
+    project_id: str,
+    path: str,
+    title: str,
+    record_id: str | None = None,
+    description: str | None = None,
+) -> StructureWriteResult:
+    """``kos folder create``: a folder in a project, written as its ``README.md`` page."""
+
+    return _structure_write(
+        workspace,
+        lambda: core_create_folder(
+            workspace,
+            project_id,
+            path,
+            title=title,
+            provenance=_interface_provenance("create"),
+            record_id=record_id,
+            body=description,
+        ),
+        lambda result: f"Create folder {result.title}",
+    )
+
+
+def _record_or_error(workspace: Workspace, record_id: str) -> Document:
+    documents, _issues = validate_workspace(workspace)
+    current = next((document for document in documents if document.metadata["id"] == record_id), None)
+    if current is None:
+        raise WriteError("not_found", f"record not found: {record_id}")
+    return current
+
+
+def rename_page(workspace: Workspace, record_id: str, *, expected_sha256: str, title: str) -> StructureWriteResult:
+    """``kos rename``: a new title for one page; its ID and file stay the same."""
+
+    _require_sha(expected_sha256, "expected_sha256")
+    current = _record_or_error(workspace, record_id)
+    if current.metadata["type"] not in CAPTURE_DIRECTORIES:
+        raise WriteError(
+            "validation",
+            f"record {record_id!r} has type {current.metadata['type']!r}; the interface edits only "
+            f"{', '.join(sorted(CAPTURE_DIRECTORIES))} records",
+        )
+    old_title = current.metadata["title"]
+    return _structure_write(
+        workspace,
+        lambda: core_rename_record(workspace, record_id, expected_sha256=expected_sha256, title=title),
+        lambda result: f"Rename {old_title} to {result.title}",
+    )
+
+
+def move_page(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    folder: str,
+    project: str | None = None,
+    allow_scope_change: bool = False,
+    expected: Mapping[str, str] | None = None,
+) -> StructureWriteResult:
+    """``kos move``: one project page to another folder, or with
+    ``allow_scope_change`` to another project. Links to it are rewritten."""
+
+    _require_sha(expected_sha256, "expected_sha256")
+    title = str(_record_or_error(workspace, record_id).metadata["title"])
+
+    def message(result: StructureResult) -> str:
+        place = _folder_label(workspace, result.project, result.folder)
+        if result.scope_changed and result.folder:
+            place = f"{place} in {_folder_label(workspace, result.project, '')}"
+        return f"Move {title} to {place}"
+
+    return _structure_write(
+        workspace,
+        lambda: core_move_record(
+            workspace,
+            record_id,
+            expected_sha256=expected_sha256,
+            folder=folder,
+            project=project,
+            allow_scope_change=allow_scope_change,
+            expected=expected,
+        ),
+        message,
+    )
+
+
+def move_folder(
+    workspace: Workspace,
+    project_id: str,
+    folder: str,
+    *,
+    to_project: str | None = None,
+    to_parent: str | None = None,
+    name: str | None = None,
+    title: str | None = None,
+    allow_scope_change: bool = False,
+    expected: Mapping[str, str] | None = None,
+) -> StructureWriteResult:
+    """``kos folder move``/``rename``: a folder and everything in it. Links
+    into it are rewritten; another project needs ``allow_scope_change``."""
+
+    try:
+        cleaned = clean_folder(folder)
+    except MutationError as exc:
+        raise _write_error(exc) from exc
+    old_label = _folder_label(workspace, project_id, cleaned) if cleaned else project_id
+    old_parent = cleaned.rsplit("/", 1)[0] if "/" in cleaned else ""
+
+    def message(result: StructureResult) -> str:
+        new_label = _folder_label(workspace, result.project, result.folder)
+        new_parent = result.folder.rsplit("/", 1)[0] if "/" in result.folder else ""
+        if result.project == project_id and new_parent == old_parent:
+            return f"Rename folder {old_label} to {new_label}"
+        place = _folder_label(workspace, result.project, new_parent)
+        if result.scope_changed and new_parent:
+            place = f"{place} in {_folder_label(workspace, result.project, '')}"
+        return f"Move folder {old_label} to {place}"
+
+    return _structure_write(
+        workspace,
+        lambda: core_move_folder(
+            workspace,
+            project_id,
+            folder,
+            to_project=to_project,
+            to_parent=to_parent,
+            name=name,
+            title=title,
+            allow_scope_change=allow_scope_change,
+            expected=expected,
+        ),
+        message,
+    )
 
 
 # ---------------------------------------------------------------------------

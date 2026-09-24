@@ -21,6 +21,7 @@ from .common import (
     project_tree_json,
     properties_block,
     record_summary_with_sentence,
+    strip_leading_h1,
     technical_details,
 )
 
@@ -84,8 +85,11 @@ async def view(request: Request) -> Response:
     project_broken = [b for b in library.broken if b.path.startswith(f"projects/{project_id}/")]
     tree = project_tree_json(project_id, all_project_records, project_broken)
 
-    body_html = markdown.render(overview.body, source_path=overview.path, resolve_link=path_index(library).get)
-    headings = [h for h in markdown.headings(overview.body) if h[0] <= 3]
+    # The page heading already shows the title; a new project's overview body
+    # starts with that same heading, so drop it as the record page does.
+    overview_body = strip_leading_h1(overview.body)
+    body_html = markdown.render(overview_body, source_path=overview.path, resolve_link=path_index(library).get)
+    headings = [h for h in markdown.headings(overview_body) if h[0] <= 3]
 
     return json_response(
         {

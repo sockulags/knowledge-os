@@ -59,6 +59,7 @@ FORBIDDEN_MODULES = {
     "knowledge_os.mutations",
     "knowledge_os.discovery",
     "knowledge_os.documentation_init",
+    "knowledge_os.structure",
 }
 ADAPTER_WRITE_ENTRY_POINTS = {
     "knowledge_os.capture": {
@@ -78,6 +79,17 @@ ADAPTER_WRITE_ENTRY_POINTS = {
         "supersede_decision",
         "update_record_text",
         "withdraw_decision",
+    },
+    "knowledge_os.structure": {
+        "ChangedFile",
+        "StructureIndexError",
+        "StructureResult",
+        "clean_folder",
+        "create_folder",
+        "create_project",
+        "move_folder",
+        "move_record",
+        "rename_record",
     },
 }
 FORBIDDEN_WORKSPACE_NAMES = {

@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
-import { ChevronRight, Home, Inbox, LayoutGrid, Search, FolderKanban, BookOpen, FolderClosed } from "lucide-react";
-import type { NavPayload, TreeNode } from "../api/types";
-import { TreeNodeView } from "./ProjectTree";
+import { ChevronRight, Home, Inbox, LayoutGrid, Search, BookOpen, FolderClosed, Plus } from "lucide-react";
+import type { NavPayload } from "../api/types";
+import { SidebarProject } from "./ProjectTree";
+import { useStructure } from "./Structure";
 import { SHORTCUT_KEYS } from "../lib/quickSwitch";
 
 function NavRow({
@@ -42,23 +43,29 @@ function NavRow({
 function Section({
   title,
   defaultOpen = true,
+  action,
   children,
 }: {
   title: string;
   defaultOpen?: boolean;
+  /** A small button at the right of the section heading. */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="mt-5">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="mb-1 flex w-full items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-(--color-text-faint) hover:text-(--color-text-muted)"
-      >
-        <ChevronRight size={11} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
-        {title}
-      </button>
+      <div className="mb-1 flex items-center">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="flex flex-1 items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-(--color-text-faint) hover:text-(--color-text-muted)"
+        >
+          <ChevronRight size={11} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
+          {title}
+        </button>
+        {action}
+      </div>
       {open && <div className="space-y-0.5">{children}</div>}
     </div>
   );
@@ -74,6 +81,7 @@ export function Sidebar({
   onOpenQuickFind: () => void;
 }) {
   const location = useLocation();
+  const structure = useStructure();
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-3 py-4" onClick={onNavigate}>
@@ -118,9 +126,25 @@ export function Sidebar({
         <NavRow to="/search" icon={<Search size={15} />} label="Search" active={location.pathname.startsWith("/search")} />
       </nav>
 
-      <Section title="Projects">
+      <Section
+        title="Projects"
+        action={
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              structure.newProject();
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded text-(--color-text-faint) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+            aria-label="New project"
+            title="New project"
+          >
+            <Plus size={13} />
+          </button>
+        }
+      >
         {nav?.projects.length ? (
-          nav.projects.map((project) => <ProjectNode key={project.id} project={project} />)
+          nav.projects.map((project) => <SidebarProject key={project.id} project={project} />)
         ) : (
           <p className="px-2 text-sm text-(--color-text-faint)">No project yet.</p>
         )}
@@ -160,76 +184,6 @@ export function Sidebar({
             </Link>
           ))}
         </Section>
-      )}
-    </div>
-  );
-}
-
-/** Whether ``pathname`` names a record reachable from this tree (its own
- * root's records, or any descendant directory's), so a project can start
- * expanded while its own page or one of its pages is open. */
-function treeContainsPath(tree: TreeNode, pathname: string): boolean {
-  if (tree.records.some((record) => `/r/${record.id}` === pathname)) return true;
-  return tree.children.some((child) => treeContainsPath(child, pathname));
-}
-
-/** One project in the sidebar: a normal expandable node (chevron + link),
- * not a separate "Show pages" link buried under it. Starts expanded while
- * the current page is the project's own page or one of its pages, and
- * stays expanded once opened even after navigating elsewhere. */
-function ProjectNode({ project }: { project: NavPayload["projects"][number] }) {
-  const location = useLocation();
-  const isActive = location.pathname === `/p/${project.id}` || treeContainsPath(project.tree, location.pathname);
-  const [open, setOpen] = useState(isActive);
-  useEffect(() => {
-    if (isActive) setOpen(true);
-  }, [isActive]);
-
-  const hasContent = project.tree.records.length > 0 || project.tree.children.length > 0 || project.tree.broken.length > 0;
-
-  return (
-    <div>
-      <div className="flex items-center">
-        {hasContent ? (
-          <button
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            className="flex h-6 w-5 shrink-0 items-center justify-center text-(--color-text-faint)"
-            aria-label={open ? "Collapse" : "Expand"}
-          >
-            <ChevronRight size={13} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
-          </button>
-        ) : (
-          <span className="w-5 shrink-0" />
-        )}
-        <Link
-          to={`/p/${project.id}`}
-          className={`flex min-w-0 flex-1 items-center gap-2 truncate rounded-md px-1 py-1 text-sm ${
-            location.pathname === `/p/${project.id}` ? "bg-(--color-bg-hover) font-medium" : "hover:bg-(--color-bg-hover)"
-          }`}
-        >
-          <FolderKanban size={14} className="shrink-0 opacity-70" />
-          <span className="truncate">{project.title}</span>
-        </Link>
-      </div>
-      {open && hasContent && (
-        <div className="ml-5 border-l border-(--color-border) pl-1.5">
-          {project.tree.records.map((record) => (
-            <TreeNodeView
-              key={record.id}
-              node={{ name: record.title, overview: record, records: [], broken: [], children: [] }}
-              depth={1}
-            />
-          ))}
-          {project.tree.broken.map((entry) => (
-            <div key={entry.path} className="truncate px-2 py-1 text-xs text-(--color-accent-red-text)" title={entry.message}>
-              {entry.path.split("/").pop()}
-            </div>
-          ))}
-          {project.tree.children.map((child) => (
-            <TreeNodeView key={child.name} node={child} depth={1} />
-          ))}
-        </div>
       )}
     </div>
   );

@@ -70,6 +70,8 @@ required overview is `projects/<project-id>/README.md`. All other `project`
 records with that scope must remain below the same directory. Descendant folder
 names and nesting depth are not prescribed. Any descendant folder may contain
 a metadata-bearing `README.md` root record; ordinary files retain `<id>.md`.
+Folders created through `kos folder create` or the interface always get such a
+root record (see "Structure editing").
 
 ## Record metadata
 
@@ -261,9 +263,10 @@ context.
 ## Mutation and recovery contract
 
 Ingest, capture, conflict-safe update, decision acceptance, decision
-withdrawal, decision supersession, discovery add/retain/reject/promote, and
-index replacement all use one workspace-scoped advisory mutation lock owned by
-workspace infrastructure.
+withdrawal, decision supersession, discovery add/retain/reject/promote, the
+structure changes (project and folder creation, page and folder moves and
+renames), and index replacement all use one workspace-scoped advisory mutation
+lock owned by workspace infrastructure.
 Each mutation follows this order:
 
 1. acquire the lock and validate the current canonical corpus and skills;
@@ -485,6 +488,114 @@ decisions follow capture's rules and the approval policy, and each one is
 auto-committed like any other interface write. The plugin finds an earlier
 import of the same meeting by this reference.
 
+## Structure editing
+
+Projects and folders are created, and pages and folders moved and renamed,
+only through `knowledge_os/structure.py`. The CLI, the local API, and the
+interface's drag and drop all call it; the interface never touches files.
+
+**Creating.** `kos project create ID --title TITLE` writes the required
+overview `projects/<ID>/README.md` (status `active`) through capture's
+create-only path; the body defaults to a heading with the title. A new folder
+is created as its `README.md` root record: `kos folder create PROJECT PATH
+--title TITLE` writes `projects/<PROJECT>/<PATH>/README.md` with the ID
+`<PROJECT>-<PATH parts joined by hyphens>` (a numeric suffix when taken, or
+`--id`). The parent folder must exist, the new folder's name must be lowercase
+kebab-case, and an existing directory is refused. A folder is therefore a real,
+lintable page that Git tracks from the moment it exists, and it keeps its title
+and ID when it is renamed or moved. The alternative, a folder that exists only
+in the interface until the first page is saved there, was rejected: Git does
+not track empty directories, so such a folder would vanish on sync or reload.
+Records created from the CLI carry provenance `{"kind": "cli-authored",
+"reference": "cli:<UTC timestamp>:<action>", "captured": ...}`; from the
+interface, `interface-authored`.
+
+**Moving and renaming.** `kos move ID --expected-sha256 HASH [--folder PATH]
+[--to-project ID --allow-scope-change]` moves one `project` page into an
+existing folder (default: the project's top level). `kos folder move PROJECT
+PATH [--to-parent PATH] [--to-project ID --allow-scope-change] [--name NAME]
+[--title TITLE]` moves a folder with every file in it; `kos folder rename
+PROJECT PATH --name NAME [--title TITLE]` renames it in place, and `--title`
+retitles its `README.md`. `kos rename ID --title TITLE --expected-sha256 HASH`
+changes a page's title with `kos update`'s rules. Moves keep every record ID
+and filename, since a filename is its ID; that is why renaming a page changes
+only its title. The project overview cannot be moved, a folder's `README.md` is
+moved with its folder rather than on its own, a folder cannot move into
+itself, and an existing destination is refused. A folder left empty by a move
+is removed.
+
+**Links.** Every relative Markdown link that pointed at a moved file keeps
+pointing at it, and links inside moved files are recomputed from their new
+directory. A link resolves as the reader resolves it: a destination with a URI
+scheme, `//`, or only a `#fragment` is external; otherwise the part before
+`#` is joined to the linking file's directory and normalized. A link into a
+moved folder (a page, the folder's `README.md`, or the folder itself as
+`folder/`) is rewritten, the `#fragment` and `<angle brackets>` are kept, and
+only the destination text changes. Inline links and images and reference
+definitions are rewritten; fenced code, inline code, links split across lines,
+indented code, and raw HTML are not. Sources are never rewritten. A rewrite
+alone does not change a record's `updated` date; a scope change or a new title
+does.
+
+**Scope.** A move to another project changes the `scope` of every moved record
+and is refused without `--allow-scope-change` (`allow_scope_change` in the
+API). A decision whose `supersedes` lineage links it to a decision that stays
+behind is refused; a pair that moves together may move. Anything else lint
+would reject, such as a promoted discovery's target leaving the discovery's
+project, is refused by the staged validation below.
+
+**All or nothing.** A move holds the workspace lock, validates the current
+corpus, checks the caller's SHA-256 for the moved page (and any optional
+`expected` hashes), reads every file it will change, applies all changes to a
+staged copy, and lints the whole staged corpus before touching the canonical
+files. A caught failure while writing undoes every file and directory it had
+changed. As with supersession this is not crash-atomic: if the process stops
+midway, `kos lint` reports the partial state; repair it, then run `kos lint`
+and `kos index`.
+
+**API.** The routes use the write API's guard, error mapping, and response
+fields, and add `title`, `project`, `folder`, `scope_changed`, and `changed:
+[{"id", "old_path", "path", "content_sha256"}]`, every file created, moved, or
+rewritten (`id` is `null` for a file that is not a record). `id` and
+`content_sha256` describe the main record, or are `null` for a moved folder
+without a `README.md`. All touched paths are one commit.
+
+- `POST /api/projects` with `{"id", "title", "description"?}` answers `201`.
+- `POST /api/projects/{project_id}/folders` with `{"path", "title", "id"?,
+  "description"?}` answers `201`.
+- `POST /api/projects/{project_id}/folders/move` with `{"path", "to_parent"?,
+  "to_project"?, "name"?, "title"?, "allow_scope_change"?, "expected"?}`.
+  `to_parent` `""` is the top level and an omitted one keeps the parent.
+- `POST /api/records/{id}/move` with `{"expected_sha256", "folder",
+  "project"?, "allow_scope_change"?, "expected"?}`; `folder` `""` is the top
+  level.
+- `POST /api/records/{id}/rename` with `{"expected_sha256", "title"}`.
+
+The precondition model: the moved page's `expected_sha256` is required and
+answers `409 conflict` when stale. The other files a move rewrites are read
+under the lock, so no concurrent write is lost, and an editor still holding
+their old hash gets `409` on its next save. `expected` maps workspace-relative
+paths to SHA-256 hashes a caller wants unchanged. A missing record, project,
+or folder answers `404`, an existing destination `409 duplicate`, a refusal
+(no scope confirmation, lineage, nothing to move, a bad name) or an invalid
+staged corpus `422`, and malformed fields `400`.
+
+Project trees in `GET /api/nav` and `GET /api/projects/{id}` carry each
+folder's `path` inside the project and `in_project`, false for a folder that
+only groups project-scoped records filed outside the project directory (such
+as observations), which cannot be moved.
+
+The interface has "New project" in the sidebar, and each project, folder, and
+page row has a menu with "New page here", "New folder", "Rename" (inline), and
+"Move to…" (a keyboard-usable dialog with every project's folders). Pages and
+folders can be dragged onto a folder or a project; dropping onto another
+project first shows a confirmation explaining the scope change. Moves and
+renames wait while an editor holds unsaved text.
+
+MCP gets no move or rename tool. `list_projects` and `list_folder` need no
+change: they read the same trees, name folders by directory name, and show a
+created folder's `README.md` as its overview.
+
 ## Git versioning and sync
 
 A knowledge base is meant to be its own Git repository. `knowledge_os/gitsync.py`
@@ -501,7 +612,13 @@ withdraw, supersede) the adapter commits exactly the paths that write touched
 (`git add --all -- PATHS` then `git commit --only -- PATHS`), so unrelated
 modified, untracked, or staged changes stay as they were. Messages are
 `Create <title>`, `Edit <title>`, `Accept decision <title>`, `Withdraw
-decision <title>`, and `Supersede decision <old title> with <new title>`. A
+decision <title>`, and `Supersede decision <old title> with <new title>`, and
+for structure changes `Create project <title>`, `Create folder <title>`,
+`Rename <old> to <new>`, `Move <title> to <folder>` (`<folder> in <project>`
+across projects, the project's title for its top level), `Move folder <title>
+to <folder>`, and `Rename folder <old> to <new>`; a structure commit includes
+every path the change created, removed, or rewrote. Paths removed by a move
+that Git never tracked are left out. A
 create or edit that carries `agent` is prefixed with the agent's name, as in
 `Claude Code: Create <title>` or `Codex: Edit <title>`. The
 commit uses the repository's configured identity; when `user.name` or
@@ -660,6 +777,9 @@ server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
   explicit withdrawal provenance, ending consideration without acceptance.
 - `kos supersede OLD_ID NEW_ID` activates an accepted draft replacement and
   retires the prior decision as one coordinated mutation.
+- `kos project create`, `kos folder create`, `kos folder move`, `kos folder
+  rename`, `kos move`, and `kos rename` create projects and folders and move
+  or rename pages and folders (see "Structure editing").
 - `kos discovery add PATH`, `review ID`, `retain ID`, `reject ID`, and
   `promote ID` implement the explicit discovery return path.
 - `kos documentation init-global --workspace PATH` installs user-level host
