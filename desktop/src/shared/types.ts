@@ -7,7 +7,9 @@ export const IPC = {
   cloneWorkspace: 'workspace:clone',
   openRecent: 'workspace:open-recent',
   showStart: 'workspace:show-start',
-  retry: 'workspace:retry'
+  retry: 'workspace:retry',
+  getSidebarWidth: 'reader:get-sidebar-width',
+  setSidebarWidth: 'reader:set-sidebar-width'
 } as const
 
 export interface RecentWorkspace {
@@ -39,8 +41,19 @@ export type ShellState =
       recent: RecentWorkspace[]
     }
 
-/** The only API the preload script exposes to the start page. */
+/**
+ * The only API the preload script exposes. Everything but the sidebar width
+ * is for the start page; the main process rejects it from the reader UI.
+ */
 export interface DesktopApi {
+  /**
+   * The reader's remembered sidebar width, or null for its default. Read
+   * synchronously so the reader lays out at that width from its first frame.
+   * Only the reader UI gets an answer.
+   */
+  getSidebarWidth: () => number | null
+  /** Remembers the reader's sidebar width; null forgets it. */
+  setSidebarWidth: (width: number | null) => void
   getState: () => Promise<ShellState>
   onStateChanged: (callback: (state: ShellState) => void) => () => void
   /** Shows a folder picker and opens the chosen workspace. */

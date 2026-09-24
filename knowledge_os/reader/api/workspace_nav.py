@@ -161,6 +161,11 @@ async def nav_view(request: Request) -> Response:
                 "not_found_body": strings.DOCUMENT_NOT_FOUND_BODY,
                 "load_error": strings.DOCUMENT_LOAD_ERROR,
                 "network_error": strings.NETWORK_UNREACHABLE_ERROR,
+                "sidebar_resize_label": strings.SIDEBAR_RESIZE_LABEL,
+                "sidebar_resize_hint": strings.SIDEBAR_RESIZE_HINT,
+                "tree_focus_folder": strings.TREE_FOCUS_FOLDER,
+                "tree_focus_trail_label": strings.TREE_FOCUS_TRAIL_LABEL,
+                "tree_show_whole_project": strings.TREE_SHOW_WHOLE_PROJECT,
             },
         }
     )

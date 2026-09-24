@@ -3,7 +3,7 @@
 // core for the open workspace.
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
-import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron'
+import type { IpcMainEvent, IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron'
 import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { pathToFileURL } from 'url'
@@ -29,7 +29,7 @@ import {
   runtimeFilePath,
   writeRuntimeFile
 } from './runtimeFile'
-import { loadSettings, saveSettings, type AppSettings } from './settings'
+import { loadSettings, saveSettings, sidebarWidth, type AppSettings } from './settings'
 import type { UpdateNotice } from './updateFlow'
 import {
   checkForUpdatesManually,
@@ -505,7 +505,29 @@ function handle(channel: string, action: (...args: unknown[]) => Promise<unknown
   })
 }
 
+function isReaderPage(event: IpcMainEvent): boolean {
+  if (state.kind !== 'ready') return false
+  const url = event.senderFrame?.url ?? ''
+  return decideNavigation(url, [state.url]) === 'allow'
+}
+
 function registerIpc(): void {
+  // The reader keeps its sidebar width here: it runs on a new port each
+  // launch, so its own browser storage would not survive a restart.
+  ipcMain.on(IPC.getSidebarWidth, (event) => {
+    event.returnValue = isReaderPage(event) ? settings.readerSidebarWidth : null
+  })
+  ipcMain.on(IPC.setSidebarWidth, (event, width: unknown) => {
+    if (!isReaderPage(event)) return
+    const next = sidebarWidth(width)
+    if (next === settings.readerSidebarWidth) return
+    settings = { ...settings, readerSidebarWidth: next }
+    try {
+      saveSettings(settingsFile, settings)
+    } catch (error) {
+      console.error('could not save the settings', error)
+    }
+  })
   handle(IPC.getState, async () => state)
   handle(IPC.openWorkspace, () => chooseAndOpen())
   handle(IPC.createWorkspace, () => chooseAndCreate())

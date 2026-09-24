@@ -5,7 +5,7 @@ type: project
 status: draft
 scope: project:knowledge-os
 created: '2026-09-12'
-updated: '2026-09-24'
+updated: '2026-09-25'
 provenance:
 - kind: user-approved-conversation
   reference: conversation:2026-09-12:knowledge-os-reader-planning
@@ -13,6 +13,8 @@ provenance:
   reference: conversation:2026-09-19:knowledge-os-reader-redesign
 - kind: user-request
   reference: github:sockulags/knowledge-os#57
+- kind: user-request
+  reference: github:sockulags/knowledge-os#77
 related:
 - knowledge-os-reader
 ---
@@ -121,6 +123,45 @@ default context are deliberately narrower than what a human library should show.
 Relationships are directed and the contract excludes a backlink subsystem, so the
 reader builds an inbound map in memory to answer what points at the record being
 read.
+
+## Sidebar width and deep project trees
+
+The sidebar opens 256 px wide and can be resized from its right edge (issue
+#77). The handle is an 8 px grab area over the border that shows a 2 px accent
+line on hover and while dragging, and a 4 px focus-colour line on keyboard
+focus. It is a `separator` with its value, minimum, and maximum; arrow keys
+move it 16 px, Shift+arrow 64 px, Home and End jump to the limits, and a
+double-click returns to 256 px. The width stays between 200 and 560 px and
+always leaves the reading column 420 px. It lives in the `--sidebar-width`
+CSS variable: a drag writes it once per frame with the pointer captured and
+the width transition off, so nothing in the tree re-renders while it moves.
+The browser remembers the width in local storage; the desktop app keeps it in
+its own settings file instead, because its core listens on a new port each
+launch and browser storage is kept per origin.
+
+A deep tree used to cut every title to a few letters. Of the four ways to
+keep it readable, three are used together:
+
+- The indent is 17 px per level for the first three levels and 8 px after,
+  and every level keeps its thin guide line, so depth still reads as a set of
+  lines while a title eight levels down keeps most of its room.
+- Titles wrap to a second line and end in an ellipsis after that, instead of
+  truncating on one line. The full title is the row's tooltip, and it shows
+  in place while the row has keyboard focus. Middle truncation was left out:
+  it needs text measurement on every resize, and the start of a title is
+  usually the part that tells two pages apart.
+- A folder's menu has "Show only this folder". The sidebar then shows that
+  folder as the top of the project's tree, with the folders above it listed
+  one per line as a trail back up; each step shows that folder instead, the
+  project's name or the close button shows the whole tree, and each step is
+  also a drop target for moving something up. Opening a page of the project
+  outside the folder shows the whole tree again, since the reader has moved
+  on. Going back up keeps the tree open down to where the reader was.
+
+A separate "current page path" line at the top of the sidebar was not added.
+The highlighted row already sits under its open ancestors, and the trail
+shows the path whenever a folder is focused; a fourth element at the top of
+the sidebar would take room from the tree to repeat it.
 
 ## Language
 

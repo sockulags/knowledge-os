@@ -31,6 +31,8 @@
 
 :root {
   color-scheme: light;
+  /* The desktop sidebar's width; SidebarResizer.tsx changes it. */
+  --sidebar-width: 256px;
   --color-bg: #fbfaf7;
   --color-bg-sidebar: #f2f0ea;
   --color-bg-raised: #ffffff;
@@ -444,6 +446,74 @@ body {
     font-size: 10.5px;
     line-height: 1.6;
     color: var(--color-text-faint);
+  }
+
+  /* The sidebar and its drag handle. The width is the --sidebar-width
+     variable (set from the stored width before the first render, and by
+     the handle while it moves); a drag turns the width transition off so
+     the edge follows the pointer exactly. */
+  .kos-sidebar {
+    width: var(--sidebar-width);
+    transition: width 150ms ease;
+  }
+  .kos-sidebar-inner {
+    width: var(--sidebar-width);
+  }
+  html[data-sidebar-resizing] {
+    cursor: col-resize;
+    user-select: none;
+  }
+  html[data-sidebar-resizing] .kos-sidebar {
+    transition: none;
+  }
+  /* An 8 px grab area centred on the sidebar's border, with a 2 px line
+     that shows on hover, while dragging, and on keyboard focus. */
+  .kos-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -4px;
+    width: 8px;
+    z-index: 10;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .kos-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 2px;
+    background: transparent;
+    transition: background-color 120ms ease;
+  }
+  .kos-resize-handle:hover::after,
+  html[data-sidebar-resizing] .kos-resize-handle::after {
+    background: var(--color-accent);
+  }
+  .kos-resize-handle:focus-visible {
+    outline: none;
+  }
+  .kos-resize-handle:focus-visible::after {
+    left: 2px;
+    width: 4px;
+    background: var(--color-focus);
+  }
+
+  /* A title in the project tree: up to two lines, broken anywhere a long
+     word needs it, with the rest behind an ellipsis. The full title is the
+     row's tooltip, and shows in place while the row has keyboard focus. */
+  .kos-tree-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  :focus-visible > .kos-tree-title {
+    -webkit-line-clamp: unset;
   }
 
   .kos-code {

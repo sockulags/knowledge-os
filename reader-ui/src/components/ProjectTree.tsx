@@ -1,17 +1,49 @@
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { ChevronRight, FilePlus, Folder, FolderKanban, FolderPlus, MoreHorizontal, MoveRight, Pencil } from "lucide-react";
-import type { NavProject, RecordSummary, TreeNode } from "../api/types";
+import { ChevronRight, FilePlus, Focus, Folder, FolderKanban, FolderPlus, MoreHorizontal, MoveRight, Pencil, X } from "lucide-react";
+import type { NavPayload, NavProject, RecordSummary, TreeNode } from "../api/types";
 import { iconFor } from "../lib/icons";
-import { folderDisplayName } from "../lib/text";
+import { findFolder, folderTitle, folderTrail, indentFor, isWithin, revealAfterFocus } from "../lib/treeLayout";
 import { useStructure, type Place, type TreeItem } from "./Structure";
 
 // The project tree in the sidebar and on a project page. Pages and folders
 // can be dragged onto a folder or a project (or onto a page, meaning its
 // folder); every row also has a menu with "New page here", "New folder",
 // "Rename", and "Move to…", the keyboard way to do the same.
+//
+// Deep trees stay readable in three ways (see the reader design record):
+// the indent shrinks after the first few levels while a thin guide line
+// still marks each one, titles wrap to a second line instead of being cut
+// to a few letters, and a folder can be shown on its own in the sidebar,
+// with the folders above it as a trail back up.
 
-const rowClass = "group relative flex items-center rounded-md";
+// Rows align to their first line, so a title that wraps keeps its icon,
+// chevron, and menu button beside where it starts.
+const rowClass = "group relative flex items-start rounded-md";
+
+type NavLanguage = NavPayload["language"];
+
+/** What the sidebar's project offers the folders inside it: showing one
+ * folder on its own, which folder that is, and which folder to open the
+ * tree down to. The project page's tree has none of this. */
+interface TreeFocus {
+  show: ((path: string) => void) | null;
+  current: string | null;
+  reveal: string | null;
+  language: NavLanguage | null;
+}
+
+const TreeFocusContext = createContext<TreeFocus>({ show: null, current: null, reveal: null, language: null });
+
+/** The children of a folder or project: indented, with a guide line. */
+function Nest({ level, children }: { level: number; children: ReactNode }) {
+  const indent = indentFor(level);
+  return (
+    <div className="border-l border-(--color-border)" style={{ marginLeft: indent.margin, paddingLeft: indent.padding }}>
+      {children}
+    </div>
+  );
+}
 
 /** Drag handlers for one row, or nothing when the row cannot move. */
 function useDragSource(item: TreeItem | null) {
@@ -124,7 +156,7 @@ function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
           event.stopPropagation();
           setOpen((value) => !value);
         }}
-        className={`absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text) focus-visible:opacity-100 ${
+        className={`absolute right-1 top-0.5 flex h-6 w-6 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text) focus-visible:opacity-100 ${
           open ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
         }`}
       >
@@ -230,7 +262,7 @@ function ChevronButton({ open, onToggle, hidden }: { open: boolean; onToggle: ()
     <button
       type="button"
       onClick={onToggle}
-      className="flex h-6 w-5 shrink-0 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:text-(--color-text)"
+      className="mt-0.5 flex h-6 w-5 shrink-0 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:text-(--color-text)"
       aria-label={open ? "Collapse" : "Expand"}
       aria-expanded={open}
     >
@@ -277,11 +309,11 @@ function PageRow({ record, projectId, folder, folderLabel }: { record: RecordSum
         <Link
           to={href}
           draggable={false}
-          className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-sm ${linkClass(location.pathname === href, false)}`}
+          className={`flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1 text-sm ${linkClass(location.pathname === href, false)}`}
           title={record.title}
         >
-          <Icon size={14} className="shrink-0 opacity-70" />
-          <span className="truncate">{record.title}</span>
+          <Icon size={14} className="mt-[3px] shrink-0 opacity-70" />
+          <span className="kos-tree-title">{record.title}</span>
         </Link>
       )}
       {item !== null && !renaming && (
@@ -337,13 +369,15 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
   const location = useLocation();
   const navigate = useNavigate();
   const structure = useStructure();
+  const focus = useContext(TreeFocusContext);
   const holdsCurrentPage = containsPath(node, location.pathname);
-  const [open, setOpen] = useState(depth < 1 || holdsCurrentPage);
+  const revealed = focus.reveal !== null && isWithin(focus.reveal, node.path);
+  const [open, setOpen] = useState(depth < 1 || holdsCurrentPage || revealed);
   useEffect(() => {
     // Also after a move brings the open page into this folder.
     if (holdsCurrentPage) setOpen(true);
   }, [holdsCurrentPage]);
-  const title = node.overview?.title ?? folderDisplayName(node.name);
+  const title = folderTitle(node);
   const item: TreeItem | null = node.in_project
     ? { kind: "folder", projectId, path: node.path, title, hasPage: node.overview !== null }
     : null;
@@ -362,8 +396,8 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
   const href = node.overview ? `/r/${node.overview.id}` : null;
   const label = (
     <>
-      <Folder size={14} className="shrink-0 opacity-70" />
-      <span className="truncate">{title}</span>
+      <Folder size={14} className="mt-[3px] shrink-0 opacity-70" />
+      <span className="kos-tree-title">{title}</span>
     </>
   );
 
@@ -380,14 +414,15 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
           <Link
             to={href}
             draggable={false}
-            className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-sm ${linkClass(location.pathname === href, target.over)}`}
+            className={`flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1 text-sm ${linkClass(location.pathname === href, target.over)}`}
             title={title}
           >
             {label}
           </Link>
         ) : (
           <span
-            className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-sm ${linkClass(false, target.over)}`}
+            className={`flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1 text-sm ${linkClass(false, target.over)}`}
+            title={title}
           >
             {label}
           </span>
@@ -411,15 +446,18 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
               },
               { label: "Rename", icon: <Pencil size={14} />, onSelect: start },
               { label: "Move to…", icon: <MoveRight size={14} />, onSelect: () => structure.moveTo(item) },
+              ...(focus.show !== null && focus.language !== null && focus.current !== node.path
+                ? [{ label: focus.language.tree_focus_folder, icon: <Focus size={14} />, onSelect: () => focus.show?.(node.path) }]
+                : []),
             ]}
           />
         )}
       </div>
 
       {open && hasChildContent && (
-        <div className="ml-2.5 border-l border-(--color-border) pl-1.5">
+        <Nest level={depth + 1}>
           <TreeContents node={node} projectId={projectId} label={title} depth={depth + 1} />
-        </div>
+        </Nest>
       )}
     </div>
   );
@@ -461,10 +499,98 @@ export function ProjectPageTree({ projectId, projectTitle, tree }: { projectId: 
   );
 }
 
+/** One step of the trail above a folder shown on its own: a button that
+ * shows that folder (or, for the project, the whole tree) instead, and a
+ * drop target for moving something up to it. */
+function TrailButton({
+  label,
+  place,
+  hint,
+  onSelect,
+}: {
+  label: string;
+  place: Place | null;
+  hint?: string;
+  onSelect: () => void;
+}) {
+  const target = useDropTarget(place);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      title={hint ?? label}
+      {...target.handlers}
+      className={`max-w-full truncate rounded-[5px] px-1 py-px text-left ${
+        target.over ? dropTargetClass : "hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** The folders above the one shown on its own, from the project down, one
+ * per line (so the whole path reads at any depth), and a button that shows
+ * the whole project again. */
+function FocusTrail({
+  project,
+  focused,
+  language,
+  onShow,
+}: {
+  project: NavProject;
+  focused: string;
+  language: NavLanguage;
+  onShow: (path: string | null) => void;
+}) {
+  const above = (folderTrail(project.tree, focused) ?? []).slice(0, -1);
+  return (
+    <div className="mb-0.5 flex items-start gap-1" data-tree-trail={project.id}>
+      <nav aria-label={language.tree_focus_trail_label} className="min-w-0 flex-1">
+        <ol className="flex flex-col items-start py-0.5 text-xs text-(--color-text-muted)">
+          <li className="flex max-w-full min-w-0 items-center">
+            <TrailButton
+              label={project.title}
+              hint={language.tree_show_whole_project}
+              place={{ projectId: project.id, folder: "", label: project.title }}
+              onSelect={() => onShow(null)}
+            />
+          </li>
+          {above.map((step) => (
+            <li key={step.path} className="flex max-w-full min-w-0 items-center gap-0.5">
+              <ChevronRight size={11} className="shrink-0 text-(--color-text-faint)" aria-hidden="true" />
+              <TrailButton
+                label={step.title}
+                place={
+                  findFolder(project.tree, step.path)?.in_project
+                    ? { projectId: project.id, folder: step.path, label: step.title }
+                    : null
+                }
+                onSelect={() => onShow(step.path)}
+              />
+            </li>
+          ))}
+        </ol>
+      </nav>
+      <button
+        type="button"
+        onClick={() => onShow(null)}
+        aria-label={language.tree_show_whole_project}
+        title={language.tree_show_whole_project}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+      >
+        <X size={13} />
+      </button>
+    </div>
+  );
+}
+
 /** One project in the sidebar: an expandable row that is also the drop
  * target for the project's top level. Starts expanded while the current
- * page is the project's own page or one of its pages. */
-export function SidebarProject({ project }: { project: NavProject }) {
+ * page is the project's own page or one of its pages. A folder in it can
+ * be shown on its own ("Show only this folder" in its menu); opening a
+ * page of the project outside that folder shows the whole tree again. */
+export function SidebarProject({ project, language }: { project: NavProject; language: NavLanguage | null }) {
   const location = useLocation();
   const navigate = useNavigate();
   const structure = useStructure();
@@ -473,6 +599,26 @@ export function SidebarProject({ project }: { project: NavProject }) {
   const target = useDropTarget({ projectId: project.id, folder: "", label: project.title });
   const item: TreeItem = { kind: "project", projectId: project.id, title: project.title };
   const { renaming, start, field } = useRename(item);
+  const [focused, setFocused] = useState<string | null>(null);
+  const [reveal, setReveal] = useState<string | null>(null);
+  /** The folder whose row takes keyboard focus after the view changes. */
+  const pendingRowFocus = useRef<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // A folder that was moved, renamed, or deleted can no longer be shown.
+  const focusedNode = focused === null ? null : findFolder(project.tree, focused);
+  const current = focusedNode === null ? null : focused;
+
+  /** Show the folder at `path` on its own, or the whole project for null.
+   * Chosen from a menu or the trail, keyboard focus follows to the row of
+   * the folder shown (or, going back to the whole project, of the folder
+   * that was); the page changing only changes the view. */
+  function show(path: string | null, moveKeyboardFocus = true) {
+    if (moveKeyboardFocus) pendingRowFocus.current = path ?? focused;
+    setReveal(revealAfterFocus(focused, path));
+    setFocused(path);
+    setOpen(true);
+  }
+
   useEffect(() => {
     if (isActive) setOpen(true);
   }, [isActive]);
@@ -481,12 +627,26 @@ export function SidebarProject({ project }: { project: NavProject }) {
     const timer = window.setTimeout(() => setOpen(true), 600);
     return () => window.clearTimeout(timer);
   }, [target.over, open]);
+  useEffect(() => {
+    // Only when the page changes, not when a folder is chosen: a folder
+    // may be shown while reading a page somewhere else.
+    if (focusedNode !== null && containsPath(project.tree, location.pathname) && !containsPath(focusedNode, location.pathname)) {
+      show(null, false);
+    }
+  }, [location.pathname]);
+  useEffect(() => {
+    const path = pendingRowFocus.current;
+    if (path === null) return;
+    pendingRowFocus.current = null;
+    const row = containerRef.current?.querySelector(`[data-tree-folder="${CSS.escape(`${project.id}/${path}`)}"]`);
+    (row?.querySelector<HTMLElement>("a") ?? row?.querySelector<HTMLElement>("button"))?.focus();
+  }, [focused, project.id]);
 
   const hasContent = project.tree.records.length > 0 || project.tree.children.length > 0 || project.tree.broken.length > 0;
   const href = `/p/${project.id}`;
 
   return (
-    <div>
+    <div ref={containerRef}>
       <div className={rowClass} {...target.handlers} data-tree-project={project.id}>
         <ChevronButton open={open} onToggle={() => setOpen((value) => !value)} hidden={!hasContent} />
         {renaming ? (
@@ -498,20 +658,30 @@ export function SidebarProject({ project }: { project: NavProject }) {
           <Link
             to={href}
             draggable={false}
-            className={`flex min-w-0 flex-1 items-center gap-2 truncate rounded-md px-1.5 py-1 text-sm ${
+            title={project.title}
+            className={`flex min-w-0 flex-1 items-start gap-2 rounded-md px-1.5 py-1 text-sm ${
               target.over ? dropTargetClass : location.pathname === href ? activeRowClass : "text-(--color-text) hover:bg-(--color-bg-hover)"
             }`}
           >
-            <FolderKanban size={14} className="shrink-0 opacity-70" />
-            <span className="truncate">{project.title}</span>
+            <FolderKanban size={14} className="mt-[3px] shrink-0 opacity-70" />
+            <span className="kos-tree-title">{project.title}</span>
           </Link>
         )}
         {!renaming && <RowMenu label={project.title} entries={projectEntries(project, navigate, structure, start)} />}
       </div>
       {open && hasContent && (
-        <div className="ml-2.5 border-l border-(--color-border) pl-1.5">
-          <TreeContents node={project.tree} projectId={project.id} label={project.title} depth={1} />
-        </div>
+        <TreeFocusContext.Provider value={{ show, current, reveal, language }}>
+          <Nest level={1}>
+            {current !== null && focusedNode !== null && language !== null ? (
+              <>
+                <FocusTrail project={project} focused={current} language={language} onShow={show} />
+                <FolderNode key={current} node={focusedNode} projectId={project.id} depth={1} />
+              </>
+            ) : (
+              <TreeContents node={project.tree} projectId={project.id} label={project.title} depth={1} />
+            )}
+          </Nest>
+        </TreeFocusContext.Provider>
       )}
     </div>
   );

@@ -248,6 +248,19 @@ PAGE_TITLES: dict[str, str] = {
 #: stage-B unit replaces its own view's use of this string).
 STUB_NOT_IMPLEMENTED = "This view is not implemented yet."
 
+#: The sidebar's drag handle: its accessible name, and the hint shown when
+#: the pointer rests on it (delivered through the nav payload's
+#: ``language`` block, like the quick-find copy below).
+SIDEBAR_RESIZE_LABEL = "Sidebar width"
+SIDEBAR_RESIZE_HINT = "Drag to resize, or use the arrow keys. Double-click to reset."
+
+#: Showing one folder of a deep project tree on its own: the row-menu entry
+#: that does it, the trail of folders back up to the project, and the
+#: button that shows the whole project again.
+TREE_FOCUS_FOLDER = "Show only this folder"
+TREE_FOCUS_TRAIL_LABEL = "Folders above this one"
+TREE_SHOW_WHOLE_PROJECT = "Show the whole project"
+
 # ---------------------------------------------------------------------------
 # Start view
 # ---------------------------------------------------------------------------

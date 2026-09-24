@@ -150,7 +150,7 @@ export function Sidebar({
         }
       >
         {nav?.projects.length ? (
-          nav.projects.map((project) => <SidebarProject key={project.id} project={project} />)
+          nav.projects.map((project) => <SidebarProject key={project.id} project={project} language={nav.language} />)
         ) : (
           <p className="px-2 py-1 text-sm text-(--color-text-faint)">No project yet.</p>
         )}
