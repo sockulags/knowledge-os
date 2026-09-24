@@ -8,15 +8,22 @@ import { Markdown } from "../components/Markdown";
 import { TableOfContents } from "../components/TableOfContents";
 import { EmptyState } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
+import { useShell } from "../components/Shell";
+import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export function Skill() {
   const { skillName } = useParams<{ skillName: string }>();
-  const { data, loading, notFound, error } = useApi(() => api.skill(skillName!), [skillName]);
+  const { nav } = useShell();
+  const apiState = useApi(() => api.skill(skillName!), [skillName]);
+  const { data, loading, notFound } = apiState;
+  useDocumentTitle(nav?.workspace_name, data?.title ?? data?.name ?? null);
 
   if (loading) return <PageSkeleton />;
   if (notFound)
     return <EmptyState title="No such skill" body={`No skill named "${skillName}" exists in this workspace.`} />;
-  if (error || !data) return <LoadError>{error ?? "Could not load this skill."}</LoadError>;
+  if (apiState.error || !data)
+    return <LoadError>{loadErrorMessage(apiState, nav?.language, "Could not load this skill.")}</LoadError>;
 
   if (data.broken) {
     return (

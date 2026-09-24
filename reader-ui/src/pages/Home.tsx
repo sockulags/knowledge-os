@@ -7,10 +7,16 @@ import { useApi } from "../hooks/useApi";
 import { PageSkeleton } from "../components/Skeleton";
 import { Pill } from "../components/Pill";
 import { Callout, LoadError } from "../components/Callout";
+import { useShell } from "../components/Shell";
+import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export function Home() {
-  const { data, loading, error } = useApi(() => api.home(), []);
+  const { nav } = useShell();
+  const apiState = useApi(() => api.home(), []);
+  const { data, loading } = apiState;
   const [health, setHealth] = useState<HealthSummary | null>(null);
+  useDocumentTitle(nav?.workspace_name, null);
 
   useEffect(() => {
     api
@@ -20,7 +26,8 @@ export function Home() {
   }, []);
 
   if (loading) return <PageSkeleton />;
-  if (error || !data) return <LoadError>{error ?? "Could not load the home page."}</LoadError>;
+  if (apiState.error || !data)
+    return <LoadError>{loadErrorMessage(apiState, nav?.language, "Could not load the home page.")}</LoadError>;
 
   const somethingWrong = health && (!health.lint_ok || health.search_disabled);
 

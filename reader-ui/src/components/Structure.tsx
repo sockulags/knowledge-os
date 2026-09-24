@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { NavPayload, StructureResult, TreeNode, WriteFailure } from "../api/types";
 import { structure, type Outcome } from "../api/write";
 import { hasUnsavedChanges } from "../hooks/useUnsavedChanges";
+import { folderDisplayName } from "../lib/text";
 import { slugify } from "../pages/NewRecord";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { fieldLabelClass, inputClass } from "./EditorParts";
@@ -75,7 +76,7 @@ function allPlaces(nav: NavPayload | null): (Place & { depth: number; projectTit
         places.push({
           projectId: project.id,
           folder: child.path,
-          label: child.overview?.title ?? child.name,
+          label: child.overview?.title ?? folderDisplayName(child.name),
           depth,
           projectTitle: project.title,
         });

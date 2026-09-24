@@ -13,6 +13,7 @@ import type {
   WriteFailure,
   WriteResult,
 } from "./types";
+import { NETWORK_ERROR_FALLBACK } from "../lib/language";
 
 interface Session {
   token: string;
@@ -46,9 +47,8 @@ export async function send<T>(method: "POST" | "PATCH", path: string, body: unkn
   let current: Session;
   try {
     current = await loadSession();
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "Could not reach the core.";
-    return { ok: false, status: 0, failure: { error: "unavailable", detail } };
+  } catch {
+    return { ok: false, status: 0, failure: { error: "unavailable", detail: NETWORK_ERROR_FALLBACK } };
   }
   let response: Response;
   try {
@@ -58,7 +58,7 @@ export async function send<T>(method: "POST" | "PATCH", path: string, body: unkn
       body: JSON.stringify(body),
     });
   } catch {
-    return { ok: false, status: 0, failure: { error: "unavailable", detail: "Could not reach the core. Is it still running?" } };
+    return { ok: false, status: 0, failure: { error: "unavailable", detail: NETWORK_ERROR_FALLBACK } };
   }
   const payload = await response.json().catch(() => ({ error: "unavailable", detail: `Unexpected response (${response.status}).` }));
   if (response.ok) {

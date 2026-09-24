@@ -114,6 +114,12 @@ function setState(next: ShellState): void {
   const window = mainWindow
   if (window === null || window.isDestroyed()) return
   if (next.kind === 'ready') {
+    // A reasonable title for the moment before the reader has loaded and
+    // read its own nav payload; the reader then takes over (see
+    // reader-ui/src/hooks/useDocumentTitle.ts) and keeps it in the same
+    // "<page> — <workspace> — Knowledge OS" shape, refined with the current
+    // page's own title. Electron mirrors the window title from the page's
+    // `document.title` by default, so nothing here needs to intercept that.
     window.setTitle(`${next.name || basename(next.root)} — Knowledge OS`)
     void window.loadURL(next.url)
   } else {

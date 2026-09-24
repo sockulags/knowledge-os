@@ -415,6 +415,16 @@ DOCUMENT_NOT_FOUND_BODY = 'No page with id "{record_id}" exists in this workspac
 #: fallback pages never hard-code it.
 DOCUMENT_LOAD_ERROR = "Could not load this page."
 
+#: Shown in place of the browser's own network-failure message (e.g. the
+#: raw "Failed to fetch") whenever a request never reaches the core at all --
+#: the core process is not running, or was just restarted. Delivered through
+#: the nav payload's ``language`` block; the React shell keeps an identical
+#: string as a built-in fallback for the moment before that payload has
+#: loaded (see reader-ui/src/lib/language.ts).
+NETWORK_UNREACHABLE_ERROR = (
+    "Knowledge OS couldn't reach its local service. If the app was just closed or restarted, reload the window."
+)
+
 RAIL_TOGGLE_HIDE = "Hide metadata"
 RAIL_TOGGLE_SHOW = "Show metadata"
 # Unit 2 -- Project view (views/project.py, grouping.py, templates/project.html)

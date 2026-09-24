@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { ChevronRight, FilePlus, Folder, FolderKanban, FolderPlus, MoreHorizontal, MoveRight, Pencil } from "lucide-react";
 import type { NavProject, RecordSummary, TreeNode } from "../api/types";
 import { iconFor } from "../lib/icons";
+import { folderDisplayName } from "../lib/text";
 import { useStructure, type Place, type TreeItem } from "./Structure";
 
 // The project tree in the sidebar and on a project page. Pages and folders
@@ -106,6 +107,13 @@ function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
 
   return (
     <>
+      {/* Absolutely positioned so it never reserves layout space: a title
+          only loses room to it while the row is hovered or focused (when it
+          is actually visible), instead of every row's text being squeezed
+          by a permanent 24px gutter -- the deepest tree levels have little
+          width to spare. It sits on the row's own hover background rather
+          than needing one of its own, since the row (or its link) already
+          fills the same width once nothing but this button is absolute. */}
       <button
         ref={buttonRef}
         type="button"
@@ -116,8 +124,8 @@ function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
           event.stopPropagation();
           setOpen((value) => !value);
         }}
-        className={`ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text) focus-visible:opacity-100 ${
-          open ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        className={`absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text) focus-visible:opacity-100 ${
+          open ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
         }`}
       >
         <MoreHorizontal size={14} />
@@ -335,7 +343,7 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
     // Also after a move brings the open page into this folder.
     if (holdsCurrentPage) setOpen(true);
   }, [holdsCurrentPage]);
-  const title = node.overview?.title ?? node.name;
+  const title = node.overview?.title ?? folderDisplayName(node.name);
   const item: TreeItem | null = node.in_project
     ? { kind: "folder", projectId, path: node.path, title, hasPage: node.overview !== null }
     : null;
@@ -355,7 +363,7 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
   const label = (
     <>
       <Folder size={14} className="shrink-0 opacity-70" />
-      <span className={`truncate ${node.overview ? "" : "capitalize"}`}>{title}</span>
+      <span className="truncate">{title}</span>
     </>
   );
 

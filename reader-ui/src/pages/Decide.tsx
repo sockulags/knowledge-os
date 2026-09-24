@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ArrowRight, Bot, CircleHelp, Eye, FolderKanban, Inbox, MessagesSquare, User, Users } from "lucide-react";
-import { api } from "../api/client";
+import { api, ApiUnreachableError } from "../api/client";
 import type { DecidePayload, ProposedDecision } from "../api/types";
 import { PageSkeleton } from "../components/Skeleton";
 import { LoadError } from "../components/Callout";
@@ -9,6 +9,8 @@ import { DecisionActions } from "../components/DecisionActions";
 import { DecisionGuideToggle } from "../components/DecisionGuide";
 import { EmptyState } from "../components/EmptyState";
 import { useShell } from "../components/Shell";
+import { networkErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 /** One small icon per kind of proposer (`proposed_by.source`); an unknown
  * source gets the neutral question mark, so a new kind needs no change here. */
@@ -90,7 +92,8 @@ function ProposalRow({
  * project. Acting on a row removes it at once and reloads the list and the
  * sidebar count in the background, without a page reload. */
 export function Decide() {
-  const { refreshNav } = useShell();
+  const { refreshNav, nav } = useShell();
+  useDocumentTitle(nav?.workspace_name, "Decide");
   const [params, setParams] = useSearchParams();
   const project = params.get("project");
   const [data, setData] = useState<DecidePayload | null>(null);
@@ -108,9 +111,11 @@ export function Decide() {
         }
       })
       .catch((err: unknown) => {
-        if (request === latest.current) setError(err instanceof Error ? err.message : "Could not load the inbox.");
+        if (request !== latest.current) return;
+        if (err instanceof ApiUnreachableError) setError(networkErrorMessage(nav?.language));
+        else setError(err instanceof Error ? err.message : "Could not load the inbox.");
       });
-  }, [project]);
+  }, [project, nav]);
 
   useEffect(() => {
     load();

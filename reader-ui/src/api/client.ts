@@ -25,8 +25,26 @@ export class ApiNotFoundError extends Error {
   }
 }
 
+/** Thrown instead of the browser's own fetch failure (e.g. the raw "Failed
+ * to fetch"/"NetworkError") when a request never reached the core at all --
+ * the process is not running, or was just restarted. Callers show
+ * `networkErrorMessage(nav?.language)` (see lib/language.ts) rather than
+ * this error's own message. */
+export class ApiUnreachableError extends Error {
+  constructor() {
+    super("Could not reach the core.");
+    this.name = "ApiUnreachableError";
+  }
+}
+
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, { signal });
+  let response: Response;
+  try {
+    response = await fetch(path, { signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiUnreachableError();
+  }
   if (response.status === 404) {
     const body = await response.json().catch(() => ({ detail: "Not found." }));
     throw new ApiNotFoundError(body.detail ?? "Not found.");

@@ -102,6 +102,9 @@ export interface NavPayload {
     not_found_title: string;
     not_found_body: string;
     load_error: string;
+    /** Shown instead of the browser's own network-failure message (e.g. the
+     * raw "Failed to fetch") when a request never reached the core at all. */
+    network_error: string;
   };
 }
 

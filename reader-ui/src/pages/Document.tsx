@@ -13,6 +13,8 @@ import { RecordNotFound } from "../components/EmptyState";
 import { LoadError, LineageCalloutRow } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { useShell } from "../components/Shell";
+import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { RelationView } from "../api/types";
 
 function RelationRow({ relation }: { relation: RelationView }) {
@@ -36,11 +38,14 @@ export function Document() {
   const { refreshNav, nav } = useShell();
   // Bumped after a decision action so the page shows the new state.
   const [loadKey, setLoadKey] = useState(0);
-  const { data, loading, notFound, error } = useApi(() => api.record(recordId!), [recordId, loadKey]);
+  const apiState = useApi(() => api.record(recordId!), [recordId, loadKey]);
+  const { data, loading, notFound } = apiState;
+  useDocumentTitle(nav?.workspace_name, data?.title ?? null);
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
-  if (error || !data) return <LoadError>{error ?? nav?.language.load_error ?? "Could not load this page."}</LoadError>;
+  if (apiState.error || !data)
+    return <LoadError>{loadErrorMessage(apiState, nav?.language, "Could not load this page.")}</LoadError>;
 
   const showToc = data.headings.length >= 3;
 

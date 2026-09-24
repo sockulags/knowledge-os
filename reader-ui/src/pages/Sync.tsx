@@ -7,6 +7,7 @@ import { Callout } from "../components/Callout";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useShell } from "../components/Shell";
 import { relativeTime } from "../hooks/useSync";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 type Issue = { path: string; message: string };
 
@@ -254,7 +255,7 @@ function ConflictCard({
 /** The sync page: the repository's state and, while a pull is waiting on
  * conflicts, each conflicting file with both versions side by side. */
 export function Sync() {
-  const { sync } = useShell();
+  const { sync, nav } = useShell();
   const [files, setFiles] = useState<ConflictFile[] | null>(null);
   const [issuesByPath, setIssuesByPath] = useState<Record<string, Issue[]>>({});
   const [finishFailure, setFinishFailure] = useState<SyncFailure | null>(null);
@@ -263,16 +264,13 @@ export function Sync() {
   const [message, setMessage] = useState<string | null>(null);
   const status = sync.status;
   const merging = status?.merging ?? false;
+  useDocumentTitle(nav?.workspace_name, "Sync");
 
   const loadConflicts = useCallback(() => {
     api
       .syncConflicts()
       .then((payload) => setFiles(payload.files))
       .catch(() => setFiles([]));
-  }, []);
-
-  useEffect(() => {
-    document.title = "Sync";
   }, []);
 
   useEffect(() => {

@@ -1,17 +1,23 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams, Link } from "react-router";
 import { Search as SearchIcon } from "lucide-react";
-import { api } from "../api/client";
+import { api, ApiUnreachableError } from "../api/client";
 import type { SearchPayload } from "../api/types";
-import { Callout } from "../components/Callout";
+import { Callout, LoadError } from "../components/Callout";
 import { PageSkeleton } from "../components/Skeleton";
+import { useShell } from "../components/Shell";
+import { networkErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 const FILTER_KEYS = ["type", "status", "scope", "record_kind", "trust"] as const;
 
 export function Search() {
+  const { nav } = useShell();
+  useDocumentTitle(nav?.workspace_name, "Search");
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState<SearchPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState(params.get("q") ?? "");
 
   useEffect(() => {
@@ -27,7 +33,14 @@ export function Search() {
         // A faster response to an older query string must never overwrite
         // a slower response to the current one (e.g. typing quickly, or
         // toggling a filter before the previous request lands).
-        if (!cancelled) setData(result);
+        if (!cancelled) {
+          setData(result);
+          setError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof ApiUnreachableError ? networkErrorMessage(nav?.language) : "Could not search the workspace.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -35,7 +48,7 @@ export function Search() {
     return () => {
       cancelled = true;
     };
-  }, [params]);
+  }, [params, nav]);
 
   function updateFilter(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -92,7 +105,8 @@ export function Search() {
 
       <div className="mt-8">
         {loading && <PageSkeleton />}
-        {!loading && data && !data.search_available && (
+        {!loading && error && <LoadError>{error}</LoadError>}
+        {!loading && !error && data && !data.search_available && (
           <Callout tone="neutral">
             <p>{data.disabled_reason}</p>
             <code className="kos-code mt-1 inline-block">
@@ -100,7 +114,7 @@ export function Search() {
             </code>
           </Callout>
         )}
-        {!loading && data && data.search_available && (
+        {!loading && !error && data && data.search_available && (
           <>
             {params.get("q") && (
               <p className="mb-3 text-sm text-(--color-text-faint)">{data.result_count_label}</p>
