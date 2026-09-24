@@ -105,6 +105,13 @@ export interface NavPayload {
     /** Shown instead of the browser's own network-failure message (e.g. the
      * raw "Failed to fetch") when a request never reached the core at all. */
     network_error: string;
+    /** The sidebar's drag handle: accessible name and pointer hint. */
+    sidebar_resize_label: string;
+    sidebar_resize_hint: string;
+    /** Showing one folder of a project tree on its own. */
+    tree_focus_folder: string;
+    tree_focus_trail_label: string;
+    tree_show_whole_project: string;
   };
 }
 

@@ -5,8 +5,10 @@ import "@fontsource-variable/source-serif-4";
 import "./index.css";
 import App from "./App";
 import { applyStoredTheme } from "./lib/theme";
+import { applyStoredSidebarWidth } from "./components/SidebarResizer";
 
 applyStoredTheme();
+applyStoredSidebarWidth();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

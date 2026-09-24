@@ -10,6 +10,7 @@ import unittest
 import urllib.request
 from pathlib import Path
 
+from knowledge_os.reader import strings
 from reader_support import (
     FIXTURE_GOVERNING_IDS,
     FIXTURE_PROJECT_ID,
@@ -62,6 +63,15 @@ class NavTests(unittest.TestCase):
                 groups = data["language"]["quick_find_groups"]
                 self.assertTrue({entry["group"] for entry in data["record_index"]} <= set(groups))
                 self.assertEqual(groups["decisions"], "Decisions")
+
+    def test_sidebar_copy_comes_from_the_string_table(self) -> None:
+        with serve(REPOSITORY, PORT) as base_url:
+            language = _get(base_url, "/api/nav")["language"]
+            self.assertEqual(language["sidebar_resize_label"], strings.SIDEBAR_RESIZE_LABEL)
+            self.assertEqual(language["sidebar_resize_hint"], strings.SIDEBAR_RESIZE_HINT)
+            self.assertEqual(language["tree_focus_folder"], strings.TREE_FOCUS_FOLDER)
+            self.assertEqual(language["tree_focus_trail_label"], strings.TREE_FOCUS_TRAIL_LABEL)
+            self.assertEqual(language["tree_show_whole_project"], strings.TREE_SHOW_WHOLE_PROJECT)
 
     def test_project_without_an_overview_is_still_in_the_quick_find_index(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -4,6 +4,7 @@ import { Menu, PanelLeftClose, PanelLeft } from "lucide-react";
 import { api } from "../api/client";
 import type { NavPayload } from "../api/types";
 import { Sidebar } from "./Sidebar";
+import { SidebarResizer } from "./SidebarResizer";
 import { QuickFind } from "./QuickFind";
 import { ThemeToggle } from "./ThemeToggle";
 import { ScrollToTop } from "./ScrollToTop";
@@ -27,7 +28,7 @@ export function useShell(): ShellContext {
   return useOutletContext<ShellContext>();
 }
 
-/** The app shell: a ~260px left sidebar on a tinted ground, a centred
+/** The app shell: a resizable left sidebar (256px by default) on a tinted ground, a centred
  * reading column, and the Ctrl K command palette. Collapses to a slide-over
  * drawer below 768px (design brief). */
 export function Shell() {
@@ -88,13 +89,16 @@ export function Shell() {
           and scrolling away with the page on anything taller than one
           screen. */}
       <aside
-        className={`sticky top-0 hidden h-screen shrink-0 self-start border-r border-(--color-border) bg-(--color-bg-sidebar) md:block ${
-          collapsed ? "w-0 overflow-hidden border-r-0" : "w-64"
-        } transition-[width] duration-150`}
+        className={`kos-sidebar sticky top-0 z-20 hidden h-screen shrink-0 self-start border-r border-(--color-border) bg-(--color-bg-sidebar) md:block ${
+          collapsed ? "w-0 overflow-hidden border-r-0" : ""
+        }`}
       >
-        <div className="h-full w-64">
+        <div className="kos-sidebar-inner h-full">
           <Sidebar nav={nav} onOpenQuickFind={() => setQuickFindOpen(true)} />
         </div>
+        {!collapsed && (
+          <SidebarResizer label={nav?.language.sidebar_resize_label} hint={nav?.language.sidebar_resize_hint} />
+        )}
       </aside>
 
       {/* Mobile drawer */}
