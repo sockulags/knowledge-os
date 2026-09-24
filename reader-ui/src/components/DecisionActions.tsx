@@ -6,7 +6,7 @@ import { write, type Outcome } from "../api/write";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DecisionGuideToggle } from "./DecisionGuide";
 import { WriteFailureCallout } from "./WriteFailureCallout";
-import { inputClass } from "./EditorParts";
+import { fieldLabelClass, inputClass } from "./EditorParts";
 
 type Action = "accept" | "withdraw" | "supersede";
 
@@ -22,7 +22,7 @@ export interface DecisionTarget {
 
 function DialogChanges({ dialog }: { dialog: DecisionDialog }) {
   return (
-    <ul className="mt-3 space-y-2 rounded-lg border border-(--color-border) px-3 py-2.5">
+    <ul className="mt-4 space-y-2 rounded-(--radius-card) border border-(--color-border) bg-(--color-bg-sidebar) px-3.5 py-3">
       {dialog.changes.map((change, index) => (
         <li key={index}>
           {change.subject && <span className="block text-xs text-(--color-text-faint)">{change.subject}</span>}
@@ -38,8 +38,10 @@ function DialogChanges({ dialog }: { dialog: DecisionDialog }) {
   );
 }
 
-const buttonClass =
-  "rounded-md border border-(--color-border) bg-(--color-bg-raised) px-3 py-1.5 text-sm font-medium hover:border-(--color-border-strong) hover:bg-(--color-bg-hover)";
+// Accepting is the step a proposal waits for, so it is the one primary
+// button; withdrawing and replacing are secondary.
+const primaryClass = "kos-btn kos-btn-primary";
+const buttonClass = "kos-btn kos-btn-secondary";
 
 /** Accept, withdraw, or accept-as-replacement for a decision, each behind a
  * confirmation that says what will change and whether it can be undone.
@@ -104,12 +106,12 @@ export function DecisionActions({
   const buttons = hasButtons ? (
     <div className={variant === "page" ? "mt-3 flex flex-wrap gap-2" : "flex flex-wrap gap-2"}>
       {actions.accept && dialogs.accept && (
-        <button type="button" className={buttonClass} onClick={() => setOpen("accept")}>
+        <button type="button" className={primaryClass} onClick={() => setOpen("accept")}>
           {labels.accept}
         </button>
       )}
       {replaces !== null && dialogs.supersede && (
-        <button type="button" className={buttonClass} onClick={() => setOpen("supersede")}>
+        <button type="button" className={primaryClass} onClick={() => setOpen("supersede")}>
           {labels.accept_replacement}
         </button>
       )}
@@ -151,7 +153,7 @@ export function DecisionActions({
           <p>{dialogs.withdraw.body}</p>
           <DialogChanges dialog={dialogs.withdraw} />
           <label className="mt-3 block">
-            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-(--color-text-faint)">
+            <span className={fieldLabelClass}>
               {labels.reason_label}
             </span>
             <textarea
@@ -175,7 +177,7 @@ export function DecisionActions({
           <p>{dialogs.supersede.body}</p>
           <DialogChanges dialog={dialogs.supersede} />
           <p className="mt-3">
-            <Link to={`/r/${target.id}/compare`} className="underline underline-offset-2">
+            <Link to={`/r/${target.id}/compare`} className="font-medium text-(--color-accent-text) underline decoration-1 underline-offset-[3px]">
               {labels.compare}
             </Link>
           </p>
@@ -195,10 +197,10 @@ export function DecisionActions({
   }
 
   return (
-    <section className="mb-8 mt-6 rounded-lg border border-(--color-border) bg-(--color-bg-sidebar) px-4 py-3" aria-label="Decision actions">
-      {actions.summary && <p className="text-sm text-(--color-text-muted)">{actions.summary}</p>}
+    <section className="kos-card mb-8 mt-6 px-5 py-4" aria-label="Decision actions">
+      {actions.summary && <p className="text-sm text-(--color-text)">{actions.summary}</p>}
       {buttons}
-      <div className={actions.summary || buttons ? "mt-3" : ""}>
+      <div className={actions.summary || buttons ? "mt-4 border-t border-(--color-border) pt-3" : ""}>
         <DecisionGuideToggle language={language} />
       </div>
       {dialogViews}

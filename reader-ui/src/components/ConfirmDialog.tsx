@@ -44,28 +44,14 @@ export function ConfirmDialog({
     return () => window.removeEventListener("keydown", handleKey);
   }, [busy, onCancel]);
 
-  const confirmClass =
-    tone === "danger"
-      ? "bg-(--color-accent-red-text) text-white hover:opacity-90"
-      : "bg-(--color-text) text-(--color-bg) hover:opacity-90";
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="absolute inset-0 bg-black/30" onClick={() => !busy && onCancel()} />
-      <div
-        ref={panelRef}
-        className="relative w-full max-w-[480px] rounded-xl border border-(--color-border) bg-(--color-bg-raised) p-5 shadow-xl"
-      >
-        <h2 className="text-base font-semibold">{title}</h2>
-        <div className="mt-3 text-sm text-(--color-text-muted)">{children}</div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            data-cancel
-            onClick={onCancel}
-            disabled={busy}
-            className="rounded-md px-3 py-1.5 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) disabled:opacity-50"
-          >
+      <div className="kos-scrim absolute inset-0" onClick={() => !busy && onCancel()} />
+      <div ref={panelRef} className="kos-overlay relative w-full max-w-[480px] p-6">
+        <h2 className="kos-heading text-[19px]">{title}</h2>
+        <div className="mt-3 text-sm leading-relaxed text-(--color-text-muted)">{children}</div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button type="button" data-cancel onClick={onCancel} disabled={busy} className="kos-btn kos-btn-ghost">
             {cancelLabel}
           </button>
           <button
@@ -73,7 +59,7 @@ export function ConfirmDialog({
             data-confirm
             onClick={onConfirm}
             disabled={busy || confirmDisabled}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${confirmClass}`}
+            className={`kos-btn ${tone === "danger" ? "kos-btn-danger" : "kos-btn-primary"}`}
           >
             {busy ? workingLabel : confirmLabel}
           </button>

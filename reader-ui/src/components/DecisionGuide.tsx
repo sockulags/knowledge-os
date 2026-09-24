@@ -42,13 +42,13 @@ function StateFlow({ guide }: { guide: DecisionLanguage["guide"] }) {
 export function DecisionGuidePanel({ language, showTitle = true }: { language: DecisionLanguage; showTitle?: boolean }) {
   const { guide } = language;
   return (
-    <div className="rounded-lg border border-(--color-border) bg-(--color-bg-raised) px-4 py-3 text-sm" role="region" aria-label={guide.title}>
-      {showTitle && <p className="mb-1 font-medium text-(--color-text)">{guide.title}</p>}
+    <div className="kos-card px-5 py-4 text-sm leading-relaxed" role="region" aria-label={guide.title}>
+      {showTitle && <p className="kos-heading mb-1 text-[17px]">{guide.title}</p>}
       <p className="text-(--color-text-muted)">{guide.intro}</p>
       <StateFlow guide={guide} />
       <dl className="space-y-1.5">
         {guide.states.map((state) => (
-          <div key={state.key} className="grid grid-cols-[88px_1fr] gap-3">
+          <div key={state.key} className="grid grid-cols-[96px_1fr] gap-3">
             <dt className="font-medium text-(--color-text)">{state.label}</dt>
             <dd className="text-(--color-text-muted)">{state.text}</dd>
           </div>
@@ -68,7 +68,7 @@ export function DecisionGuideToggle({ language, defaultOpen = false }: { languag
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex items-center gap-1.5 text-sm text-(--color-text-muted) underline-offset-2 hover:text-(--color-text) hover:underline"
+        className="-mx-1 flex items-center gap-1.5 rounded-(--radius-control) px-1 text-sm text-(--color-text-muted) underline-offset-[3px] hover:text-(--color-accent-text) hover:underline"
       >
         <HelpCircle size={14} />
         {language.labels.how_it_works}

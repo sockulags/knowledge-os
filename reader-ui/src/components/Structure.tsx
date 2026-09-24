@@ -7,7 +7,7 @@ import { structure, type Outcome } from "../api/write";
 import { hasUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { slugify } from "../pages/NewRecord";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { inputClass } from "./EditorParts";
+import { fieldLabelClass, inputClass } from "./EditorParts";
 
 /** Something in a project tree that can be dragged, moved, or renamed. */
 export type TreeItem =
@@ -343,10 +343,10 @@ function FeedbackToast({ feedback, onClose }: { feedback: Feedback; onClose: () 
   return (
     <div
       role={feedback.tone === "error" ? "alert" : "status"}
-      className={`fixed bottom-4 right-4 z-50 w-[min(420px,calc(100vw-2rem))] rounded-lg border px-4 py-3 text-sm shadow-lg ${
+      className={`kos-overlay fixed bottom-4 right-4 z-50 w-[min(420px,calc(100vw-2rem))] rounded-(--radius-card) px-4 py-3 text-sm ${
         feedback.tone === "error"
-          ? "border-(--color-accent-red-bg) bg-(--color-accent-red-bg) text-(--color-accent-red-text)"
-          : "border-(--color-border) bg-(--color-bg-raised) text-(--color-text)"
+          ? "border-[color-mix(in_srgb,var(--color-accent-red-text)_28%,transparent)] bg-(--color-accent-red-bg) text-(--color-accent-red-text)"
+          : "text-(--color-text)"
       }`}
       data-testid="structure-feedback"
     >
@@ -370,7 +370,12 @@ function FeedbackToast({ feedback, onClose }: { feedback: Feedback; onClose: () 
             </ul>
           )}
         </div>
-        <button type="button" onClick={onClose} aria-label="Dismiss" className="shrink-0 opacity-70 hover:opacity-100">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Dismiss"
+          className="-m-0.5 shrink-0 rounded-[5px] p-0.5 opacity-70 transition-opacity hover:opacity-100"
+        >
           <X size={15} />
         </button>
       </div>
@@ -409,7 +414,7 @@ function NameDialog({
       onConfirm={() => ready && onConfirm(name.trim(), slug)}
     >
       <label className="block">
-        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-(--color-text-faint)">{label}</span>
+        <span className={fieldLabelClass}>{label}</span>
         <input
           className={inputClass}
           value={name}
@@ -522,22 +527,22 @@ function MoveDialog({
       <div
         role="radiogroup"
         aria-label="Destination"
-        className="max-h-72 overflow-y-auto rounded-md border border-(--color-border) p-1"
+        className="max-h-72 overflow-y-auto rounded-(--radius-card) border border-(--color-border) bg-(--color-bg) p-1"
       >
         {places.map((place, index) => {
           const disabled = !canMove(item, place);
           return (
             <label
               key={`${place.projectId}/${place.folder}`}
-              className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm ${
-                selected === index ? "bg-(--color-bg-hover) text-(--color-text)" : ""
-              } ${disabled ? "cursor-not-allowed opacity-50" : "hover:bg-(--color-bg-hover)"}`}
+              className={`flex cursor-pointer items-center gap-2 rounded-(--radius-control) px-2 py-1.5 text-sm ${
+                selected === index ? "bg-(--color-bg-active) text-(--color-text)" : "text-(--color-text)"
+              } ${disabled ? "cursor-not-allowed opacity-50" : selected === index ? "" : "hover:bg-(--color-bg-hover)"}`}
               style={{ paddingLeft: `${0.5 + place.depth * 1}rem` }}
             >
               <input
                 type="radio"
                 name="move-destination"
-                className="accent-current"
+                className="accent-(--color-accent)"
                 checked={selected === index}
                 disabled={disabled}
                 onChange={() => setSelected(index)}

@@ -4,7 +4,7 @@ import { ArrowRight, Bot, CircleHelp, Eye, FolderKanban, Inbox, MessagesSquare, 
 import { api } from "../api/client";
 import type { DecidePayload, ProposedDecision } from "../api/types";
 import { PageSkeleton } from "../components/Skeleton";
-import { Callout } from "../components/Callout";
+import { LoadError } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { DecisionGuideToggle } from "../components/DecisionGuide";
 import { EmptyState } from "../components/EmptyState";
@@ -31,7 +31,7 @@ function ProposalRow({
 }) {
   const SourceIcon = SOURCE_ICONS[row.proposed_by.source] ?? CircleHelp;
   return (
-    <li className="rounded-lg border border-(--color-border) bg-(--color-bg-raised) px-4 py-3.5">
+    <li className="kos-card px-5 py-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-(--color-text-faint)">
         <span className="flex items-center gap-1">
           <FolderKanban size={12} />
@@ -43,25 +43,31 @@ function ProposalRow({
           {row.proposed_display && <> · {row.proposed_display}</>}
         </span>
       </div>
-      <Link to={`/r/${row.id}`} className="mt-1 block font-medium hover:underline hover:underline-offset-2">
+      <Link
+        to={`/r/${row.id}`}
+        className="mt-1.5 block rounded-sm font-serif text-[18px] font-semibold leading-snug hover:underline hover:decoration-1 hover:underline-offset-[3px]"
+      >
         {row.title}
       </Link>
       {row.excerpt && <p className="mt-1 line-clamp-2 text-sm text-(--color-text-muted)">{row.excerpt}</p>}
-      <p className="mt-2 flex items-start gap-1.5 text-sm text-(--color-text)">
-        <ArrowRight size={14} className="mt-0.5 shrink-0 text-(--color-text-faint)" />
+      <p className="mt-2.5 flex items-start gap-1.5 text-sm text-(--color-text)">
+        <ArrowRight size={14} className="mt-[3px] shrink-0 text-(--color-accent-text)" />
         <span>
           {row.effect}
           {row.replaces && (
             <>
               {" "}
-              <Link to={`/r/${row.id}/compare`} className="text-(--color-text-muted) underline underline-offset-2">
+              <Link
+                to={`/r/${row.id}/compare`}
+                className="font-medium text-(--color-accent-text) underline decoration-1 underline-offset-[3px]"
+              >
                 {language.labels.compare_short}
               </Link>
             </>
           )}
         </span>
       </p>
-      <div className="mt-3">
+      <div className="mt-4 border-t border-(--color-border) pt-3.5">
         <DecisionActions
           variant="inline"
           target={{
@@ -124,21 +130,15 @@ export function Decide() {
     load();
   }
 
-  if (error && !data) return <Callout tone="danger">{error}</Callout>;
+  if (error && !data) return <LoadError>{error}</LoadError>;
   if (!data) return <PageSkeleton />;
 
-  const chipClass = (active: boolean) =>
-    `rounded-full border px-2.5 py-1 text-xs ${
-      active
-        ? "border-(--color-border-strong) bg-(--color-bg-hover) font-medium text-(--color-text)"
-        : "border-(--color-border) text-(--color-text-muted) hover:border-(--color-border-strong)"
-    }`;
 
   return (
     <div className="mx-auto w-full max-w-[760px] px-6 py-12 sm:px-10">
-      <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
-      <p className="mt-1.5 text-(--color-text-muted)">{data.intro}</p>
-      {data.count_label && <p className="mt-1 text-sm text-(--color-text-faint)">{data.count_label}</p>}
+      <h1 className="kos-title">{data.title}</h1>
+      <p className="kos-lede">{data.intro}</p>
+      {data.count_label && <p className="mt-1.5 text-sm text-(--color-text-faint)">{data.count_label}</p>}
 
       <div className="mt-5">
         <DecisionGuideToggle language={data.language} defaultOpen={data.count === 0} />
@@ -146,14 +146,15 @@ export function Decide() {
 
       {data.projects.length > 1 && (
         <nav className="mt-6 flex flex-wrap items-center gap-2" aria-label={data.filter_label}>
-          <button type="button" className={chipClass(project === null)} onClick={() => setParams({})}>
+          <button type="button" className="kos-chip" aria-pressed={project === null} onClick={() => setParams({})}>
             {data.all_projects_label} · {data.count}
           </button>
           {data.projects.map((entry) => (
             <button
               key={entry.id}
               type="button"
-              className={chipClass(project === entry.id)}
+              className="kos-chip"
+              aria-pressed={project === entry.id}
               onClick={() => setParams({ project: entry.id })}
             >
               {entry.title} · {entry.count}

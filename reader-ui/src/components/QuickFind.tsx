@@ -166,7 +166,7 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
   let flatIndex = 0;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[12vh]"
+      className="kos-scrim fixed inset-0 z-50 flex items-start justify-center pt-[12vh]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) dismiss();
       }}
@@ -176,10 +176,10 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
         role="dialog"
         aria-modal="true"
         aria-label={language?.quick_find_label}
-        className="mx-4 w-full max-w-xl overflow-hidden rounded-xl border border-(--color-border) bg-(--color-bg-raised) shadow-2xl"
+        className="kos-overlay mx-4 w-full max-w-xl overflow-hidden"
       >
-        <div className="flex items-center gap-2.5 border-b border-(--color-border) px-4 py-3">
-          <Search size={16} className="text-(--color-text-faint)" aria-hidden="true" />
+        <div className="flex items-center gap-3 border-b border-(--color-border) px-4 py-3.5">
+          <Search size={17} className="text-(--color-accent-text)" aria-hidden="true" />
           <input
             ref={inputRef}
             value={query}
@@ -194,10 +194,10 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
             autoComplete="off"
             spellCheck={false}
             placeholder={language?.quick_find_placeholder}
-            className="w-full bg-transparent text-sm outline-none placeholder:text-(--color-text-faint)"
+            className="w-full bg-transparent text-[15px] outline-none placeholder:text-(--color-text-faint) focus-visible:outline-none"
           />
         </div>
-        <div id={listboxId} role="listbox" aria-label={language?.quick_find_label} className="max-h-[60vh] overflow-y-auto py-1">
+        <div id={listboxId} role="listbox" aria-label={language?.quick_find_label} className="max-h-[60vh] overflow-y-auto px-1.5 py-1">
           {sections.map((section) => {
             const headingId = `${baseId}-group-${section.group}`;
             return (
@@ -205,7 +205,7 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
                 <div
                   id={headingId}
                   role="presentation"
-                  className="px-4 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wide text-(--color-text-faint)"
+                  className="kos-eyebrow px-2.5 pb-1 pt-2"
                 >
                   {language?.quick_find_groups[section.group] ?? section.group}
                 </div>
@@ -227,7 +227,7 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
           })}
         </div>
         {(status || textUnavailable) && (
-          <p role="status" className="border-t border-(--color-border) px-4 py-3 text-xs text-(--color-text-faint)">
+          <p role="status" className="border-t border-(--color-border) bg-(--color-bg-sidebar) px-4 py-2.5 text-xs text-(--color-text-faint)">
             {status ?? textUnavailable}
           </p>
         )}
@@ -262,9 +262,15 @@ function Option({
         if (!active) onHover();
       }}
       onClick={onChoose}
-      className={`flex cursor-pointer items-start gap-2.5 px-4 py-2 text-sm ${active ? "bg-(--color-bg-hover)" : ""}`}
+      className={`flex cursor-pointer items-start gap-2.5 rounded-(--radius-control) px-2.5 py-2 text-sm ${
+        active ? "bg-(--color-bg-active)" : ""
+      }`}
     >
-      <Icon size={14} className="mt-0.5 shrink-0 opacity-70" aria-hidden="true" />
+      <Icon
+        size={14}
+        className={`mt-0.5 shrink-0 ${active ? "text-(--color-accent-text)" : "text-(--color-text-faint)"}`}
+        aria-hidden="true"
+      />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate">{entry.title}</span>
         {option.snippetHtml && (

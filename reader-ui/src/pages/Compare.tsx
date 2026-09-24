@@ -3,15 +3,15 @@ import { api } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { PageSkeleton } from "../components/Skeleton";
 import { EmptyState, RecordNotFound } from "../components/EmptyState";
-import { Callout } from "../components/Callout";
+import { Callout, LoadError } from "../components/Callout";
 import { Pill } from "../components/Pill";
 import { useShell } from "../components/Shell";
 import type { Comparison, DiffBlock } from "../api/types";
 
 const BLOCK_CLASSES: Record<DiffBlock["kind"], string> = {
   equal: "",
-  added: "bg-(--color-accent-green-bg) rounded px-2 -mx-2",
-  removed: "bg-(--color-accent-red-bg) rounded px-2 -mx-2",
+  added: "bg-(--color-accent-green-bg) rounded-(--radius-control) px-2 -mx-2 shadow-[inset_2px_0_0_var(--color-accent-green-text)]",
+  removed: "bg-(--color-accent-red-bg) rounded-(--radius-control) px-2 -mx-2 shadow-[inset_2px_0_0_var(--color-accent-red-text)]",
   // A "changed" paragraph carries no fill of its own -- an amber left rule
   // marks it as "this one differs", while the words that actually moved
   // get the fill (via [&_mark]) instead. Tinting the *whole* paragraph the
@@ -26,7 +26,7 @@ function ComparisonBlock({ comparison }: { comparison: Comparison }) {
   if (comparison.state !== "ok") {
     return (
       <section className="mt-8">
-        <h2 className="mb-2 text-lg font-semibold">{comparison.heading}</h2>
+        <h2 className="kos-heading mb-3">{comparison.heading}</h2>
         <Callout tone="neutral">{comparison.detail}</Callout>
       </section>
     );
@@ -34,7 +34,7 @@ function ComparisonBlock({ comparison }: { comparison: Comparison }) {
   return (
     <section className="mt-10">
       <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-lg font-semibold">{comparison.heading}</h2>
+        <h2 className="kos-heading">{comparison.heading}</h2>
         {comparison.summary && <p className="text-sm text-(--color-text-muted)">{comparison.summary}</p>}
       </div>
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -43,7 +43,7 @@ function ComparisonBlock({ comparison }: { comparison: Comparison }) {
             <Pill pill={comparison.left?.status_pill} />
             <span className="truncate font-medium">{comparison.left?.title}</span>
           </div>
-          <div className="space-y-3 rounded-lg border border-(--color-border) bg-(--color-bg-raised) p-4">
+          <div className="kos-card space-y-3 p-5">
             {comparison.blocks.map((block, index) => (
               <div key={index} className={`prose prose-kos prose-sm max-w-none ${BLOCK_CLASSES[block.kind]}`}>
                 {block.left_html ? (
@@ -60,7 +60,7 @@ function ComparisonBlock({ comparison }: { comparison: Comparison }) {
             <Pill pill={comparison.right?.status_pill} />
             <span className="truncate font-medium">{comparison.right?.title}</span>
           </div>
-          <div className="space-y-3 rounded-lg border border-(--color-border) bg-(--color-bg-raised) p-4">
+          <div className="kos-card space-y-3 p-5">
             {comparison.blocks.map((block, index) => (
               <div key={index} className={`prose prose-kos prose-sm max-w-none ${BLOCK_CLASSES[block.kind]}`}>
                 {block.right_html ? (
@@ -84,17 +84,17 @@ export function Compare() {
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
-  if (error || !data) return <Callout tone="danger">{error ?? "Could not load this comparison."}</Callout>;
+  if (error || !data) return <LoadError>{error ?? "Could not load this comparison."}</LoadError>;
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10">
-      <p className="text-sm text-(--color-text-muted)">
-        <Link to={`/r/${data.record.id}`} className="hover:underline">
+      <p className="mb-2 text-[13px] text-(--color-text-muted)">
+        <Link to={`/r/${data.record.id}`} className="rounded-sm hover:text-(--color-text) hover:underline hover:underline-offset-[3px]">
           {data.record.title}
         </Link>
       </p>
-      <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">Compare</h1>
-      <p className="mt-1 text-(--color-text-muted)">{data.status_text}</p>
+      <h1 className="kos-title">Compare</h1>
+      <p className="kos-lede">{data.status_text}</p>
 
       {data.comparisons.length === 0 ? (
         <div className="mt-8">
@@ -104,7 +104,7 @@ export function Compare() {
             action={
               <Link
                 to={`/r/${data.record.id}`}
-                className="mt-2 rounded-md border border-(--color-border) px-3 py-1.5 text-sm hover:bg-(--color-bg-hover)"
+                className="kos-btn kos-btn-secondary mt-3"
               >
                 Back to {data.record.title}
               </Link>

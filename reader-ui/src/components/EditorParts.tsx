@@ -2,18 +2,21 @@ import type { ReactNode } from "react";
 import type { Blocker } from "react-router";
 import { ConfirmDialog } from "./ConfirmDialog";
 
+/** The label over a form field. Shared with the dialogs that ask for a name
+ * or a reason, so every field in the app is labelled the same way. */
+export const fieldLabelClass = "mb-1.5 block text-[13px] font-medium text-(--color-text-muted)";
+
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-(--color-text-faint)">{label}</span>
+      <span className={fieldLabelClass}>{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-(--color-text-faint)">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-xs text-(--color-text-faint)">{hint}</span>}
     </label>
   );
 }
 
-export const inputClass =
-  "w-full rounded-md border border-(--color-border) bg-(--color-bg-raised) px-3 py-1.5 text-sm outline-none focus:border-(--color-border-strong)";
+export const inputClass = "kos-input";
 
 /** "a, b , c" -> ["a", "b", "c"]; list fields are edited as comma-separated text. */
 export function parseList(text: string): string[] {
@@ -48,12 +51,7 @@ export function PrimaryButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="rounded-md bg-(--color-text) px-3.5 py-1.5 text-sm font-medium text-(--color-bg) hover:opacity-90 disabled:opacity-40"
-    >
+    <button type="button" onClick={onClick} disabled={disabled} className="kos-btn kos-btn-primary">
       {children}
     </button>
   );
@@ -61,11 +59,7 @@ export function PrimaryButton({
 
 export function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-md border border-(--color-border) px-3.5 py-1.5 text-sm hover:bg-(--color-bg-hover)"
-    >
+    <button type="button" onClick={onClick} className="kos-btn kos-btn-secondary">
       {children}
     </button>
   );

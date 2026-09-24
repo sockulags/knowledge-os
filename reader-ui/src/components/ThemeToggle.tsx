@@ -31,7 +31,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      className="flex h-8 w-8 items-center justify-center rounded-md text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+      className="kos-icon-btn"
     >
       {isDark ? <Sun size={16} /> : <Moon size={16} />}
     </button>

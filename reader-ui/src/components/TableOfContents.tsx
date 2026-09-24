@@ -37,15 +37,15 @@ export function TableOfContents({ headings }: { headings: Heading[] }) {
       aria-label="On this page"
       className="hidden xl:block sticky top-20 max-h-[calc(100vh-6rem)] w-56 shrink-0 overflow-y-auto self-start pl-2 text-sm"
     >
-      <p className="mb-2 font-medium text-(--color-text-faint)">On this page</p>
+      <p className="kos-eyebrow mb-2.5">On this page</p>
       <ul className="space-y-1 border-l border-(--color-border)">
         {headings.map(([level, text, anchor]) => (
           <li key={anchor} style={{ paddingLeft: `${(level - 1) * 0.65 + 0.65}rem` }}>
             <a
               href={`#${anchor}`}
-              className={`-ml-px block border-l-2 py-0.5 pl-2 transition-colors ${
+              className={`-ml-px block border-l-2 py-0.5 pl-2 text-[13px] leading-snug transition-colors ${
                 activeAnchor === anchor
-                  ? "border-(--color-text) font-medium text-(--color-text)"
+                  ? "border-(--color-accent) font-medium text-(--color-text)"
                   : "border-transparent text-(--color-text-muted) hover:text-(--color-text)"
               }`}
             >

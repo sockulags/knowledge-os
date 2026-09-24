@@ -17,15 +17,14 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="mx-auto flex max-w-[520px] flex-col items-center gap-3 px-6 py-24 text-center">
-      <div className="mb-1 text-(--color-text-faint)">{icon ?? <Compass size={28} strokeWidth={1.5} />}</div>
-      <h1 className="text-xl font-semibold">{title}</h1>
+    <div className="mx-auto flex max-w-[520px] flex-col items-center gap-3 px-6 py-20 text-center">
+      <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-(--color-accent-ink-bg) text-(--color-accent-ink-text)">
+        {icon ?? <Compass size={26} strokeWidth={1.5} />}
+      </div>
+      <h1 className="kos-heading text-[24px]">{title}</h1>
       {body && <p className="text-(--color-text-muted)">{body}</p>}
       {action ?? (
-        <Link
-          to="/"
-          className="mt-2 rounded-md border border-(--color-border) px-3 py-1.5 text-sm hover:bg-(--color-bg-hover)"
-        >
+        <Link to="/" className="kos-btn kos-btn-secondary mt-3">
           Back home
         </Link>
       )}
