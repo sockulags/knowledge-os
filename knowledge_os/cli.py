@@ -24,14 +24,25 @@ from .discovery import (
 from .index import rebuild_indexes, search_index
 from .ingest import ingest_source
 from .model import MetadataError, content_sha256
-from .mutations import accept_decision, supersede_decision, update_record, withdraw_decision
+from .mutations import (
+    accept_decision,
+    neutral_withdrawal_reference,
+    supersede_decision,
+    update_record,
+    withdraw_decision,
+)
 from .structure import (
+    DeletePlan,
     StructureResult,
     cli_provenance,
     create_folder,
     create_project,
+    delete_folder,
+    delete_record,
     move_folder,
     move_record,
+    plan_folder_deletion,
+    plan_page_deletion,
     rename_record,
 )
 from .version_info import path_warning, version_lines
@@ -136,7 +147,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     decision_withdraw.add_argument("id")
     decision_withdraw.add_argument("--expected-sha256", required=True)
-    decision_withdraw.add_argument("--reason", required=True)
+    decision_withdraw.add_argument(
+        "--reason", help="why the proposal is dropped (optional; without it a neutral reference is recorded)"
+    )
     decision_withdraw.add_argument("--json", action="store_true", dest="as_json")
     _root_option(decision_withdraw)
 
@@ -237,7 +250,7 @@ def _structure_commands(commands: argparse._SubParsersAction) -> None:
     project_create.add_argument("--json", action="store_true", dest="as_json")
     _root_option(project_create)
 
-    folder = commands.add_parser("folder", help="create, move, or rename a folder in a project")
+    folder = commands.add_parser("folder", help="create, move, rename, or delete a folder in a project")
     _root_option(folder)
     folder_commands = folder.add_subparsers(dest="folder_command", required=True)
     folder_create = folder_commands.add_parser("create", help="create a folder as its README.md page")
@@ -275,12 +288,99 @@ def _structure_commands(commands: argparse._SubParsersAction) -> None:
     move.add_argument("--json", action="store_true", dest="as_json")
     _root_option(move)
 
+    folder_delete = folder_commands.add_parser("delete", help="delete a folder and everything in it")
+    folder_delete.add_argument("project")
+    folder_delete.add_argument("path", help="folder path inside the project")
+    folder_delete.add_argument("--dry-run", action="store_true", help="show what would be deleted and changed")
+    folder_delete.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(folder_delete)
+
+    delete = commands.add_parser(
+        "delete",
+        help="delete a knowledge, project, or memory page",
+        description=(
+            "Delete one page. Other pages' related and sources entries for it are removed in the same change; "
+            "Markdown links to it are left and listed. Refused for a project overview, a folder's own page "
+            "(use 'kos folder delete'), a decision in force or replaced, and a page another record names as "
+            "lineage, provenance, or evidence. Nothing is committed to Git; the content stays in Git history."
+        ),
+    )
+    delete.add_argument("id")
+    delete.add_argument("--expected-sha256", help="required unless --dry-run")
+    delete.add_argument("--dry-run", action="store_true", help="show what would be deleted and changed")
+    delete.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(delete)
+
     rename = commands.add_parser("rename", help="change a page's title; its id and file stay the same")
     rename.add_argument("id")
     rename.add_argument("--title", required=True)
     rename.add_argument("--expected-sha256", required=True)
     rename.add_argument("--json", action="store_true", dest="as_json")
     _root_option(rename)
+
+
+def _print_delete_plan(plan: DeletePlan, as_json: bool) -> None:
+    if as_json:
+        payload = {
+            "kind": plan.kind,
+            "id": plan.id,
+            "title": plan.title,
+            "path": plan.path,
+            "deletable": plan.deletable,
+            "files": list(plan.files),
+            "records": [{"id": item.id, "title": item.title, "path": item.path} for item in plan.records],
+            "referrers": [
+                {"id": item.id, "path": item.path, "fields": list(item.fields), "links": item.links}
+                for item in plan.referrers
+            ],
+            "blockers": [blocker.message() for blocker in plan.blockers],
+            "expected": dict(plan.expected),
+        }
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return
+    for path in plan.files:
+        print(f"Would delete {path}")
+    for referrer in plan.referrers:
+        if referrer.fields:
+            print(f"Would remove the reference from {referrer.path} ({', '.join(referrer.fields)})")
+        if referrer.links:
+            print(f"Links in {referrer.path} would no longer resolve")
+    for blocker in plan.blockers:
+        print(f"Refused: {blocker.message()}")
+
+
+def _run_delete(workspace: Workspace, args: argparse.Namespace) -> int | None:
+    """``kos delete ID`` and ``kos folder delete PROJECT PATH``, with ``--dry-run``."""
+
+    if args.command == "delete":
+        if args.dry_run:
+            _print_delete_plan(plan_page_deletion(workspace, args.id), args.as_json)
+            return 0
+        if not args.expected_sha256:
+            raise ValueError("kos delete requires --expected-sha256 (see 'kos inspect ID'), or --dry-run")
+        result = delete_record(workspace, args.id, expected_sha256=args.expected_sha256)
+    elif args.command == "folder" and args.folder_command == "delete":
+        if args.dry_run:
+            _print_delete_plan(plan_folder_deletion(workspace, args.project, args.path), args.as_json)
+            return 0
+        result = delete_folder(workspace, args.project, args.path)
+    else:
+        return None
+    if args.as_json:
+        payload = {
+            "id": result.id,
+            "path": result.path,
+            "deleted": list(result.deleted),
+            "changed": [{"id": item.id, "path": item.path, "sha256": item.sha256} for item in result.changed],
+        }
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    else:
+        for path in result.deleted:
+            print(f"Deleted {path}")
+        for item in result.changed:
+            print(f"Updated {item.path}")
+        print(f"Index refreshed: {result.index_count} record(s)")
+    return 0
 
 
 def _run_structure(workspace: Workspace, args: argparse.Namespace) -> StructureResult | None:
@@ -542,6 +642,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "inspect":
             return _inspect(workspace, args.id, args.full)
+        deleted = _run_delete(workspace, args)
+        if deleted is not None:
+            return deleted
         structure_result = _run_structure(workspace, args)
         if structure_result is not None:
             _print_structure(structure_result, args.as_json)
@@ -645,6 +748,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.id,
                 expected_sha256=args.expected_sha256,
                 reason=args.reason,
+                reference=neutral_withdrawal_reference("cli"),
             )
             payload = {
                 "id": result.id,

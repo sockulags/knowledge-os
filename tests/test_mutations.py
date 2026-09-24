@@ -266,6 +266,36 @@ class MutationTests(unittest.TestCase):
             self.assertNotEqual(refused_non_decision.returncode, 0)
             self.assertIn("is not a decision", refused_non_decision.stderr)
 
+    def test_decision_withdraw_without_a_reason_records_a_neutral_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+            draft = {
+                "id": "idea-one", "title": "Idea one", "type": "project", "record_kind": "decision",
+                "status": "draft", "scope": "project:demo", "created": "2026-08-29", "updated": "2026-08-29",
+                "provenance": [{"kind": "proposal", "reference": "proposal:idea"}],
+            }
+            first = root / "projects" / "demo" / "idea-one.md"
+            second = root / "projects" / "demo" / "idea-two.md"
+            write_record(first, draft)
+            write_record(second, {**draft, "id": "idea-two", "title": "Idea two"})
+            index_workspace(root)
+
+            # The core: no reason and no reference records a "kos" stamp.
+            result = mutations_module.withdraw_decision(
+                Workspace(root), "idea-one", expected_sha256=digest(first), reason="   "
+            )
+            self.assertEqual(result.status, "archived")
+            entry = [item for item in metadata(first)["provenance"] if item["kind"] == "decision-withdrawal"][0]
+            self.assertRegex(entry["reference"], r"^kos:\d{4}-\d{2}-\d{2}T[0-9:]+Z:withdraw$")
+
+            # The CLI: --reason is optional and a "cli" stamp is recorded.
+            withdrawn = run_kos(root, "decision", "withdraw", "idea-two", "--expected-sha256", digest(second))
+            self.assertEqual(withdrawn.returncode, 0, withdrawn.stderr)
+            entry = [item for item in metadata(second)["provenance"] if item["kind"] == "decision-withdrawal"][0]
+            self.assertRegex(entry["reference"], r"^cli:\d{4}-\d{2}-\d{2}T[0-9:]+Z:withdraw$")
+            self.assertEqual(run_kos(root, "lint").returncode, 0)
+
     def test_decision_withdrawal_provenance_rejected_off_archived_decisions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

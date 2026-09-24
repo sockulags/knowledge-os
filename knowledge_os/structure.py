@@ -1,4 +1,13 @@
-"""Create projects and folders; move and rename pages and folders.
+"""Create projects and folders; move, rename, and delete pages and folders.
+
+Deleting (``delete_record``, ``delete_folder``) removes a page or a folder
+with everything in it, under the same lock, staged lint, and undo-on-failure
+as a move. Other records' ``related`` and ``sources`` entries for a deleted
+record are removed in the same change; lineage (``supersedes``), provenance,
+evidence, promotion targets, and decisions in force or replaced refuse the
+deletion; Markdown links are left as they are and reported by
+``plan_page_deletion``/``plan_folder_deletion``, which describe a deletion
+without writing anything.
 
 Creating a project writes its required overview ``projects/<id>/README.md``,
 and creating a folder writes the folder's ``README.md`` root record, both
@@ -40,7 +49,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .capture import CaptureIndexError, DuplicateRecordError, capture_record_text
-from .links import rewrite_links
+from .links import relative_links, rewrite_links
 from .model import ID_PATTERN, SHA256_PATTERN, Document, MetadataError, content_sha256, parse_document_text, render_document
 from .mutations import (
     MutationError,
@@ -115,6 +124,7 @@ class StructureResult:
     touched: tuple[str, ...]
     scope_changed: bool = False
     index_count: int = 0
+    deleted: tuple[str, ...] = ()  # every file a deletion removed
 
 
 def cli_provenance(action: str) -> dict[str, str]:
@@ -284,6 +294,8 @@ class _Plan:
     directory_move: tuple[str, str] | None = None  # (old directory, new directory)
     file_moves: list[tuple[str, str]] = field(default_factory=list)  # (old path, new path)
     writes: dict[str, bytes] = field(default_factory=dict)  # final path -> bytes
+    deletes: list[str] = field(default_factory=list)  # files removed
+    remove_dirs: list[str] = field(default_factory=list)  # emptied directories removed, deepest first
     prune: list[tuple[str, str]] = field(default_factory=list)  # (directory, stop): remove while empty
 
 
@@ -319,6 +331,13 @@ def _apply(root: Path, plan: _Plan, journal: list[tuple[Any, ...]]) -> None:
         original = (root / relative).read_bytes()
         atomic_write(root / relative, content)
         journal.append(("replaced", relative, original))
+    for relative in plan.deletes:
+        original = (root / relative).read_bytes()
+        (root / relative).unlink()
+        journal.append(("removed", relative, original))
+    for directory in plan.remove_dirs:
+        (root / directory).rmdir()
+        journal.append(("rmdir", directory))
     for directory, stop in plan.prune:
         current = directory
         while current.startswith(stop + "/"):
@@ -816,3 +835,413 @@ def move_folder(
             scope_changed=scope_changed,
         )
         return _finish(workspace, result)
+
+
+# ---------------------------------------------------------------------------
+# Delete a page or a folder
+# ---------------------------------------------------------------------------
+
+#: The record types a person may delete: the ones capture and the interface
+#: create. Raw sources, syntheses, and discoveries keep their own workflows.
+DELETABLE_TYPES = frozenset({"knowledge", "project", "memory"})
+
+#: Relationship fields whose entries pointing at a deleted record are removed
+#: from the referring record. ``supersedes`` is lineage and blocks instead.
+CLEANED_FIELDS = ("related", "sources")
+
+
+@dataclass(frozen=True)
+class DeleteBlocker:
+    """One reason a deletion is refused.
+
+    ``kind`` is ``type`` (not a deletable record type; ``detail`` holds the
+    type), ``overview`` (a project overview), ``folder_page`` (a folder's own
+    ``README.md`` page on its own), ``in_force`` (an active decision),
+    ``replaced`` (a superseded record), ``replaced_by`` (another record
+    ``supersedes`` it), ``origin`` (another record's provenance names it),
+    ``evidence`` (a discovery cites it as evidence), ``promoted`` (a promoted
+    discovery's review targets it), or ``raw_reference`` (a raw source lists
+    it in ``related`` or ``sources``, and sources are never rewritten).
+    """
+
+    kind: str
+    record_id: str
+    title: str
+    other_id: str | None = None
+    other_title: str | None = None
+    detail: str = ""
+
+    def message(self) -> str:
+        subject = repr(self.record_id)
+        other = repr(self.other_id)
+        messages = {
+            "type": f"{subject} is a {self.detail!r} record; only knowledge, project, and memory pages can be deleted",
+            "overview": f"{subject} is the project overview; a project cannot be deleted this way",
+            "folder_page": f"{subject} is a folder's own page; delete the folder instead",
+            "in_force": f"decision {subject} is in force; propose a decision that replaces it instead of deleting it",
+            "replaced": f"{subject} was replaced and stays as history of the record that replaced it",
+            "replaced_by": f"{other} supersedes {subject}; a replaced record stays as history",
+            "origin": f"{other} names {subject} in its provenance",
+            "evidence": f"discovery {other} cites {subject} as evidence",
+            "promoted": f"{subject} was promoted from discovery {other}, which points at it",
+            "raw_reference": f"raw source {other} lists {subject} in related or sources, and sources are never rewritten",
+        }
+        return messages.get(self.kind, f"{subject} cannot be deleted ({self.kind})")
+
+
+@dataclass(frozen=True)
+class DeletedRecord:
+    id: str
+    title: str
+    path: str
+    type: str
+    status: str
+    record_kind: str | None
+
+
+@dataclass(frozen=True)
+class Referrer:
+    """A record outside the deletion that refers to something in it.
+
+    ``fields`` names the relationship fields that lose their entries for the
+    deleted records; ``links`` is true when its text links into the
+    deletion. Markdown links are left as they are and only reported.
+    """
+
+    id: str
+    title: str
+    path: str
+    fields: tuple[str, ...]
+    links: bool
+
+
+@dataclass(frozen=True)
+class DeletePlan:
+    """What a deletion would remove and change, computed from one read.
+
+    ``path`` is the page's path, or the folder's directory. ``files`` is
+    every file removed (a folder's pages, its ``README.md``, and any other
+    file in it); ``expected`` is the SHA-256 of every file removed or
+    rewritten, which a caller that showed this plan sends back so nothing
+    it did not show is deleted or changed.
+    """
+
+    kind: str  # "page" or "folder"
+    id: str | None
+    title: str
+    path: str
+    project: str
+    folder: str
+    records: tuple[DeletedRecord, ...]
+    files: tuple[str, ...]
+    referrers: tuple[Referrer, ...]
+    blockers: tuple[DeleteBlocker, ...]
+    expected: Mapping[str, str]
+
+    @property
+    def deletable(self) -> bool:
+        return not self.blockers
+
+
+def _project_of(document: Document) -> str:
+    scope = document.metadata["scope"]
+    return scope.removeprefix("project:") if scope.startswith("project:") else ""
+
+
+def _plan_deletion(
+    workspace: Workspace,
+    documents: list[Document],
+    *,
+    kind: str,
+    main: Document | None,
+    title: str,
+    path: str,
+    project: str,
+    folder: str,
+    removed: list[Document],
+    files: list[str],
+) -> DeletePlan:
+    removed_ids = {document.metadata["id"] for document in removed}
+    titles = {document.metadata["id"]: document.metadata["title"] for document in documents}
+    blockers: list[DeleteBlocker] = []
+
+    def block(kind_: str, record_id: str, other_id: str | None = None, detail: str = "") -> None:
+        other_title = titles.get(other_id, other_id) if other_id is not None else None
+        blocker = DeleteBlocker(kind_, record_id, titles.get(record_id, record_id), other_id, other_title, detail)
+        if blocker not in blockers:
+            blockers.append(blocker)
+
+    for document in removed:
+        metadata = document.metadata
+        record_id = metadata["id"]
+        if metadata["type"] not in DELETABLE_TYPES:
+            block("type", record_id, detail=metadata["type"])
+            continue
+        is_overview = metadata["type"] == "project" and record_id == _project_of(document)
+        if is_overview:
+            block("overview", record_id)
+        elif kind == "page" and document.path.name == PROJECT_ROOT_FILE and metadata["type"] == "project":
+            block("folder_page", record_id)
+        if metadata["status"] == "active" and metadata.get("record_kind") == "decision":
+            block("in_force", record_id)
+        if metadata["status"] == "superseded":
+            block("replaced", record_id)
+
+    removed_files = set(files)
+    referrers: list[Referrer] = []
+    for other in documents:
+        metadata = other.metadata
+        other_id = metadata["id"]
+        if other_id in removed_ids:
+            continue
+        for target in metadata.get("supersedes", []):
+            if target in removed_ids:
+                block("replaced_by", target, other_id)
+        for entry in metadata.get("provenance", []):
+            if entry.get("kind") == "record" and entry.get("reference") in removed_ids:
+                block("origin", entry["reference"], other_id)
+        for entry in metadata.get("evidence", []) or []:
+            if entry.get("kind") == "record" and entry.get("reference") in removed_ids:
+                block("evidence", entry["reference"], other_id)
+        if metadata["type"] == "discovery" and metadata["status"] == "promoted" and metadata.get("reviews"):
+            target = metadata["reviews"][-1].get("target")
+            if target in removed_ids:
+                block("promoted", target, other_id)
+        fields = tuple(
+            name for name in CLEANED_FIELDS if any(target in removed_ids for target in metadata.get(name, []))
+        )
+        if fields and metadata["type"] in UNREWRITTEN_TYPES:
+            for name in fields:
+                for target in metadata.get(name, []):
+                    if target in removed_ids:
+                        block("raw_reference", target, other_id)
+            fields = ()
+        source = workspace.relative(other.path)
+        linked = any(
+            target in removed_files or (kind == "folder" and (target == path or target.startswith(path + "/")))
+            for target, _fragment in relative_links(other.body, source)
+        )
+        if fields or linked:
+            referrers.append(Referrer(other_id, metadata["title"], source, fields, linked))
+
+    expected = {relative: content_sha256(workspace.root / relative) for relative in files}
+    for referrer in referrers:
+        if referrer.fields:
+            expected[referrer.path] = content_sha256(workspace.root / referrer.path)
+    records = tuple(
+        DeletedRecord(
+            document.metadata["id"],
+            document.metadata["title"],
+            workspace.relative(document.path),
+            document.metadata["type"],
+            document.metadata["status"],
+            document.metadata.get("record_kind"),
+        )
+        for document in sorted(removed, key=lambda item: workspace.relative(item.path))
+    )
+    return DeletePlan(
+        kind=kind,
+        id=main.metadata["id"] if main is not None else None,
+        title=title,
+        path=path,
+        project=project,
+        folder=folder,
+        records=records,
+        files=tuple(sorted(files)),
+        referrers=tuple(sorted(referrers, key=lambda item: item.path)),
+        blockers=tuple(blockers),
+        expected=expected,
+    )
+
+
+def _page_plan(
+    workspace: Workspace, documents: list[Document], by_id: Mapping[str, Document], record_id: str
+) -> DeletePlan:
+    current = by_id.get(record_id)
+    if current is None:
+        raise RecordNotFoundError(f"record not found: {record_id}")
+    relative = workspace.relative(current.path)
+    project = _project_of(current)
+    return _plan_deletion(
+        workspace,
+        documents,
+        kind="page",
+        main=current,
+        title=current.metadata["title"],
+        path=relative,
+        project=project,
+        folder=_folder_of(relative, project) if project else "",
+        removed=[current],
+        files=[relative],
+    )
+
+
+def _folder_plan(
+    workspace: Workspace, documents: list[Document], by_id: Mapping[str, Document], project_id: str, folder: str
+) -> DeletePlan:
+    folder = clean_folder(folder)
+    if not folder:
+        raise StructureError("name a folder inside the project; a whole project cannot be deleted")
+    _require_project(by_id, project_id)
+    directory = f"projects/{project_id}/{folder}"
+    workspace.assert_safe_path(workspace.root / directory)
+    if not (workspace.root / directory).is_dir():
+        raise RecordNotFoundError(f"folder not found: {folder} in project {project_id}")
+    removed = [document for document in documents if workspace.relative(document.path).startswith(directory + "/")]
+    readme_path = f"{directory}/{PROJECT_ROOT_FILE}"
+    readme = next((document for document in removed if workspace.relative(document.path) == readme_path), None)
+    return _plan_deletion(
+        workspace,
+        documents,
+        kind="folder",
+        main=readme,
+        title=readme.metadata["title"] if readme is not None else posixpath.basename(folder),
+        path=directory,
+        project=project_id,
+        folder=folder,
+        removed=removed,
+        files=_files_below(workspace.root, directory),
+    )
+
+
+def plan_page_deletion(workspace: Workspace, record_id: str) -> DeletePlan:
+    """What deleting one page would remove and change, and whether it is allowed. Writes nothing."""
+
+    documents, by_id = _documents(workspace, "delete a page")
+    return _page_plan(workspace, documents, by_id, record_id)
+
+
+def plan_folder_deletion(workspace: Workspace, project_id: str, folder: str) -> DeletePlan:
+    """What deleting one folder with everything in it would remove and change. Writes nothing."""
+
+    documents, by_id = _documents(workspace, "delete a folder")
+    return _folder_plan(workspace, documents, by_id, project_id, folder)
+
+
+def _without_references(content: bytes, removed_ids: set[str]) -> bytes:
+    document = parse_document_text(Path("record.md"), content.decode("utf-8"), check_filename=False)
+    metadata = deepcopy(document.metadata)
+    for name in CLEANED_FIELDS:
+        if name not in metadata:
+            continue
+        kept = [target for target in metadata[name] if target not in removed_ids]
+        if kept:
+            metadata[name] = kept
+        else:
+            del metadata[name]
+    metadata["updated"] = _today_after(metadata["updated"])
+    return render_document(metadata, document.body)
+
+
+def _check_plan_expected(workspace: Workspace, plan: DeletePlan, expected: Mapping[str, str] | None) -> None:
+    """With ``expected`` (the hashes a caller showed), refuse when the
+    deletion would remove or rewrite a file the caller did not show, or one
+    that changed since."""
+
+    if expected is None:
+        return
+    for relative in sorted(plan.expected):
+        if relative not in expected:
+            raise StaleRevisionError(
+                f"conflict for {relative}: it changed or appeared after the deletion was shown, so nothing was "
+                "deleted; look again before deleting",
+                expected="",
+                actual=plan.expected[relative],
+            )
+    _check_expected(workspace, {path: digest for path, digest in expected.items() if path in plan.expected})
+
+
+def _execute_deletion(
+    workspace: Workspace, documents: list[Document], plan: DeletePlan, expected: Mapping[str, str] | None
+) -> StructureResult:
+    operation = f"delete a {plan.kind}"
+    if plan.blockers:
+        raise StructureError(f"cannot {operation}: " + "; ".join(blocker.message() for blocker in plan.blockers))
+    _check_plan_expected(workspace, plan, expected)
+    removed_ids = {record.id for record in plan.records}
+    writes = {
+        referrer.path: _without_references((workspace.root / referrer.path).read_bytes(), removed_ids)
+        for referrer in plan.referrers
+        if referrer.fields
+    }
+    remove_dirs: list[str] = []
+    if plan.kind == "folder":
+        for current, _directories, _files in os.walk(workspace.root / plan.path):
+            remove_dirs.append(Path(current).relative_to(workspace.root).as_posix())
+        remove_dirs.sort(key=lambda item: item.count("/"), reverse=True)
+    prune = []
+    if plan.project and plan.path.startswith(f"projects/{plan.project}/"):
+        prune = [(posixpath.dirname(plan.path), f"projects/{plan.project}")]
+    _execute(
+        workspace,
+        _Plan(writes=writes, deletes=list(plan.files), remove_dirs=remove_dirs, prune=prune),
+        operation,
+    )
+
+    by_path = {workspace.relative(document.path): document.metadata["id"] for document in documents}
+    changed = tuple(
+        ChangedFile(path, path, by_path.get(path), content_sha256(workspace.root / path)) for path in sorted(writes)
+    )
+    main = next((record for record in plan.records if record.id == plan.id), None)
+    result = StructureResult(
+        id=plan.id,
+        title=plan.title,
+        status=main.status if main is not None else None,
+        path=plan.path,
+        sha256=None,
+        project=plan.project,
+        folder=plan.folder,
+        changed=changed,
+        touched=tuple(sorted({*plan.files, *writes})),
+        deleted=plan.files,
+    )
+    return _finish(workspace, result)
+
+
+def delete_record(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    expected: Mapping[str, str] | None = None,
+) -> StructureResult:
+    """Delete one knowledge, project, or memory page.
+
+    Refused for a project overview, a folder's own page (delete the folder),
+    a decision in force or replaced, and a page that other records name as
+    lineage (``supersedes``), provenance, evidence, or a promotion target.
+    Other records' ``related`` and ``sources`` entries for it are removed in
+    the same change; Markdown links to it are left as they are. ``expected``
+    maps files the caller showed to their SHA-256, as returned in the plan.
+    """
+
+    with workspace_mutation_lock(workspace):
+        documents, by_id = _documents(workspace, "delete a page")
+        current = by_id.get(record_id)
+        if current is None:
+            raise RecordNotFoundError(f"record not found: {record_id}")
+        _check_hash(current.path, expected_sha256, current.path.name)
+        plan = _page_plan(workspace, documents, by_id, record_id)
+        return _execute_deletion(workspace, documents, plan, expected)
+
+
+def delete_folder(
+    workspace: Workspace,
+    project_id: str,
+    folder: str,
+    *,
+    expected: Mapping[str, str] | None = None,
+) -> StructureResult:
+    """Delete one folder in a project with every file in it.
+
+    Each record in it follows ``delete_record``'s rules; references between
+    records deleted together do not matter. With ``expected`` (every file the
+    caller showed, mapped to its SHA-256), a file that is missing from it,
+    such as a page added since, refuses the deletion instead of being
+    removed unseen.
+    """
+
+    with workspace_mutation_lock(workspace):
+        documents, by_id = _documents(workspace, "delete a folder")
+        plan = _folder_plan(workspace, documents, by_id, project_id, folder)
+        return _execute_deletion(workspace, documents, plan, expected)

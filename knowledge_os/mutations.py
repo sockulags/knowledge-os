@@ -157,14 +157,32 @@ def _acceptance(reference: str) -> dict[str, object]:
     }
 
 
-def _withdrawal(reason: str) -> dict[str, object]:
-    if not isinstance(reason, str) or not reason.strip():
-        raise MutationError("--reason must be a non-empty string")
+def _withdrawal(reason: str | None, reference: str | None) -> dict[str, object]:
+    """The ``decision-withdrawal`` entry: the reason when one was given, else
+    the caller's neutral reference (see ``neutral_withdrawal_reference``)."""
+
+    if reason is not None and not isinstance(reason, str):
+        raise MutationError("--reason must be a string")
+    text = (reason or "").strip()
+    if not text:
+        if not isinstance(reference, str) or not reference.strip():
+            raise MutationError("a withdrawal without a reason needs a neutral provenance reference")
+        text = reference.strip()
     return {
         "kind": DECISION_WITHDRAWAL_KIND,
-        "reference": reason.strip(),
+        "reference": text,
         "captured": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
+
+
+def neutral_withdrawal_reference(origin: str) -> str:
+    """The provenance reference of a withdrawal without a reason, such as
+    ``cli:2026-09-25T10:00:00Z:withdraw`` or ``interface:...:withdraw``. It
+    names where and when the proposal was withdrawn and nothing more; the
+    reader reads it as "Withdrawn on <date>" with no reason."""
+
+    stamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return f"{origin}:{stamp}:withdraw"
 
 
 def _write_one(workspace: Workspace, document: Document, metadata: dict[str, object], body: str, operation: str) -> MutationResult:
@@ -340,10 +358,17 @@ def withdraw_decision(
     record_id: str,
     *,
     expected_sha256: str,
-    reason: str,
+    reason: str | None = None,
+    reference: str | None = None,
 ) -> MutationResult:
-    """Retire one proposed decision to archived without accepting it."""
+    """Retire one proposed decision to archived without accepting it.
 
+    ``reason`` is optional. Without one, ``reference`` (a neutral machine
+    reference from ``neutral_withdrawal_reference``) is recorded instead;
+    when both are missing, a ``kos`` one is made up here."""
+
+    if not (reason or "").strip() and not (reference or "").strip():
+        reference = neutral_withdrawal_reference("kos")
     with workspace_mutation_lock(workspace):
         _, by_id = _documents_for_mutation(workspace, "withdraw a decision")
         current = by_id.get(record_id)
@@ -361,7 +386,7 @@ def withdraw_decision(
         metadata = deepcopy(current.metadata)
         metadata["status"] = "archived"
         metadata["updated"] = _today_after(metadata["updated"])
-        metadata["provenance"] = [*metadata["provenance"], _withdrawal(reason)]
+        metadata["provenance"] = [*metadata["provenance"], _withdrawal(reason, reference)]
         return _write_one(workspace, current, metadata, current.body, "withdraw a decision")
 
 
