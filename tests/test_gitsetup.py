@@ -157,6 +157,7 @@ class CloneTests(GitTestCase):
         with self.assertRaises(GitSyncError) as caught:
             gitsetup.clone_workspace(url.replace("http://", "http://someone@"), target, idle_timeout=20)
         self.assertEqual(caught.exception.kind, "auth")
+        self.assertNotIn("Cloning into", caught.exception.message)
         self.assertLess(time.monotonic() - started, 20)
         self.assertFalse(target.exists())
 

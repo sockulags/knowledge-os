@@ -33,6 +33,7 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -198,6 +199,19 @@ def _ssh_batch_at(git: str, cwd: Path) -> bool:
     return result.returncode != 0 or not _text(result.stdout)
 
 
+_PROGRESS_LINE = re.compile(
+    rb"^(Cloning into |remote: (Enumerating|Counting|Compressing|Total)|Receiving objects|Resolving deltas|"
+    rb"Updating files|Checking out files)"
+)
+
+
+def _without_progress(result: subprocess.CompletedProcess[bytes]) -> subprocess.CompletedProcess[bytes]:
+    """Keep only Git's messages, not its progress lines, for an error message."""
+
+    lines = [line for line in re.split(rb"[\r\n]+", result.stderr) if line.strip() and not _PROGRESS_LINE.match(line)]
+    return subprocess.CompletedProcess(result.args, result.returncode, result.stdout, b"\n".join(lines))
+
+
 def _percent(line: str) -> int | None:
     found = re.search(r"(\d{1,3})%", line)
     return int(found.group(1)) if found else None
@@ -263,7 +277,7 @@ def clone_workspace(
         raise
     if result.returncode != 0:
         _empty_directory(target, remove_itself=not existed)
-        raise _classify_network_failure(result, "Cloning")
+        raise _classify_network_failure(_without_progress(result), "Cloning")
 
     report(CloneProgress("check"))
     if not (target / _MARKER).is_file():
