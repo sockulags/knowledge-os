@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { ChevronRight, FilePlus, Folder, FolderKanban, FolderPlus, MoreHorizontal, MoveRight, Pencil } from "lucide-react";
 import type { NavProject, RecordSummary, TreeNode } from "../api/types";
 import { iconFor } from "../lib/icons";
+import { folderDisplayName } from "../lib/text";
 import { useStructure, type Place, type TreeItem } from "./Structure";
 
 // The project tree in the sidebar and on a project page. Pages and folders
@@ -342,7 +343,7 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
     // Also after a move brings the open page into this folder.
     if (holdsCurrentPage) setOpen(true);
   }, [holdsCurrentPage]);
-  const title = node.overview?.title ?? node.name;
+  const title = node.overview?.title ?? folderDisplayName(node.name);
   const item: TreeItem | null = node.in_project
     ? { kind: "folder", projectId, path: node.path, title, hasPage: node.overview !== null }
     : null;
@@ -362,7 +363,7 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
   const label = (
     <>
       <Folder size={14} className="shrink-0 opacity-70" />
-      <span className={`truncate ${node.overview ? "" : "capitalize"}`}>{title}</span>
+      <span className="truncate">{title}</span>
     </>
   );
 
