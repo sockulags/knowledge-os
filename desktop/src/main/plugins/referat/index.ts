@@ -5,7 +5,14 @@
 // know nothing about Referat; without Referat installed the plugin shows
 // that and nothing else changes.
 
-import { BrowserWindow, dialog, ipcMain, type MenuItemConstructorOptions } from 'electron'
+import {
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  type MenuItemConstructorOptions
+} from 'electron'
+import appIcon from '../../../../build/icon.ico?asset'
 import type { IpcMainInvokeEvent } from 'electron'
 import {
   findReferat,
@@ -166,6 +173,8 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
       minHeight: 480,
       show: false,
       title: 'Import from Referat',
+      icon: appIcon,
+      backgroundColor: nativeTheme.shouldUseDarkColors ? '#15181b' : '#fbfaf7',
       autoHideMenuBar: true,
       webPreferences: {
         preload: host.preloadPath,

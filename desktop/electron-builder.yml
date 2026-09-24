@@ -32,10 +32,18 @@ publish:
   provider: github
   owner: sockulags
   repo: knowledge-os
+# The app icon (build/icon.ico, generated from build/icon.svg by
+# `npm run icon`): the .exe, and through it the Start menu and desktop
+# shortcuts and the taskbar; the installer and uninstaller carry the same
+# icon. The windows set it too (src/main/index.ts).
 win:
   executableName: knowledge-os
   target: nsis
+  icon: build/icon.ico
 nsis:
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
   # Version-less artifact name, as in Referat, so a latest-download link never rots.
   artifactName: knowledge-os-setup.${ext}
   shortcutName: ${productName}

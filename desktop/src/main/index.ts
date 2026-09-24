@@ -2,12 +2,13 @@
 // create, or reopen a workspace; errors) or the reader UI served by the Python
 // core for the open workspace.
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron'
 import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { pathToFileURL } from 'url'
 import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
+import appIcon from '../../build/icon.ico?asset'
 import { decideNavigation } from './navigation'
 import { createReferatPlugin, type ReferatPlugin } from './plugins/referat'
 import {
@@ -418,6 +419,9 @@ function createWindow(): void {
     minHeight: 480,
     show: false,
     title: 'Knowledge OS',
+    icon: appIcon,
+    // The start page's paper tone, so the window never flashes white first.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#15181b' : '#fbfaf7',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

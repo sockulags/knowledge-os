@@ -20,12 +20,14 @@
     "dist": "npm run build:ui && npm run build:core && npm run build && electron-builder --win --publish never",
     "dist:test": "npm run build:ui && npm run build:core && npm run build && electron-builder --win --publish never --config electron-builder.test.yml",
     "test:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-installer.ps1",
+    "icon": "node scripts/build-icon.mjs",
     "postinstall": "install-electron"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^24.13.3",
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
