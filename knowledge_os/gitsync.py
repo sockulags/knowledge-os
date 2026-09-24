@@ -37,11 +37,13 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 import tomllib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .workspace import Workspace, WorkspaceError, refresh_derived_indexes, validate_workspace, workspace_mutation_lock
 
@@ -83,6 +85,11 @@ _NETWORK_MARKERS = (
     "operation timed out",
     "no route to host",
 )
+_NOT_FOUND_PATTERNS = (
+    r"does not appear to be a git repository",
+    r"repository '[^']*' not found",
+    r"requested url returned error: 404",
+)
 
 
 class GitSyncError(Exception):
@@ -96,6 +103,12 @@ class GitSyncError(Exception):
     conflicts), ``not_conflicted`` (a resolve named a file that is not in
     conflict), ``lint`` (resolved files leave the corpus invalid),
     ``no_merge``, and ``failed`` (any other Git failure).
+
+    Cloning and the guided setup (:mod:`knowledge_os.gitsetup`) add
+    ``not_found`` (no repository at that address), ``bad_url``,
+    ``bad_identity``, ``cancelled``, ``target_not_empty``,
+    ``not_a_knowledge_base``, ``remote_not_empty`` (the remote has commits
+    unrelated to this knowledge base), and ``wrong_step``.
     """
 
     def __init__(
@@ -295,6 +308,118 @@ def _out(repo: Repository, *args: str) -> str:
     return _text(_git(repo, *args).stdout)
 
 
+def _run_git_streaming(
+    git: str,
+    cwd: Path,
+    args: Iterable[str],
+    *,
+    timeout: float,
+    idle_timeout: float,
+    ssh_batch: bool = False,
+    on_line: Callable[[str], None] | None = None,
+    cancel: threading.Event | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    """Run Git like :func:`_run_git`, reporting its progress as it goes.
+
+    For long network operations (a clone): each line Git writes to stderr
+    (progress lines end in a carriage return) is passed to ``on_line``. The
+    process tree is killed when ``cancel`` is set (kind ``cancelled``), when
+    the whole run exceeds ``timeout``, or when Git prints nothing for
+    ``idle_timeout`` seconds, which catches a remote that accepts the
+    connection and then never answers (kind ``timeout``).
+    """
+
+    command = [git, "-c", "core.quotepath=false", *args]
+    options: dict[str, object] = {}
+    if os.name == "nt":
+        options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0) | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        options["start_new_session"] = True
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_environment(ssh_batch),
+            **options,  # type: ignore[arg-type]
+        )
+    except OSError as exc:
+        raise GitSyncError("git_missing", f"could not run git: {exc}") from exc
+
+    stdout = bytearray()
+    stderr = bytearray()
+    last_activity = [time.monotonic()]
+
+    def pump_stdout() -> None:
+        assert process.stdout is not None
+        try:
+            for chunk in iter(lambda: process.stdout.read1(4096), b""):  # type: ignore[union-attr]
+                stdout.extend(chunk)
+                last_activity[0] = time.monotonic()
+        except (OSError, ValueError):  # the stream was closed after a kill
+            pass
+
+    def pump_stderr() -> None:
+        assert process.stderr is not None
+        pending = b""
+        try:
+            for chunk in iter(lambda: process.stderr.read1(4096), b""):  # type: ignore[union-attr]
+                stderr.extend(chunk)
+                last_activity[0] = time.monotonic()
+                pending += chunk
+                *lines, pending = re.split(rb"[\r\n]", pending)
+                for line in lines:
+                    text = redact(line.decode("utf-8", errors="replace").strip())
+                    if text and on_line is not None:
+                        try:
+                            on_line(text)
+                        except Exception:  # a failing reporter must not break the clone
+                            pass
+        except (OSError, ValueError):  # the stream was closed after a kill
+            pass
+
+    readers = [threading.Thread(target=pump_stdout, daemon=True), threading.Thread(target=pump_stderr, daemon=True)]
+    for reader in readers:
+        reader.start()
+    started = time.monotonic()
+    verb = next((arg for arg in args if not arg.startswith("-")), "git")
+    failure: GitSyncError | None = None
+    while process.poll() is None:
+        now = time.monotonic()
+        if cancel is not None and cancel.is_set():
+            failure = GitSyncError("cancelled", f"git {verb} was cancelled.")
+        elif now - started > timeout:
+            failure = GitSyncError(
+                "timeout",
+                f"git {verb} did not finish within {timeout:g} seconds and was stopped; "
+                "check the network connection and that the remote answers",
+            )
+        elif now - last_activity[0] > idle_timeout:
+            failure = GitSyncError(
+                "timeout",
+                f"git {verb} got no answer for {idle_timeout:g} seconds and was stopped; "
+                "check the network connection and that the remote answers",
+            )
+        if failure is not None:
+            _kill_tree(process)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            break
+        time.sleep(0.1)
+    for reader in readers:
+        reader.join(timeout=5)
+    for stream in (process.stdout, process.stderr):
+        if stream is not None:
+            stream.close()
+    if failure is not None:
+        raise failure
+    return subprocess.CompletedProcess(command, process.returncode, bytes(stdout), bytes(stderr))
+
+
 def _classify_network_failure(result: subprocess.CompletedProcess[bytes], action: str) -> GitSyncError:
     message = _message(result)
     lowered = message.lower()
@@ -302,7 +427,14 @@ def _classify_network_failure(result: subprocess.CompletedProcess[bytes], action
         return GitSyncError(
             "auth",
             f"{action} failed because the remote needs credentials that Git could not get without asking. "
-            "Set up a credential helper or an SSH key for this remote, then sync again. Git said: " + message,
+            "Sign in to this remote once with Git outside the app (a credential helper or an SSH key), "
+            "then try again. Git said: " + message,
+        )
+    if any(re.search(pattern, lowered) for pattern in _NOT_FOUND_PATTERNS):
+        return GitSyncError(
+            "not_found",
+            f"{action} failed because there is no Git repository at that address. Check the URL. Git said: "
+            + message,
         )
     if "[rejected]" in lowered or "non-fast-forward" in lowered or "fetch first" in lowered:
         return GitSyncError(

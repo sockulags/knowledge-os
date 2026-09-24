@@ -38,6 +38,13 @@ def build_api_routes() -> list[Route]:
         Route("/api/sync/conflicts", sync.conflicts_view, name="api-sync-conflicts"),
         Route("/api/sync/resolve", sync.resolve_view, methods=["POST"], name="api-sync-resolve"),
         Route("/api/sync/abort", sync.abort_view, methods=["POST"], name="api-sync-abort"),
+        Route("/api/sync/setup", sync.setup_view, name="api-sync-setup"),
+        Route("/api/sync/setup/init", sync.setup_init_view, methods=["POST"], name="api-sync-setup-init"),
+        Route(
+            "/api/sync/setup/identity", sync.setup_identity_view, methods=["POST"], name="api-sync-setup-identity"
+        ),
+        Route("/api/sync/setup/check", sync.setup_check_view, methods=["POST"], name="api-sync-setup-check"),
+        Route("/api/sync/setup/connect", sync.setup_connect_view, methods=["POST"], name="api-sync-setup-connect"),
         Route("/api/records", write.create_view, methods=["POST"], name="api-record-create"),
         Route("/api/records/{record_id}", write.edit_view, methods=["PATCH"], name="api-record-edit"),
         Route("/api/records/{record_id}/accept", write.accept_view, methods=["POST"], name="api-record-accept"),

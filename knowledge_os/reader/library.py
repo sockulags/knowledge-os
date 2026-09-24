@@ -42,9 +42,10 @@ from knowledge_os.capture import (
     DuplicateRecordError,
     capture_record_text,
 )
-from knowledge_os import gitsync
+from knowledge_os import gitsetup, gitsync
 from knowledge_os.agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity, parse_agent_reference
 from knowledge_os.context_policy import trust_label
+from knowledge_os.gitsetup import ConnectOutcome, InitOutcome, RemoteCheck, SetupStatus
 from knowledge_os.gitsync import CommitOutcome, ConflictFile, GitSyncError, ResolveOutcome, SyncOutcome, SyncStatus
 from knowledge_os.index import validate_index
 from knowledge_os.model import (
@@ -119,6 +120,16 @@ __all__ = [
     "sync_conflicts",
     "resolve_sync_conflict",
     "abort_sync",
+    # Guided sync setup (issue #56).
+    "ConnectOutcome",
+    "InitOutcome",
+    "RemoteCheck",
+    "SetupStatus",
+    "sync_setup_status",
+    "sync_setup_init",
+    "sync_set_identity",
+    "sync_check_remote",
+    "sync_connect_remote",
     # Structure editing (issue #52): projects, folders, moves, and renames.
     "ChangedFile",
     "StructureWriteResult",
@@ -1234,3 +1245,43 @@ def resolve_sync_conflict(workspace: Workspace, path: str, choice: str, content:
 
 def abort_sync(workspace: Workspace) -> None:
     gitsync.abort_merge(workspace)
+
+
+def sync_setup_status(workspace: Workspace) -> SetupStatus:
+    """Which guided-setup step the knowledge base is at; never contacts a remote."""
+
+    return gitsetup.setup_status(workspace)
+
+
+def sync_setup_init(workspace: Workspace, identity: tuple[str, str] | None) -> InitOutcome:
+    """``git init`` if needed, then the first commit of the current files."""
+
+    return gitsetup.init_repository(workspace, identity=identity)
+
+
+def sync_set_identity(workspace: Workspace, name: str, email: str) -> dict[str, str]:
+    """Store a repository-local Git author identity."""
+
+    return gitsetup.set_identity(workspace, name, email)
+
+
+def sync_check_remote(workspace: Workspace, url: str | None) -> RemoteCheck:
+    """Test that a remote answers and whether it is empty (``git ls-remote``)."""
+
+    return gitsetup.check_remote(workspace, url)
+
+
+def sync_connect_remote(workspace: Workspace, url: str | None) -> ConnectOutcome:
+    """Add the remote, publish this branch, and set its upstream.
+
+    A remote that shares history leads to an ordinary sync; if that stops
+    on conflicts, this raises ``GitSyncError`` kind ``conflict`` like
+    :func:`run_sync`.
+    """
+
+    outcome = gitsetup.connect_remote(workspace, url)
+    if outcome.state == "conflict" and outcome.sync is not None:
+        raise GitSyncError(
+            "conflict", outcome.sync.detail or "the pull stopped on conflicts", conflicts=outcome.sync.conflicts
+        )
+    return outcome
