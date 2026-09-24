@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Check, GitBranch, UserRound } from "lucide-react";
-import { api } from "../api/client";
+import { api, ApiUnreachableError } from "../api/client";
 import type { SyncRemoteCheck, SyncSetup as SetupPayload, WriteFailure } from "../api/types";
 import { syncSetup } from "../api/write";
+import { networkErrorMessage } from "../lib/language";
 import { Callout } from "./Callout";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { useShell } from "./Shell";
 
 /** States the guided setup walks through, in order. */
 const STEPS = ["init", "remote", "publish"] as const;
@@ -287,19 +289,35 @@ function RemoteStep({ setup, onDone }: { setup: SetupPayload; onDone: (message: 
  * publish the branch, one step at a time. `version` changes whenever the
  * repository status does, so the panel re-reads where the setup stands. */
 export function SyncSetupPanel({ version, onDone }: { version: string; onDone: (message: string) => void }) {
+  const { nav } = useShell();
   const [setup, setSetup] = useState<SetupPayload | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api
       .syncSetup()
-      .then(setSetup)
-      .catch(() => setSetup(null));
-  }, []);
+      .then((payload) => {
+        setSetup(payload);
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        setSetup(null);
+        // The status line already explains a repository problem; only a
+        // core that cannot be reached at all needs saying here.
+        setLoadError(error instanceof ApiUnreachableError ? networkErrorMessage(nav?.language) : null);
+      });
+  }, [nav?.language]);
 
   useEffect(() => {
     load();
   }, [load, version]);
 
+  if (loadError !== null)
+    return (
+      <Callout tone="danger">
+        <p>{loadError}</p>
+      </Callout>
+    );
   if (setup === null) return null;
   const L = setup.language;
   const done = (message: string) => {
