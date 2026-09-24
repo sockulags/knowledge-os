@@ -25,6 +25,15 @@ from .index import rebuild_indexes, search_index
 from .ingest import ingest_source
 from .model import MetadataError, content_sha256
 from .mutations import accept_decision, supersede_decision, update_record, withdraw_decision
+from .structure import (
+    StructureResult,
+    cli_provenance,
+    create_folder,
+    create_project,
+    move_folder,
+    move_record,
+    rename_record,
+)
 from .version_info import path_warning, version_lines
 from .workspace import Workspace, WorkspaceError, validate_workspace
 
@@ -164,6 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
     discovery_promote.add_argument("--allow-scope-broadening", action="store_true")
     _root_option(discovery_promote)
 
+    _structure_commands(commands)
+
     documentation = commands.add_parser("documentation", help="initialize Knowledge OS documentation integration")
     documentation_commands = documentation.add_subparsers(dest="documentation_command", required=True)
 
@@ -196,6 +207,131 @@ def build_parser() -> argparse.ArgumentParser:
         help="label for where the agent runs, recorded with its writes (default: KOS_AGENT_PLACE or the working directory's name)",
     )
     return parser
+
+
+def _structure_commands(commands: argparse._SubParsersAction) -> None:
+    """``kos project``, ``kos folder``, ``kos move``, and ``kos rename``."""
+
+    project = commands.add_parser("project", help="create a project")
+    _root_option(project)
+    project_commands = project.add_subparsers(dest="project_command", required=True)
+    project_create = project_commands.add_parser("create", help="create projects/<id>/README.md, the project overview")
+    project_create.add_argument("id", help="project id, lowercase words joined by hyphens")
+    project_create.add_argument("--title", required=True)
+    project_create.add_argument("--body", help="overview text (default: a heading with the title)")
+    project_create.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(project_create)
+
+    folder = commands.add_parser("folder", help="create, move, or rename a folder in a project")
+    _root_option(folder)
+    folder_commands = folder.add_subparsers(dest="folder_command", required=True)
+    folder_create = folder_commands.add_parser("create", help="create a folder as its README.md page")
+    folder_create.add_argument("project")
+    folder_create.add_argument("path", help="folder path inside the project; its parent must exist")
+    folder_create.add_argument("--title", required=True)
+    folder_create.add_argument("--id", dest="record_id", help="page id (default: <project>-<path>)")
+    folder_create.add_argument("--body", help="folder page text (default: a heading with the title)")
+    folder_create.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(folder_create)
+    folder_move = folder_commands.add_parser("move", help="move a folder and everything in it")
+    folder_move.add_argument("project")
+    folder_move.add_argument("path", help="folder path inside the project")
+    folder_move.add_argument("--to-parent", help="new parent folder; '' or '.' is the project's top level")
+    folder_move.add_argument("--to-project", help="another project; changes the scope of every record moved")
+    folder_move.add_argument("--name", help="new folder name")
+    folder_move.add_argument("--title", help="new title for the folder's README.md page")
+    folder_move.add_argument("--allow-scope-change", action="store_true")
+    folder_move.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(folder_move)
+    folder_rename = folder_commands.add_parser("rename", help="rename a folder in place")
+    folder_rename.add_argument("project")
+    folder_rename.add_argument("path", help="folder path inside the project")
+    folder_rename.add_argument("--name", required=True, help="new folder name")
+    folder_rename.add_argument("--title", help="new title for the folder's README.md page")
+    folder_rename.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(folder_rename)
+
+    move = commands.add_parser("move", help="move a project page to another folder or project")
+    move.add_argument("id")
+    move.add_argument("--expected-sha256", required=True)
+    move.add_argument("--folder", default="", help="target folder inside the project (default: the top level)")
+    move.add_argument("--to-project", help="another project; changes the page's scope")
+    move.add_argument("--allow-scope-change", action="store_true")
+    move.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(move)
+
+    rename = commands.add_parser("rename", help="change a page's title; its id and file stay the same")
+    rename.add_argument("id")
+    rename.add_argument("--title", required=True)
+    rename.add_argument("--expected-sha256", required=True)
+    rename.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(rename)
+
+
+def _run_structure(workspace: Workspace, args: argparse.Namespace) -> StructureResult | None:
+    if args.command == "project":
+        return create_project(
+            workspace, args.id, title=args.title, provenance=[cli_provenance("create-project")], body=args.body
+        )
+    if args.command == "folder" and args.folder_command == "create":
+        return create_folder(
+            workspace,
+            args.project,
+            args.path,
+            title=args.title,
+            provenance=[cli_provenance("create-folder")],
+            record_id=args.record_id,
+            body=args.body,
+        )
+    if args.command == "folder":
+        return move_folder(
+            workspace,
+            args.project,
+            args.path,
+            to_project=getattr(args, "to_project", None),
+            to_parent=getattr(args, "to_parent", None),
+            name=args.name,
+            title=args.title,
+            allow_scope_change=getattr(args, "allow_scope_change", False),
+        )
+    if args.command == "move":
+        return move_record(
+            workspace,
+            args.id,
+            expected_sha256=args.expected_sha256,
+            folder=args.folder,
+            project=args.to_project,
+            allow_scope_change=args.allow_scope_change,
+        )
+    if args.command == "rename":
+        return rename_record(workspace, args.id, expected_sha256=args.expected_sha256, title=args.title)
+    return None
+
+
+def _print_structure(result: StructureResult, as_json: bool) -> None:
+    if as_json:
+        payload = {
+            "id": result.id,
+            "path": result.path,
+            "sha256": result.sha256,
+            "project": result.project,
+            "folder": result.folder,
+            "scope_changed": result.scope_changed,
+            "changed": [
+                {"id": item.id, "old_path": item.old_path, "path": item.path, "sha256": item.sha256}
+                for item in result.changed
+            ],
+        }
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return
+    for item in result.changed:
+        if item.old_path is None:
+            print(f"Created {item.path}")
+        elif item.old_path != item.path:
+            print(f"Moved {item.old_path} -> {item.path}")
+        else:
+            print(f"Updated {item.path}")
+    print(f"Index refreshed: {result.index_count} record(s)")
 
 
 def _workspace(args: argparse.Namespace) -> Workspace:
@@ -324,6 +460,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "inspect":
             return _inspect(workspace, args.id, args.full)
+        structure_result = _run_structure(workspace, args)
+        if structure_result is not None:
+            _print_structure(structure_result, args.as_json)
+            return 0
         if args.command == "context":
             if args.context_action == "verify":
                 if args.package is None:
