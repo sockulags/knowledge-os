@@ -25,8 +25,8 @@ export class ApiNotFoundError extends Error {
   }
 }
 
-async function request<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, { signal });
   if (response.status === 404) {
     const body = await response.json().catch(() => ({ detail: "Not found." }));
     throw new ApiNotFoundError(body.detail ?? "Not found.");
@@ -48,7 +48,7 @@ export const api = {
   compare: (id: string) => request<ComparePayload>(`/api/records/${encodeURIComponent(id)}/compare`),
   skill: (name: string) => request<SkillPayload>(`/api/skills/${encodeURIComponent(name)}`),
   doc: (path: string) => request<DocPayload>(`/api/docs/${path}`),
-  search: (query: string) => request<SearchPayload>(`/api/search${query}`),
+  search: (query: string, signal?: AbortSignal) => request<SearchPayload>(`/api/search${query}`, signal),
   everything: (query: string) => request<EverythingPayload>(`/api/everything${query}`),
   syncStatus: () => request<SyncStatus>("/api/sync/status"),
   syncConflicts: () => request<ConflictsPayload>("/api/sync/conflicts"),

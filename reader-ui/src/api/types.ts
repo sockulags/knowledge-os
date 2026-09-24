@@ -66,6 +66,10 @@ export interface RecordIndexEntry {
   kind: string;
   status_pill: Pill | null;
   project: string | null;
+  /** The quick switcher's group: a key of `language.quick_find_groups`. */
+  group: string;
+  /** What the entry is, in plain words ("Proposed decision", "Skill"). */
+  kind_label: string;
 }
 
 export interface NavPayload {
@@ -82,6 +86,13 @@ export interface NavPayload {
    * fill its `{record_id}` placeholder with the requested id. */
   language: {
     quick_find_placeholder: string;
+    quick_find_label: string;
+    quick_find_hint: string;
+    /** Template; fill its `{query}` placeholder with what was typed. */
+    quick_find_no_matches: string;
+    quick_find_searching: string;
+    /** Group key -> heading; `text` heads pages found only by their body. */
+    quick_find_groups: Record<string, string>;
     not_found_title: string;
     not_found_body: string;
     load_error: string;

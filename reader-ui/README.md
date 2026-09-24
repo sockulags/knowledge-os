@@ -28,6 +28,29 @@ on `http://localhost:5173` is allowed and a page on any other site is not. The
 endpoints are documented in "Local interface write API" in
 [`docs/architecture.md`](../docs/architecture.md).
 
+## Test
+
+```
+npm test
+```
+
+Runs the `src/**/*.test.ts` unit tests with Node's built-in test runner
+(Node 22.18 or newer, which strips TypeScript types itself). Only pure
+modules are tested this way, such as the quick switcher's ranking and
+grouping in `src/lib/quickSwitch.ts`; test files are excluded from `tsc`.
+
+## Quick switcher
+
+Ctrl K (Cmd K on macOS) opens the quick switcher from every view, the editor
+included. Titles of projects, decisions, pages, skills, and repository
+documents are matched in the browser against the nav payload's
+`record_index` as you type; each entry carries its group and a plain-language
+label ("Proposed decision") from the API. After a 150 ms pause the full-text
+search (`/api/search`) is asked too, and a newer keystroke aborts the older
+request; pages found only by a word in their text are listed last. Choosing a
+result navigates through the router, so the editor's unsaved-changes dialog
+still applies.
+
 ## Build
 
 ```

@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router";
 import { ChevronRight, Home, Inbox, LayoutGrid, Search, FolderKanban, BookOpen, FolderClosed } from "lucide-react";
 import type { NavPayload, TreeNode } from "../api/types";
 import { TreeNodeView } from "./ProjectTree";
+import { SHORTCUT_KEYS } from "../lib/quickSwitch";
 
 function NavRow({
   to,
@@ -93,7 +94,7 @@ export function Sidebar({
           Search
         </span>
         <kbd className="rounded border border-(--color-border) px-1.5 py-0.5 font-mono text-[10px] text-(--color-text-faint)">
-          Ctrl K
+          {SHORTCUT_KEYS}
         </kbd>
       </button>
 
