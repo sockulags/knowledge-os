@@ -11,7 +11,7 @@ import { TechnicalDetails } from "../components/TechnicalDetails";
 import { Markdown } from "../components/Markdown";
 import { Pill } from "../components/Pill";
 import { EmptyState } from "../components/EmptyState";
-import { Callout } from "../components/Callout";
+import { LoadError } from "../components/Callout";
 import { ProjectPageTree } from "../components/ProjectTree";
 import { useShell } from "../components/Shell";
 import { useStructure } from "../components/Structure";
@@ -19,22 +19,20 @@ import { useStructure } from "../components/Structure";
 function GroupSection({ group }: { group: GroupPayload }) {
   return (
     <section className="mt-6">
-      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
-        {group.header}
-      </h3>
+      <h3 className="kos-eyebrow mb-2.5">{group.header}</h3>
       {group.records.length === 0 ? (
-        <p className="text-sm italic text-(--color-text-faint)">{group.empty_text}</p>
+        <p className="text-sm text-(--color-text-faint)">{group.empty_text}</p>
       ) : (
         <div className="space-y-1.5">
           {group.records.map((record) => (
             <Link
               key={record.id}
               to={`/r/${record.id}`}
-              className="flex items-center justify-between gap-3 rounded-lg border border-(--color-border) bg-(--color-bg-raised) px-3.5 py-2.5 hover:border-(--color-border-strong)"
+              className="kos-card flex items-center justify-between gap-3 px-3.5 py-2.5"
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{record.title}</p>
-                {record.sentence && <p className="truncate text-xs text-(--color-text-muted)">{record.sentence}</p>}
+                {record.sentence && <p className="mt-0.5 truncate text-xs text-(--color-text-muted)">{record.sentence}</p>}
               </div>
               <Pill pill={record.status_pill} />
             </Link>
@@ -52,7 +50,7 @@ function RecordRowList({ records }: { records: RecordSummary[] }) {
         <Link
           key={record.id}
           to={`/r/${record.id}`}
-          className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-(--color-bg-hover)"
+          className="kos-row justify-between px-2 py-1.5 text-sm"
         >
           <span className="min-w-0 truncate">{record.title}</span>
           <Pill pill={record.status_pill} />
@@ -69,9 +67,10 @@ function Collapsible({ title, defaultOpen, children }: { title: string; defaultO
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint) hover:text-(--color-text-muted)"
+        aria-expanded={open}
+        className="kos-eyebrow mb-2.5 flex items-center gap-1.5 rounded-(--radius-control) hover:text-(--color-text-muted)"
       >
-        <ChevronRight size={13} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
+        <ChevronRight size={13} className={open ? "rotate-90 transition-transform duration-100" : "transition-transform duration-100"} />
         {title}
       </button>
       {open && children}
@@ -88,7 +87,7 @@ export function Project() {
   if (loading) return <PageSkeleton />;
   if (notFound)
     return <EmptyState title="Project not found" body={`No project named "${projectId}" exists in this workspace.`} />;
-  if (error || !data) return <Callout tone="danger">{error ?? "Could not load this project."}</Callout>;
+  if (error || !data) return <LoadError>{error ?? "Could not load this project."}</LoadError>;
 
   const treeHasContent = data.tree.records.length > 0 || data.tree.children.length > 0 || data.tree.broken.length > 0;
   // The project's short name, as the sidebar shows it.
@@ -101,7 +100,7 @@ export function Project() {
         <div className="no-print ml-auto flex items-center gap-1">
           <Link
             to={`/p/${data.id}/new`}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+            className="kos-btn kos-btn-ghost kos-btn-sm"
           >
             <FilePlus size={14} />
             New page
@@ -109,21 +108,21 @@ export function Project() {
           <button
             type="button"
             onClick={() => structure.newFolder(data.id, "", projectName)}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+            className="kos-btn kos-btn-ghost kos-btn-sm"
           >
             <FolderPlus size={14} />
             New folder
           </button>
           <Link
             to={`/p/${data.id}/new?kind=decision`}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+            className="kos-btn kos-btn-ghost kos-btn-sm"
           >
             <Scale size={14} />
             Propose a decision
           </Link>
         </div>
       </div>
-      <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
+      <h1 className="kos-title">{data.title}</h1>
 
       <div className="mt-6">
         <PropertiesBlock properties={data.properties} />
@@ -142,7 +141,7 @@ export function Project() {
 
       {treeHasContent && (
         <section className="mt-10">
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
+          <h3 className="kos-eyebrow mb-2.5">
             Pages in this project
           </h3>
           <ProjectPageTree projectId={data.id} projectTitle={projectName} tree={data.tree} />
@@ -151,7 +150,7 @@ export function Project() {
 
       <Collapsible title={data.observations.header} defaultOpen={data.observations.records.length > 0}>
         {data.observations.records.length === 0 ? (
-          <p className="text-sm italic text-(--color-text-faint)">{data.observations.empty_text}</p>
+          <p className="text-sm text-(--color-text-faint)">{data.observations.empty_text}</p>
         ) : (
           <RecordRowList records={data.observations.records} />
         )}
@@ -159,7 +158,7 @@ export function Project() {
 
       <Collapsible title={data.raw_material.header} defaultOpen={data.raw_material.records.length > 0}>
         {data.raw_material.records.length === 0 ? (
-          <p className="text-sm italic text-(--color-text-faint)">{data.raw_material.empty_text}</p>
+          <p className="text-sm text-(--color-text-faint)">{data.raw_material.empty_text}</p>
         ) : (
           <RecordRowList records={data.raw_material.records} />
         )}
@@ -167,7 +166,7 @@ export function Project() {
 
       {(data.related_general.records.length > 0 || data.related_skills.length > 0) && (
         <section className="mt-8">
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
+          <h3 className="kos-eyebrow mb-2.5">
             {data.related_general.header}
           </h3>
           <RecordRowList records={data.related_general.records} />
@@ -177,7 +176,7 @@ export function Project() {
                 <Link
                   key={skill.name}
                   to={`/s/${skill.name}`}
-                  className="block rounded-md px-2 py-1.5 text-sm hover:bg-(--color-bg-hover)"
+                  className="kos-row px-2 py-1.5 text-sm"
                 >
                   {skill.name}
                 </Link>

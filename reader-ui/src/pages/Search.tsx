@@ -54,15 +54,15 @@ export function Search() {
 
   return (
     <div className="mx-auto w-full max-w-[760px] px-6 py-12 sm:px-10">
-      <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">Search</h1>
+      <h1 className="kos-title">Search</h1>
 
-      <form onSubmit={submitQuery} className="mt-5 flex items-center gap-2 rounded-lg border border-(--color-border) bg-(--color-bg-raised) px-3.5 py-2.5">
-        <SearchIcon size={17} className="text-(--color-text-faint)" />
+      <form onSubmit={submitQuery} className="kos-input mt-6 flex items-center gap-2.5 rounded-(--radius-card) px-3.5 py-2.5">
+        <SearchIcon size={17} className="shrink-0 text-(--color-accent-text)" />
         <input
           value={inputValue}
           onChange={(event) => setInputValue(event.target.value)}
           placeholder="Search the workspace"
-          className="w-full bg-transparent text-base outline-none placeholder:text-(--color-text-faint)"
+          className="w-full bg-transparent text-base outline-none placeholder:text-(--color-text-faint) focus-visible:outline-none"
         />
       </form>
 
@@ -76,7 +76,7 @@ export function Search() {
                 key={key}
                 value={params.get(key) ?? ""}
                 onChange={(event) => updateFilter(key, event.target.value)}
-                className="rounded-md border border-(--color-border) bg-(--color-bg) px-2.5 py-1.5 text-sm text-(--color-text-muted)"
+                className="kos-input py-1.5 text-[13px] text-(--color-text-muted)"
               >
                 <option value="">{label}: Any</option>
                 {options.map((option) => (
@@ -95,7 +95,7 @@ export function Search() {
         {!loading && data && !data.search_available && (
           <Callout tone="neutral">
             <p>{data.disabled_reason}</p>
-            <code className="mt-1 inline-block rounded bg-(--color-bg-hover) px-2 py-0.5 font-mono text-xs">
+            <code className="kos-code mt-1 inline-block">
               kos index
             </code>
           </Callout>
@@ -110,7 +110,7 @@ export function Search() {
                 <Link
                   key={result.id}
                   to={`/r/${result.id}`}
-                  className="block rounded-lg border border-transparent px-3 py-3 hover:border-(--color-border) hover:bg-(--color-bg-hover)"
+                  className="block rounded-(--radius-card) border border-transparent px-3.5 py-3 transition-colors hover:border-(--color-border) hover:bg-(--color-bg-raised)"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                     <span className="font-medium">{result.title}</span>
@@ -120,7 +120,7 @@ export function Search() {
                     </span>
                   </div>
                   <p
-                    className="mt-1 truncate text-sm text-(--color-text-muted) [&_mark]:bg-(--color-accent-yellow-bg) [&_mark]:text-(--color-text) [&_mark]:not-italic"
+                    className="mt-1 truncate text-sm text-(--color-text-muted) [&_mark]:rounded-[3px] [&_mark]:bg-(--color-accent-yellow-bg) [&_mark]:px-0.5 [&_mark]:text-(--color-text) [&_mark]:not-italic"
                     dangerouslySetInnerHTML={{ __html: result.snippet_html }}
                   />
                 </Link>

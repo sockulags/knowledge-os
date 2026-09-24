@@ -9,7 +9,7 @@ import { useShell } from "../components/Shell";
 import { PageSkeleton } from "../components/Skeleton";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { RecordNotFound } from "../components/EmptyState";
-import { Callout } from "../components/Callout";
+import { Callout, LoadError } from "../components/Callout";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ConflictCallout, WriteFailureCallout } from "../components/WriteFailureCallout";
 import {
@@ -69,12 +69,15 @@ export function EditRecord() {
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
-  if (error || !data) return <Callout tone="danger">{error ?? nav?.language.load_error ?? "Could not load this page."}</Callout>;
+  if (error || !data) return <LoadError>{error ?? nav?.language.load_error ?? "Could not load this page."}</LoadError>;
   if (!data.editing.editable || data.editing.metadata === null || data.editing.raw_body === null) {
     return (
       <div className="mx-auto w-full max-w-[720px] px-6 py-12 sm:px-10">
         <Callout>
-          This kind of page cannot be edited here. <Link to={`/r/${data.id}`} className="underline">Back to the page</Link>
+          This kind of page cannot be edited here.{" "}
+          <Link to={`/r/${data.id}`} className="font-medium text-(--color-accent-text) underline underline-offset-[3px]">
+            Back to the page
+          </Link>
         </Callout>
       </div>
     );
@@ -159,8 +162,8 @@ function Editor({
     <div className="mx-auto w-full max-w-[860px] px-6 py-10 sm:px-10">
       <Breadcrumb items={[...record.breadcrumb, { label: record.title, href: `/r/${record.id}` }]} current="Edit" />
 
-      <div className="sticky top-[49px] z-20 -mx-2 mb-6 flex flex-wrap items-center gap-3 bg-(--color-bg) px-2 py-2">
-        <h1 className="mr-auto text-lg font-semibold">Editing</h1>
+      <div className="sticky top-[49px] z-20 -mx-2 mb-6 flex flex-wrap items-center gap-3 border-b border-(--color-border) bg-(--color-bg) px-2 py-2.5">
+        <h1 className="kos-heading mr-auto">Editing</h1>
         <span className="text-sm text-(--color-text-faint)" aria-live="polite">
           {status.kind === "saving" && "Saving…"}
           {status.kind === "saved" && !dirty && `Saved ${status.at.toLocaleTimeString()}`}
@@ -182,7 +185,11 @@ function Editor({
 
       <div className="space-y-4">
         <Field label="Title">
-          <input className={`${inputClass} text-base font-medium`} value={draft.title} onChange={(event) => update("title")(event.target.value)} />
+          <input
+            className={`${inputClass} font-serif text-[18px] font-semibold`}
+            value={draft.title}
+            onChange={(event) => update("title")(event.target.value)}
+          />
         </Field>
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Tags" hint="Comma separated">
@@ -204,7 +211,12 @@ function Editor({
             </p>
             {bodyChanged && (
               <label className="mt-2 flex items-center gap-2 text-(--color-text)">
-                <input type="checkbox" checked={nonMaterial} onChange={(event) => setNonMaterial(event.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="accent-(--color-accent)"
+                  checked={nonMaterial}
+                  onChange={(event) => setNonMaterial(event.target.checked)}
+                />
                 This change does not alter what was decided.
               </label>
             )}

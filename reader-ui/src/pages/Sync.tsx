@@ -16,8 +16,8 @@ function plural(count: number, noun: string): string {
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex gap-4 py-1.5 text-sm">
-      <dt className="w-40 shrink-0 text-(--color-text-muted)">{label}</dt>
+    <div className="flex gap-4 py-2 text-sm">
+      <dt className="w-40 shrink-0 text-(--color-text-faint)">{label}</dt>
       <dd className="min-w-0 break-words">{children}</dd>
     </div>
   );
@@ -48,7 +48,7 @@ function StatusDetails({ status }: { status: SyncStatus }) {
   const branch = status.branch ?? "main";
   return (
     <>
-      <dl className="mb-6 divide-y divide-(--color-border) rounded-lg border border-(--color-border) px-4 py-1">
+      <dl className="kos-card mb-6 divide-y divide-(--color-border) px-4 py-0.5">
         <Row label="Branch">{status.branch ?? "Not on a branch"}</Row>
         <Row label="Syncs with">{status.upstream ?? "Nothing yet"}</Row>
         <Row label="To push">
@@ -102,15 +102,10 @@ function StatusDetails({ status }: { status: SyncStatus }) {
 
 function Version({ label, text, onChoose, busy }: { label: string; text: string | null; onChoose: () => void; busy: boolean }) {
   return (
-    <div className="flex min-w-0 flex-col rounded-lg border border-(--color-border)">
-      <div className="flex items-center justify-between gap-2 border-b border-(--color-border) px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-(--color-text-muted)">{label}</span>
-        <button
-          type="button"
-          onClick={onChoose}
-          disabled={busy}
-          className="rounded-md border border-(--color-border) px-2 py-1 text-xs font-medium hover:bg-(--color-bg-hover) disabled:opacity-50"
-        >
+    <div className="flex min-w-0 flex-col overflow-hidden rounded-(--radius-card) border border-(--color-border) bg-(--color-bg-raised)">
+      <div className="flex items-center justify-between gap-2 border-b border-(--color-border) bg-(--color-bg-sidebar) px-3 py-2">
+        <span className="kos-eyebrow text-(--color-text-muted)">{label}</span>
+        <button type="button" onClick={onChoose} disabled={busy} className="kos-btn kos-btn-secondary kos-btn-sm text-xs">
           {text === null ? "Delete the file" : "Keep this version"}
         </button>
       </div>
@@ -155,15 +150,16 @@ function ConflictCard({
   const open = !file.resolved || reopened;
 
   return (
-    <section className="mb-6 rounded-xl border border-(--color-border) p-4" data-conflict={file.path}>
+    <section className="kos-card mb-6 p-5" data-conflict={file.path}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="break-all font-mono text-sm font-medium">{file.path}</h3>
         {file.resolved && !reopened ? (
-          <span className="flex items-center gap-1 rounded-full bg-(--color-accent-green-bg) px-2 py-0.5 text-xs font-medium text-(--color-accent-green-text)">
+          <span className="inline-flex items-center gap-1 rounded-[5px] bg-(--color-accent-green-bg) px-1.5 py-[3px] text-xs font-medium leading-none text-(--color-accent-green-text)">
             <Check size={12} /> Version chosen
           </span>
         ) : (
-          <span className="rounded-full bg-(--color-accent-amber-bg) px-2 py-0.5 text-xs font-medium text-(--color-accent-amber-text)">
+          <span className="inline-flex items-center gap-1.5 rounded-[5px] bg-(--color-accent-amber-bg) px-1.5 py-[3px] text-xs font-medium leading-none text-(--color-accent-amber-text)">
+            <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
             Changed on both sides
           </span>
         )}
@@ -186,7 +182,7 @@ function ConflictCard({
           <button
             type="button"
             onClick={() => setReopened(true)}
-            className="rounded-md px-3 py-1.5 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover)"
+            className="kos-btn kos-btn-ghost"
           >
             Choose again
           </button>
@@ -208,28 +204,28 @@ function ConflictCard({
           </div>
           {editing ? (
             <div className="mt-3">
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-(--color-text-muted)">
+              <label className="mb-1.5 block text-[13px] font-medium text-(--color-text-muted)">
                 Merged text
               </label>
               <textarea
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 spellCheck={false}
-                className="h-80 w-full rounded-lg border border-(--color-border) bg-(--color-bg) p-3 font-mono text-xs leading-relaxed focus:border-(--color-border-strong) focus:outline-none"
+                className="kos-input h-80 rounded-(--radius-card) p-3 font-mono text-xs leading-relaxed"
               />
               <div className="mt-2 flex gap-2">
                 <button
                   type="button"
                   disabled={busy || /^(<<<<<<<|>>>>>>>)( |$)/m.test(draft)}
                   onClick={() => choose("merged", draft)}
-                  className="rounded-md bg-(--color-text) px-3 py-1.5 text-sm font-medium text-(--color-bg) hover:opacity-90 disabled:opacity-50"
+                  className="kos-btn kos-btn-primary"
                 >
                   Use this text
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
-                  className="rounded-md px-3 py-1.5 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover)"
+                  className="kos-btn kos-btn-ghost"
                 >
                   Cancel
                 </button>
@@ -244,7 +240,7 @@ function ConflictCard({
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="mt-3 rounded-md px-3 py-1.5 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover)"
+              className="kos-btn kos-btn-ghost mt-3"
             >
               Edit a merged version
             </button>
@@ -308,8 +304,8 @@ export function Sync() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <h1 className="mb-6 text-2xl font-semibold">Sync</h1>
+    <div className="mx-auto w-full max-w-[1000px] px-6 py-12 sm:px-10">
+      <h1 className="kos-title mb-8">Sync</h1>
 
       {sync.lastResult && !merging && (
         <Callout icon={<Check size={16} />}>
@@ -336,10 +332,10 @@ export function Sync() {
 
       {merging && (
         <>
-          <h2 className="mb-2 mt-8 flex items-center gap-2 text-lg font-semibold">
-            <GitMerge size={18} /> Resolve conflicts
+          <h2 className="kos-heading mb-2 mt-10 flex items-center gap-2">
+            <GitMerge size={19} className="text-(--color-accent-text)" /> Resolve conflicts
           </h2>
-          <p className="mb-5 text-sm text-(--color-text-muted)">
+          <p className="mb-6 max-w-[70ch] text-sm leading-relaxed text-(--color-text-muted)">
             These files changed both on this computer and on {status?.upstream ?? "the remote"} since the last sync.
             Nothing has been overwritten. Choose a version for each file or write a merged one, then finish the sync.
           </p>
@@ -374,14 +370,14 @@ export function Sync() {
               type="button"
               disabled={unresolved > 0 || sync.busy}
               onClick={finish}
-              className="rounded-md bg-(--color-text) px-4 py-2 text-sm font-medium text-(--color-bg) hover:opacity-90 disabled:opacity-50"
+              className="kos-btn kos-btn-primary px-4 py-2"
             >
               {sync.busy ? "Finishing…" : "Finish sync"}
             </button>
             <button
               type="button"
               onClick={() => setConfirmAbort(true)}
-              className="rounded-md px-3 py-2 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover)"
+              className="kos-btn kos-btn-ghost py-2"
             >
               Cancel sync
             </button>

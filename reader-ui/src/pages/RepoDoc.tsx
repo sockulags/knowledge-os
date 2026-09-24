@@ -6,7 +6,7 @@ import { Breadcrumb } from "../components/Breadcrumb";
 import { Markdown } from "../components/Markdown";
 import { TableOfContents } from "../components/TableOfContents";
 import { EmptyState } from "../components/EmptyState";
-import { Callout } from "../components/Callout";
+import { Callout, LoadError } from "../components/Callout";
 
 export function RepoDoc() {
   const params = useParams<{ "*": string }>();
@@ -15,7 +15,7 @@ export function RepoDoc() {
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <EmptyState title="Document not found" body={`No document at "${path}" exists here.`} />;
-  if (error || !data) return <Callout tone="danger">{error ?? "Could not load this document."}</Callout>;
+  if (error || !data) return <LoadError>{error ?? "Could not load this document."}</LoadError>;
 
   const showToc = data.headings.length >= 3;
 
@@ -28,7 +28,7 @@ export function RepoDoc() {
             sidebar) — so this crumb goes to Home rather than pointing at a
             page with nothing matching on it. */}
         <Breadcrumb items={[{ label: "Home", href: "/" }]} current={data.title} />
-        <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
+        <h1 className="kos-title">{data.title}</h1>
 
         <div className="mt-6">
           <Callout tone="neutral">{data.unmanaged_label}</Callout>

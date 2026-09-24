@@ -3,7 +3,7 @@ import tseslint from '@electron-toolkit/eslint-config-ts'
 import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/out', '**/dist', '**/build-core'] },
+  { ignores: ['**/node_modules', '**/out', '**/dist', '**/dist-test', '**/build-core'] },
   tseslint.configs.recommended,
   eslintConfigPrettier
 )

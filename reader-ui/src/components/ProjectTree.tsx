@@ -116,7 +116,7 @@ function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
           event.stopPropagation();
           setOpen((value) => !value);
         }}
-        className={`ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-(--color-text-faint) hover:bg-(--color-border) hover:text-(--color-text) focus:opacity-100 ${
+        className={`ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text) focus-visible:opacity-100 ${
           open ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         }`}
       >
@@ -128,7 +128,7 @@ function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
           role="menu"
           aria-label={label}
           onKeyDown={onKeyDown}
-          className="absolute right-0 top-full z-40 mt-1 w-48 rounded-lg border border-(--color-border) bg-(--color-bg-raised) p-1 shadow-lg"
+          className="kos-menu absolute right-0 top-full z-40 mt-1 w-52"
         >
           {entries.map((entry) => (
             <button
@@ -140,9 +140,9 @@ function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
                 setOpen(false);
                 entry.onSelect();
               }}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-(--color-text) hover:bg-(--color-bg-hover) focus:bg-(--color-bg-hover) focus:outline-none"
+              className="kos-menu-item"
             >
-              <span className="text-(--color-text-muted)">{entry.icon}</span>
+              <span className="text-(--color-text-faint)">{entry.icon}</span>
               {entry.label}
             </button>
           ))}
@@ -193,7 +193,7 @@ function RenameField({ initial, onDone }: { initial: string; onDone: (title: str
       }}
       onBlur={() => void finish(true)}
       onClick={(event) => event.stopPropagation()}
-      className="min-w-0 flex-1 rounded border border-(--color-border-strong) bg-(--color-bg-raised) px-1.5 py-0.5 text-sm outline-none"
+      className="kos-input min-w-0 flex-1 px-1.5 py-0.5 text-sm"
     />
   );
 }
@@ -222,20 +222,24 @@ function ChevronButton({ open, onToggle, hidden }: { open: boolean; onToggle: ()
     <button
       type="button"
       onClick={onToggle}
-      className="flex h-6 w-5 shrink-0 items-center justify-center text-(--color-text-faint)"
+      className="flex h-6 w-5 shrink-0 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:text-(--color-text)"
       aria-label={open ? "Collapse" : "Expand"}
       aria-expanded={open}
     >
-      <ChevronRight size={13} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
+      <ChevronRight size={13} className={open ? "rotate-90 transition-transform duration-100" : "transition-transform duration-100"} />
     </button>
   );
 }
 
+// A drop target under the pointer gets the ink tint and a dashed ink outline;
+// the page being read gets the same tint without the outline.
+const dropTargetClass =
+  "bg-(--color-bg-active) text-(--color-text) outline-1 outline-dashed outline-offset-[-1px] outline-(--color-accent)";
+const activeRowClass = "bg-(--color-bg-active) font-medium text-(--color-text) [&>svg]:text-(--color-accent-text) [&>svg]:opacity-100";
+
 function linkClass(active: boolean, over: boolean): string {
-  if (over) return "bg-(--color-bg-hover) text-(--color-text) ring-1 ring-(--color-text-faint)";
-  return active
-    ? "bg-(--color-bg-hover) font-medium text-(--color-text)"
-    : "text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)";
+  if (over) return dropTargetClass;
+  return active ? activeRowClass : "text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)";
 }
 
 /** One page: a link, draggable when it is a project page, and a drop target
@@ -405,7 +409,7 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
       </div>
 
       {open && hasChildContent && (
-        <div className="ml-5 border-l border-(--color-border) pl-1.5">
+        <div className="ml-2.5 border-l border-(--color-border) pl-1.5">
           <TreeContents node={node} projectId={projectId} label={title} depth={depth + 1} />
         </div>
       )}
@@ -439,8 +443,8 @@ export function ProjectPageTree({ projectId, projectTitle, tree }: { projectId: 
   return (
     <div
       {...target.handlers}
-      className={`rounded-lg border bg-(--color-bg-raised) p-2 ${
-        target.over ? "border-(--color-text-faint)" : "border-(--color-border)"
+      className={`rounded-(--radius-card) border bg-(--color-bg-raised) p-2 transition-colors ${
+        target.over ? "border-dashed border-(--color-accent) bg-(--color-bg-active)" : "border-(--color-border)"
       }`}
       data-tree-root={projectId}
     >
@@ -486,8 +490,8 @@ export function SidebarProject({ project }: { project: NavProject }) {
           <Link
             to={href}
             draggable={false}
-            className={`flex min-w-0 flex-1 items-center gap-2 truncate rounded-md px-1 py-1 text-sm ${
-              target.over ? linkClass(false, true) : location.pathname === href ? "bg-(--color-bg-hover) font-medium" : "hover:bg-(--color-bg-hover)"
+            className={`flex min-w-0 flex-1 items-center gap-2 truncate rounded-md px-1.5 py-1 text-sm ${
+              target.over ? dropTargetClass : location.pathname === href ? activeRowClass : "text-(--color-text) hover:bg-(--color-bg-hover)"
             }`}
           >
             <FolderKanban size={14} className="shrink-0 opacity-70" />
@@ -497,7 +501,7 @@ export function SidebarProject({ project }: { project: NavProject }) {
         {!renaming && <RowMenu label={project.title} entries={projectEntries(project, navigate, structure, start)} />}
       </div>
       {open && hasContent && (
-        <div className="ml-5 border-l border-(--color-border) pl-1.5">
+        <div className="ml-2.5 border-l border-(--color-border) pl-1.5">
           <TreeContents node={project.tree} projectId={project.id} label={project.title} depth={1} />
         </div>
       )}

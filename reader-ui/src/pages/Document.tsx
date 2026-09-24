@@ -10,7 +10,7 @@ import { TechnicalDetails } from "../components/TechnicalDetails";
 import { Markdown } from "../components/Markdown";
 import { TableOfContents } from "../components/TableOfContents";
 import { RecordNotFound } from "../components/EmptyState";
-import { Callout, LineageCalloutRow } from "../components/Callout";
+import { LoadError, LineageCalloutRow } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { useShell } from "../components/Shell";
 import type { RelationView } from "../api/types";
@@ -18,14 +18,14 @@ import type { RelationView } from "../api/types";
 function RelationRow({ relation }: { relation: RelationView }) {
   if (!relation.resolved) {
     return (
-      <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-(--color-text-faint)">
+      <div className="flex items-center gap-2 rounded-(--radius-control) px-2 py-1.5 text-sm text-(--color-text-faint)">
         <AlertTriangle size={14} />
         {relation.label}
       </div>
     );
   }
   return (
-    <Link to={relation.href!} className="block rounded-md px-2 py-1.5 text-sm hover:bg-(--color-bg-hover)">
+    <Link to={relation.href!} className="kos-row px-2 py-1.5 text-sm">
       {relation.label}
     </Link>
   );
@@ -40,7 +40,7 @@ export function Document() {
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
-  if (error || !data) return <Callout tone="danger">{error ?? nav?.language.load_error ?? "Could not load this page."}</Callout>;
+  if (error || !data) return <LoadError>{error ?? nav?.language.load_error ?? "Could not load this page."}</LoadError>;
 
   const showToc = data.headings.length >= 3;
 
@@ -53,7 +53,7 @@ export function Document() {
             {data.editing.project_id && (
               <Link
                 to={`/p/${data.editing.project_id}/new${data.editing.folder ? `?folder=${encodeURIComponent(data.editing.folder)}` : ""}`}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+                className="kos-btn kos-btn-ghost kos-btn-sm"
               >
                 <FilePlus size={14} />
                 New page here
@@ -62,7 +62,7 @@ export function Document() {
             {data.editing.editable && (
               <Link
                 to={`/r/${data.id}/edit`}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+                className="kos-btn kos-btn-ghost kos-btn-sm"
               >
                 <Pencil size={14} />
                 Edit
@@ -70,7 +70,7 @@ export function Document() {
             )}
           </div>
         </div>
-        <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title}</h1>
+        <h1 className="kos-title">{data.title}</h1>
 
         {data.lineage.map((callout, index) => (
           <div className="mt-6" key={index}>
@@ -103,9 +103,9 @@ export function Document() {
         <Markdown html={data.body_html} />
 
         {(data.inbound.length > 0 || data.outbound.length > 0) && (
-          <div className="mt-12 grid grid-cols-1 gap-8 border-t border-(--color-border) pt-8 sm:grid-cols-2">
+          <div className="mt-14 grid grid-cols-1 gap-8 border-t border-(--color-border) pt-8 sm:grid-cols-2">
             <section>
-              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
+              <h3 className="kos-eyebrow mb-2.5">
                 Linked from
               </h3>
               {data.inbound.length === 0 ? (
@@ -119,7 +119,7 @@ export function Document() {
               )}
             </section>
             <section>
-              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
+              <h3 className="kos-eyebrow mb-2.5">
                 Links to
               </h3>
               {data.outbound.length === 0 ? (

@@ -5,6 +5,10 @@ import type { NavPayload } from "../api/types";
 import { SidebarProject } from "./ProjectTree";
 import { useStructure } from "./Structure";
 import { SHORTCUT_KEYS } from "../lib/quickSwitch";
+import mark from "../assets/mark.svg";
+
+const rowActive = "bg-(--color-bg-active) font-medium text-(--color-text) [&>svg]:text-(--color-accent-text) [&>svg]:opacity-100";
+const rowIdle = "text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)";
 
 function NavRow({
   to,
@@ -22,15 +26,13 @@ function NavRow({
   return (
     <Link
       to={to}
-      className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm ${
-        active ? "bg-(--color-bg-hover) font-medium" : "text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
-      }`}
+      className={`flex items-center gap-2.5 rounded-(--radius-control) px-2.5 py-1.5 text-sm transition-colors ${active ? rowActive : rowIdle}`}
     >
       {icon}
       <span className="flex-1">{label}</span>
       {count !== undefined && count > 0 && (
         <span
-          className="min-w-5 rounded-full bg-(--color-accent-amber-bg) px-1.5 py-0.5 text-center text-xs font-medium leading-none text-(--color-accent-amber-text)"
+          className="min-w-5 rounded-[5px] bg-(--color-accent-amber-bg) px-1.5 py-[3px] text-center text-xs font-semibold leading-none text-(--color-accent-amber-text) tabular-nums"
           data-testid="decide-count"
         >
           {count}
@@ -59,7 +61,8 @@ function Section({
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
-          className="flex flex-1 items-center gap-1 px-1 text-xs font-semibold uppercase tracking-wide text-(--color-text-faint) hover:text-(--color-text-muted)"
+          aria-expanded={open}
+          className="kos-eyebrow flex flex-1 items-center gap-1 rounded-(--radius-control) px-1 hover:text-(--color-text-muted)"
         >
           <ChevronRight size={11} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
           {title}
@@ -85,8 +88,11 @@ export function Sidebar({
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-3 py-4" onClick={onNavigate}>
-      <Link to="/" className="mb-3 truncate px-2 text-sm font-semibold">
-        {nav?.workspace_name ?? "Knowledge OS"}
+      <Link to="/" className="mb-4 flex min-w-0 items-center gap-2.5 rounded-(--radius-control) px-1.5 py-1">
+        <img src={mark} alt="" className="h-[22px] w-[22px] shrink-0" />
+        <span className="truncate font-serif text-[16px] font-semibold tracking-[-0.005em]">
+          {nav?.workspace_name ?? "Knowledge OS"}
+        </span>
       </Link>
 
       <button
@@ -95,13 +101,13 @@ export function Sidebar({
           event.stopPropagation();
           onOpenQuickFind();
         }}
-        className="mb-3 flex items-center justify-between rounded-md border border-(--color-border) bg-(--color-bg) px-2.5 py-1.5 text-sm text-(--color-text-muted) hover:border-(--color-border-strong)"
+        className="mb-3 flex items-center justify-between rounded-(--radius-control) border border-(--color-border-strong) bg-(--color-bg-raised) px-2.5 py-1.5 text-sm text-(--color-text-faint) transition-colors hover:border-(--color-text-faint) hover:text-(--color-text-muted)"
       >
         <span className="flex items-center gap-2">
           <Search size={14} />
           Search
         </span>
-        <kbd className="rounded border border-(--color-border) px-1.5 py-0.5 font-mono text-[10px] text-(--color-text-faint)">
+        <kbd className="kos-kbd">
           {SHORTCUT_KEYS}
         </kbd>
       </button>
@@ -135,7 +141,7 @@ export function Sidebar({
               event.stopPropagation();
               structure.newProject();
             }}
-            className="flex h-5 w-5 items-center justify-center rounded text-(--color-text-faint) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+            className="flex h-6 w-6 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text)"
             aria-label="New project"
             title="New project"
           >
@@ -146,7 +152,7 @@ export function Sidebar({
         {nav?.projects.length ? (
           nav.projects.map((project) => <SidebarProject key={project.id} project={project} />)
         ) : (
-          <p className="px-2 text-sm text-(--color-text-faint)">No project yet.</p>
+          <p className="px-2 py-1 text-sm text-(--color-text-faint)">No project yet.</p>
         )}
       </Section>
 
@@ -156,8 +162,8 @@ export function Sidebar({
             <Link
               key={skill.name}
               to={`/s/${skill.name}`}
-              className={`flex items-center gap-2.5 truncate rounded-md px-2.5 py-1.5 text-sm ${
-                location.pathname === `/s/${skill.name}` ? "bg-(--color-bg-hover) font-medium" : "text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+              className={`flex items-center gap-2.5 truncate rounded-(--radius-control) px-2.5 py-1.5 text-sm ${
+                location.pathname === `/s/${skill.name}` ? rowActive : rowIdle
               }`}
               title={skill.name}
             >
@@ -174,8 +180,8 @@ export function Sidebar({
             <Link
               key={doc.path}
               to={`/f/${doc.path}`}
-              className={`flex items-center gap-2.5 truncate rounded-md px-2.5 py-1.5 text-sm ${
-                location.pathname === `/f/${doc.path}` ? "bg-(--color-bg-hover) font-medium" : "text-(--color-text-muted) hover:bg-(--color-bg-hover) hover:text-(--color-text)"
+              className={`flex items-center gap-2.5 truncate rounded-(--radius-control) px-2.5 py-1.5 text-sm ${
+                location.pathname === `/f/${doc.path}` ? rowActive : rowIdle
               }`}
               title={doc.path}
             >

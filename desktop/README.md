@@ -38,6 +38,7 @@ Run these in `desktop/`:
 | `npm run dist` | Runs the three builds above, then writes the installer to `dist/knowledge-os-setup.exe`, with `latest.yml` and `knowledge-os-setup.exe.blockmap` for updates. |
 | `npm run dist:test` | Builds the isolated **test variant** for installer/update testing; writes `dist-test/knowledge-os-test-setup.exe`. Never use `npm run dist` for testing installs — see [Testing the installer](#testing-the-installer). |
 | `npm run test:installer` | Builds the test variant and runs the guarded install/PATH/uninstall check described below. |
+| `npm run icon` | Regenerates `build/icon.ico` and the reader's favicon from the SVG sources in `build/` (see [The app icon](#the-app-icon)). |
 
 ## Building the Windows installer
 
@@ -65,6 +66,23 @@ registers an uninstaller under Installed apps. `knowledge-os-setup.exe /S`
 installs silently. Windows SmartScreen warns about
 the unsigned installer on first run. The installed app updates itself from
 GitHub releases (see [Updates](#updates)).
+
+### The app icon
+
+The icon is drawn in two SVG files in `build/`: `icon.svg` for 32 px and up,
+and `icon-small.svg`, drawn on the 16 px grid, for 16 and 24 px, the reader's
+favicon, and the mark in the app. `npm run icon` renders them with
+`@resvg/resvg-js` into `build/icon.ico` (16, 24, 32, 48, 64, 128, and 256 px;
+32-bit BMP entries and a PNG entry at 256 px) and copies `icon-small.svg` to
+`reader-ui/src/assets/mark.svg`. After changing either SVG, run it and commit
+`build/icon.ico` and `mark.svg` with the change; no build step regenerates
+them.
+
+`electron-builder.yml` puts the icon on the `.exe` (and through it on the
+Start menu and desktop shortcuts and the taskbar) and on the installer and
+uninstaller. The main window and the Referat window set it as well, so a
+development run shows it too. The reader's favicon is part of the UI bundle
+that `npm run build:ui` builds.
 
 ### The `kos` command
 

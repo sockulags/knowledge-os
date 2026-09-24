@@ -7,7 +7,7 @@ import { Breadcrumb } from "../components/Breadcrumb";
 import { Markdown } from "../components/Markdown";
 import { TableOfContents } from "../components/TableOfContents";
 import { EmptyState } from "../components/EmptyState";
-import { Callout } from "../components/Callout";
+import { Callout, LoadError } from "../components/Callout";
 
 export function Skill() {
   const { skillName } = useParams<{ skillName: string }>();
@@ -16,12 +16,12 @@ export function Skill() {
   if (loading) return <PageSkeleton />;
   if (notFound)
     return <EmptyState title="No such skill" body={`No skill named "${skillName}" exists in this workspace.`} />;
-  if (error || !data) return <Callout tone="danger">{error ?? "Could not load this skill."}</Callout>;
+  if (error || !data) return <LoadError>{error ?? "Could not load this skill."}</LoadError>;
 
   if (data.broken) {
     return (
       <div className="mx-auto w-full max-w-[720px] px-6 py-12 sm:px-10">
-        <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">{data.broken.label}</h1>
+        <h1 className="kos-title">{data.broken.label}</h1>
         <div className="mt-6">
           <Callout tone="danger">{data.broken.detail}</Callout>
         </div>
@@ -35,21 +35,21 @@ export function Skill() {
     <div className="mx-auto flex w-full max-w-[1100px] gap-10 px-6 py-12 sm:px-10">
       <div className="mx-auto w-full max-w-[720px]">
         <Breadcrumb items={[{ label: "Skills", href: "/everything" }]} current={data.title ?? data.name} />
-        <h1 className="text-[28px] sm:text-[36px] font-semibold leading-tight tracking-tight">{data.title ?? data.name}</h1>
-        {data.description && <p className="mt-2 text-(--color-text-muted)">{data.description}</p>}
+        <h1 className="kos-title">{data.title ?? data.name}</h1>
+        {data.description && <p className="kos-lede">{data.description}</p>}
 
-        <dl className="mt-6 mb-8 rounded-lg border border-(--color-border) bg-(--color-bg-raised) px-4 py-1 divide-y divide-(--color-border)">
-          <div className="grid grid-cols-[100px_1fr] gap-3 py-1.5 text-sm sm:grid-cols-[120px_1fr]">
-            <dt className="text-(--color-text-muted)">Trust</dt>
+        <dl className="kos-card mt-6 mb-8 divide-y divide-(--color-border) px-4 py-0.5">
+          <div className="grid grid-cols-[100px_1fr] gap-3 py-2 text-sm sm:grid-cols-[124px_1fr]">
+            <dt className="text-(--color-text-faint)">Trust</dt>
             <dd>{data.trust_label}</dd>
           </div>
-          <div className="grid grid-cols-[100px_1fr] gap-3 py-1.5 text-sm sm:grid-cols-[120px_1fr]">
-            <dt className="text-(--color-text-muted)">Tags</dt>
+          <div className="grid grid-cols-[100px_1fr] gap-3 py-2 text-sm sm:grid-cols-[124px_1fr]">
+            <dt className="text-(--color-text-faint)">Tags</dt>
             <dd>
               {data.tags && data.tags.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {data.tags.map((tag) => (
-                    <span key={tag} className="rounded-full bg-(--color-bg-hover) px-2 py-0.5 text-xs text-(--color-text-muted)">
+                    <span key={tag} className="rounded-[5px] bg-(--color-bg-hover) px-1.5 py-0.5 text-xs text-(--color-text-muted)">
                       {tag}
                     </span>
                   ))}
@@ -65,7 +65,7 @@ export function Skill() {
 
         {data.references && data.references.length > 0 && (
           <section className="mt-10 border-t border-(--color-border) pt-6">
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
+            <h3 className="kos-eyebrow mb-2.5">
               Supporting references
             </h3>
             <div className="space-y-1">
@@ -74,7 +74,7 @@ export function Skill() {
                   <Link
                     key={reference.path}
                     to={reference.href!}
-                    className="block rounded-md px-2 py-1.5 text-sm hover:bg-(--color-bg-hover)"
+                    className="kos-row px-2 py-1.5 text-sm"
                   >
                     {reference.title}
                   </Link>

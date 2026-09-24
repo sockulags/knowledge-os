@@ -100,7 +100,7 @@ export function Shell() {
       {/* Mobile drawer */}
       {drawerOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setDrawerOpen(false)} />
+          <div className="kos-scrim absolute inset-0" onClick={() => setDrawerOpen(false)} />
           <aside className="absolute inset-y-0 left-0 w-72 border-r border-(--color-border) bg-(--color-bg-sidebar)">
             <Sidebar
               nav={nav}
@@ -115,12 +115,12 @@ export function Shell() {
       )}
 
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-(--color-border) bg-(--color-bg) px-3 py-2">
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-(--color-border) bg-[color-mix(in_srgb,var(--color-bg)_92%,transparent)] px-3 py-2 backdrop-blur-sm">
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-(--color-text-muted) hover:bg-(--color-bg-hover) md:hidden"
+              className="kos-icon-btn md:hidden"
               aria-label="Open navigation"
             >
               <Menu size={17} />
@@ -128,7 +128,7 @@ export function Shell() {
             <button
               type="button"
               onClick={() => setCollapsed((value) => !value)}
-              className="hidden h-8 w-8 items-center justify-center rounded-md text-(--color-text-muted) hover:bg-(--color-bg-hover) md:flex"
+              className="kos-icon-btn hidden md:inline-flex"
               aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
             >
               {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}

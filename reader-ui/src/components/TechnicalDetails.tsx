@@ -8,17 +8,18 @@ import type { TechnicalDetails as TechnicalDetailsData } from "../api/types";
 export function TechnicalDetails({ details }: { details: TechnicalDetailsData }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mb-8 rounded-lg border border-(--color-border)">
+    <div className="mb-8 rounded-(--radius-card) border border-(--color-border)">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-1.5 px-4 py-2.5 text-sm text-(--color-text-muted) hover:text-(--color-text)"
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 rounded-(--radius-card) px-4 py-2.5 text-[13px] text-(--color-text-muted) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text)"
       >
-        <ChevronRight size={14} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
+        <ChevronRight size={14} className={open ? "rotate-90 transition-transform duration-100" : "transition-transform duration-100"} />
         Technical details
       </button>
       {open && (
-        <div className="border-t border-(--color-border) px-4 py-3">
+        <div className="border-t border-(--color-border) bg-(--color-bg-sidebar) px-4 py-3">
           <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1.5 font-mono text-xs">
             <dt className="text-(--color-text-faint)">status</dt>
             <dd className="break-all">{details.status}</dd>

@@ -7,14 +7,14 @@ const SOURCE_VISIBLE = 3;
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[100px_1fr] gap-3 py-1.5 text-sm sm:grid-cols-[120px_1fr]">
-      <dt className="text-(--color-text-muted)">{label}</dt>
+    <div className="grid grid-cols-[100px_1fr] gap-3 py-2 text-sm sm:grid-cols-[124px_1fr]">
+      <dt className="text-(--color-text-faint)">{label}</dt>
       <dd className="min-w-0">{children}</dd>
     </div>
   );
 }
 
-/** The Notion-style two-column properties block under a document's title:
+/** The two-column properties block under a document's title:
  * Status, Trust, Applies to, Updated, Source. A long provenance list
  * collapses to "N sources" with an expander (design brief). */
 export function PropertiesBlock({ properties }: { properties: PropertiesBlockData }) {
@@ -24,7 +24,7 @@ export function PropertiesBlock({ properties }: { properties: PropertiesBlockDat
   const visibleSources = sourceOpen ? sources : sources.slice(0, SOURCE_VISIBLE);
 
   return (
-    <dl className="mb-8 rounded-lg border border-(--color-border) bg-(--color-bg-raised) px-4 py-1 divide-y divide-(--color-border)">
+    <dl className="kos-card mb-8 divide-y divide-(--color-border) px-4 py-0.5">
       <Row label={properties.status.label}>
         <div className="flex flex-wrap items-center gap-2">
           {properties.status.pill && <Pill pill={properties.status.pill} />}
@@ -55,7 +55,7 @@ export function PropertiesBlock({ properties }: { properties: PropertiesBlockDat
               <button
                 type="button"
                 onClick={() => setSourceOpen((open) => !open)}
-                className="inline-flex items-center gap-1 text-(--color-text-muted) hover:text-(--color-text)"
+                className="-mx-1 inline-flex items-center gap-1 rounded-(--radius-control) px-1 text-(--color-text-muted) hover:text-(--color-accent-text)"
               >
                 <ChevronDown size={14} className={sourceOpen ? "rotate-180 transition-transform" : "transition-transform"} />
                 {sourceOpen ? "Show fewer" : `${sources.length} sources`}

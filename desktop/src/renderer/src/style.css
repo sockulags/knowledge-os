@@ -1,35 +1,64 @@
+/* The desktop shell's own pages (start page, error screens, Referat import
+   window) use the reader's tokens so the window looks like one product
+   before and after a knowledge base opens. The values are copied from
+   reader-ui/src/index.css; change both together. */
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/source-serif-4';
+
 :root {
   color-scheme: light dark;
-  --bg: #f7f7f5;
+  --bg: #fbfaf7;
+  --sidebar: #f2f0ea;
   --panel: #ffffff;
-  --hover: #efefec;
-  --text: #1f1f1f;
-  --muted: #6b6b6b;
-  --border: #e6e4df;
-  --error-bg: #fbeaea;
-  --error-text: #b3261e;
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
+  --hover: #ebe8e0;
+  --active: #dfeaed;
+  --text: #1b1c1e;
+  --muted: #54565a;
+  --faint: #6b6d70;
+  --border: #e3dfd6;
+  --border-strong: #c9c4b8;
+  --accent: #1f5e73;
+  --accent-hover: #174b5c;
+  --accent-text: #1c5669;
+  --on-accent: #ffffff;
+  --focus: #2b7590;
+  --error-bg: #f8e4e1;
+  --error-text: #9e281f;
+  --amber-bg: #faedd2;
+  --amber-text: #7e4f0b;
+  --shadow: 0 1px 2px rgb(24 28 32 / 0.05);
+  --serif: 'Source Serif 4 Variable', Georgia, Cambria, serif;
+  --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-family: 'Inter Variable', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--text);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #171715;
-    --panel: #1f1f1d;
-    --hover: #292925;
-    --text: #ecece7;
-    --muted: #a3a39a;
-    --border: #2d2d29;
-    --error-bg: #3a1a18;
-    --error-text: #f0a39d;
+    --bg: #15181b;
+    --sidebar: #101316;
+    --panel: #1c2024;
+    --hover: #252a2f;
+    --active: #1b3540;
+    --text: #eae8e3;
+    --muted: #b3b5b8;
+    --faint: #92969a;
+    --border: #2a2f35;
+    --border-strong: #3d444b;
+    --accent: #6cbad0;
+    --accent-hover: #8ccbdc;
+    --accent-text: #86c7da;
+    --on-accent: #0c1b21;
+    --focus: #6cbad0;
+    --error-bg: #3b1d1b;
+    --error-text: #f39d95;
+    --amber-bg: #372913;
+    --amber-text: #edb862;
+    --shadow: none;
   }
 }
 
@@ -40,22 +69,46 @@ body {
 main {
   max-width: 640px;
   margin: 0 auto;
-  padding: 64px 24px;
+  padding: 72px 24px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.brand img {
+  width: 44px;
+  height: 44px;
+}
+
+.brand h1 {
+  margin: 0;
 }
 
 h1 {
-  font-size: 24px;
+  font-family: var(--serif);
+  font-size: 30px;
+  line-height: 1.15;
   font-weight: 600;
-  margin: 0 0 4px;
+  letter-spacing: -0.012em;
+  margin: 0 0 8px;
 }
 
 h2 {
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  margin: 40px 0 8px;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  margin: 40px 0 10px;
 }
 
 p {
@@ -67,17 +120,22 @@ p {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 24px;
+  margin-top: 28px;
 }
 
 button {
   font: inherit;
-  color: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  padding: 8px 14px;
+  padding: 7px 14px;
   cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 button:hover {
@@ -85,9 +143,14 @@ button:hover {
 }
 
 button.primary {
-  background: var(--text);
-  color: var(--bg);
-  border-color: var(--text);
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+
+button.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 ul.recent {
@@ -95,8 +158,9 @@ ul.recent {
   margin: 0;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--panel);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
@@ -111,45 +175,54 @@ ul.recent button {
   border: 0;
   border-radius: 0;
   background: transparent;
-  padding: 10px 14px;
+  padding: 11px 16px;
+  font-weight: 500;
 }
 
 ul.recent button:hover {
   background: var(--hover);
 }
 
+ul.recent button:focus-visible {
+  outline-offset: -2px;
+}
+
 .path {
   display: block;
+  font-family: var(--mono);
   font-size: 12px;
-  color: var(--muted);
+  font-weight: 400;
+  color: var(--faint);
   overflow-wrap: anywhere;
 }
 
 .notice {
   color: var(--text);
-  background: var(--panel);
+  background: var(--sidebar);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 14px;
+  border-radius: 10px;
+  padding: 11px 16px;
   overflow-wrap: anywhere;
 }
 
 .error {
   background: var(--error-bg);
   color: var(--error-text);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--error-text) 28%, transparent);
+  border-radius: 10px;
+  padding: 12px 16px;
   margin: 16px 0;
   overflow-wrap: anywhere;
 }
 
 pre {
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--mono);
   font-size: 12px;
-  background: var(--panel);
+  line-height: 1.6;
+  background: var(--sidebar);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-radius: 10px;
+  padding: 12px 16px;
   max-height: 320px;
   overflow: auto;
   white-space: pre-wrap;

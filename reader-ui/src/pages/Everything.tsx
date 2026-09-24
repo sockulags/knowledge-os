@@ -3,7 +3,7 @@ import { useSearchParams, Link } from "react-router";
 import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { api } from "../api/client";
 import { PageSkeleton } from "../components/Skeleton";
-import { Callout, BrokenRecordCallout } from "../components/Callout";
+import { LoadError, BrokenRecordCallout } from "../components/Callout";
 import { Pill } from "../components/Pill";
 import type { EverythingPayload } from "../api/types";
 
@@ -67,14 +67,14 @@ export function Everything() {
   }
 
   if (loading && !data) return <PageSkeleton />;
-  if (error || !data) return <Callout tone="danger">{error ?? "Could not load the catalog."}</Callout>;
+  if (error || !data) return <LoadError>{error ?? "Could not load the catalog."}</LoadError>;
 
   const sortKey = data.sort;
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-6 py-12 sm:px-10">
-      <h1 className="text-[26px] sm:text-[32px] font-semibold leading-tight tracking-tight">{data.title}</h1>
-      <p className="mt-1.5 text-(--color-text-muted)">{data.intro}</p>
+      <h1 className="kos-title">{data.title}</h1>
+      <p className="kos-lede">{data.intro}</p>
 
       <div className="mt-5 flex flex-wrap gap-2">
         {FILTER_KEYS.map((key) => {
@@ -86,7 +86,7 @@ export function Everything() {
               key={key}
               value={params.get(key) ?? ""}
               onChange={(event) => updateFilter(key, event.target.value)}
-              className="rounded-md border border-(--color-border) bg-(--color-bg) px-2.5 py-1.5 text-sm text-(--color-text-muted)"
+              className="kos-input py-1.5 text-[13px] text-(--color-text-muted)"
             >
               <option value="">{label}: Any</option>
               {options.map((option) => (
@@ -99,10 +99,10 @@ export function Everything() {
         })}
       </div>
 
-      <div className="mt-6 overflow-x-auto rounded-lg border border-(--color-border)">
+      <div className="kos-card mt-6 overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
-            <tr className="border-b border-(--color-border) bg-(--color-bg-sidebar) text-left text-(--color-text-muted)">
+            <tr className="border-b border-(--color-border) bg-(--color-bg-sidebar) text-left text-[13px] text-(--color-text-muted)">
               {SORT_COLUMNS.map((column) => {
                 const active = sortKey === column.key;
                 // An active column shows which way it's sorted (ArrowUp for
@@ -112,7 +112,11 @@ export function Everything() {
                 const Icon = active ? (data.dir === "desc" ? ArrowDown : ArrowUp) : ArrowUpDown;
                 return (
                   <th key={column.key} className="px-3 py-2 font-medium">
-                    <button type="button" onClick={() => toggleSort(column.key)} className="flex items-center gap-1 hover:text-(--color-text)">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(column.key)}
+                      className={`-mx-1 flex items-center gap-1 rounded-(--radius-control) px-1 hover:text-(--color-text) ${active ? "text-(--color-text)" : ""}`}
+                    >
                       {column.label}
                       <Icon size={12} className={active ? "opacity-100" : "opacity-30"} />
                     </button>
@@ -125,9 +129,9 @@ export function Everything() {
           </thead>
           <tbody>
             {data.entries.map((entry) => (
-              <tr key={entry.id} className="border-b border-(--color-border) last:border-0 hover:bg-(--color-bg-hover)">
+              <tr key={entry.id} className="border-b border-(--color-border) transition-colors last:border-0 hover:bg-(--color-bg-hover)">
                 <td className="px-3 py-2">
-                  <Link to={`/r/${entry.id}`} className="font-medium hover:underline">
+                  <Link to={`/r/${entry.id}`} className="rounded-sm font-medium hover:underline hover:underline-offset-[3px]">
                     {entry.title}
                   </Link>
                 </td>
@@ -151,10 +155,10 @@ export function Everything() {
 
       {data.skills.length > 0 && (
         <section className="mt-10">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">Skills</h2>
+          <h2 className="kos-eyebrow mb-2.5">Skills</h2>
           <div className="space-y-1">
             {data.skills.map((skill) => (
-              <Link key={skill.name} to={`/s/${skill.name}`} className="block rounded-md px-2 py-1.5 text-sm hover:bg-(--color-bg-hover)">
+              <Link key={skill.name} to={`/s/${skill.name}`} className="kos-row px-2 py-1.5 text-sm">
                 {skill.name}
               </Link>
             ))}
@@ -164,7 +168,7 @@ export function Everything() {
 
       {data.broken.length > 0 && (
         <section className="mt-10">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-(--color-text-faint)">
+          <h2 className="kos-eyebrow mb-2.5">
             Could not be read
           </h2>
           {data.broken.map((entry) => (

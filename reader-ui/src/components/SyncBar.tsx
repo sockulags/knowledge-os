@@ -22,7 +22,7 @@ export function SyncBar({ sync }: { sync: SyncState }) {
       <Link
         to="/sync"
         title={status.detail ?? undefined}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-(--color-text-faint) hover:bg-(--color-bg-hover)"
+        className="flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-xs text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text-muted)"
       >
         <GitBranch size={13} />
         {UNAVAILABLE[status.reason ?? ""] ?? "Sync unavailable"}
@@ -34,7 +34,7 @@ export function SyncBar({ sync }: { sync: SyncState }) {
     return (
       <Link
         to="/sync"
-        className="flex items-center gap-1.5 rounded-md bg-(--color-accent-amber-bg) px-2.5 py-1 text-xs font-medium text-(--color-accent-amber-text) hover:opacity-90"
+        className="flex items-center gap-1.5 rounded-(--radius-control) border border-[color-mix(in_srgb,var(--color-accent-amber-text)_30%,transparent)] bg-(--color-accent-amber-bg) px-2.5 py-1 text-xs font-medium text-(--color-accent-amber-text) transition-[filter] hover:brightness-[0.97]"
       >
         <AlertTriangle size={13} />
         {status.conflicts > 0
@@ -50,7 +50,7 @@ export function SyncBar({ sync }: { sync: SyncState }) {
     <div className="flex min-w-0 items-center gap-1" data-testid="sync-bar">
       <Link
         to="/sync"
-        className="flex min-w-0 items-center gap-2.5 rounded-md px-2 py-1 text-xs text-(--color-text-muted) hover:bg-(--color-bg-hover)"
+        className="flex min-w-0 items-center gap-2.5 rounded-(--radius-control) px-2 py-1 text-xs text-(--color-text-muted) tabular-nums transition-colors hover:bg-(--color-bg-hover)"
         title={`${status.upstream ? `${status.branch} tracks ${status.upstream}` : "This branch has no upstream to sync with"}. ${lastSync}.`}
       >
         <span className="flex items-center gap-1 font-medium text-(--color-text)">
@@ -88,7 +88,7 @@ export function SyncBar({ sync }: { sync: SyncState }) {
           const outcome = await sync.run();
           if (!outcome.ok && outcome.failure.error === "conflict") navigate("/sync");
         }}
-        className="flex items-center gap-1.5 rounded-md border border-(--color-border) px-2.5 py-1 text-xs font-medium hover:bg-(--color-bg-hover) disabled:opacity-60"
+        className="kos-btn kos-btn-secondary kos-btn-sm gap-1.5 text-xs"
       >
         <RefreshCw size={13} className={busy ? "animate-spin" : undefined} />
         {busy ? "Syncing…" : "Sync"}
@@ -104,7 +104,7 @@ export function SyncFailureBanner({ sync }: { sync: SyncState }) {
   return (
     <div
       role="alert"
-      className="flex items-start gap-2.5 border-b border-(--color-accent-red-bg) bg-(--color-accent-red-bg) px-4 py-2.5 text-sm text-(--color-accent-red-text)"
+      className="flex items-start gap-2.5 border-b border-[color-mix(in_srgb,var(--color-accent-red-text)_25%,transparent)] bg-(--color-accent-red-bg) px-4 py-2.5 text-sm text-(--color-accent-red-text)"
     >
       <AlertTriangle size={16} className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">
@@ -120,7 +120,7 @@ export function SyncFailureBanner({ sync }: { sync: SyncState }) {
         type="button"
         onClick={sync.dismissFailure}
         aria-label="Dismiss"
-        className="rounded p-0.5 hover:bg-black/5"
+        className="rounded-[5px] p-0.5 opacity-80 hover:bg-[color-mix(in_srgb,currentColor_12%,transparent)] hover:opacity-100"
       >
         <X size={15} />
       </button>

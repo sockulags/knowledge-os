@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Knowledge OS app icon at 16 and 24 px, the favicon, and the in-app mark:
+       the page and its ribbon only, drawn on the 16 px grid.
+       Regenerate the .ico with `npm run icon` in desktop/. -->
+  <rect x="0.5" y="0.5" width="15" height="15" rx="3.5" fill="#1f5e73"/>
+  <rect x="4" y="2.5" width="8.5" height="11" rx="1" fill="#fbf7ee"/>
+  <path d="M8.75 2.5h2.5v5l-1.25-1-1.25 1z" fill="#e2a137"/>
+</svg>

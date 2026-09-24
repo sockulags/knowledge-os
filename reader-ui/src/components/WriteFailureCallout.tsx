@@ -50,7 +50,7 @@ export function ConflictCallout({ onReload, onKeepEditing }: { onReload: () => v
         <button
           type="button"
           onClick={onReload}
-          className="rounded-md bg-(--color-accent-red-text) px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+          className="kos-btn kos-btn-danger"
         >
           Reload current version
         </button>
@@ -58,7 +58,7 @@ export function ConflictCallout({ onReload, onKeepEditing }: { onReload: () => v
           <button
             type="button"
             onClick={onKeepEditing}
-            className="rounded-md px-3 py-1.5 text-sm hover:bg-(--color-bg-hover)"
+            className="kos-btn kos-btn-ghost text-(--color-accent-red-text)"
           >
             Keep my text for now
           </button>
