@@ -373,13 +373,17 @@ def relative_date(value: str | None, *, today: datetime.date | None = None) -> s
     return f"{years} year{'s' if years != 1 else ''} ago"
 
 
-def _tree_node_json(node: grouping.ProjectTreeNode) -> dict[str, object]:
+def _tree_node_json(node: grouping.ProjectTreeNode, parent: str = "") -> dict[str, object]:
+    # ``path`` is the folder's path inside the project ("" for the top
+    # level): what the structure endpoints take to name a folder.
+    path = f"{parent}/{node.name}" if parent else node.name
     return {
         "name": node.name,
+        "path": path,
         "overview": record_summary(node.overview) if node.overview is not None else None,
         "records": [record_summary(record) for record in node.records],
         "broken": [{"path": item.path, "message": item.message} for item in node.broken],
-        "children": [_tree_node_json(child) for child in node.children],
+        "children": [_tree_node_json(child, path) for child in node.children],
     }
 
 

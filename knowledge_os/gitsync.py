@@ -602,6 +602,13 @@ def auto_commit(workspace: Workspace, paths: Iterable[str], message: str) -> Com
                     detail="A sync is waiting for conflicts to be resolved, so this change was not committed yet.",
                 )
             _require_identity(repo)
+            if selected:
+                # A move removes paths. Git refuses a pathspec that is neither
+                # on disk nor tracked (a file removed before it was ever
+                # committed), so keep only paths Git can stage.
+                listed = _git(repo, "ls-files", "-z", "--", *selected).stdout.split(b"\0")
+                tracked = {entry.decode("utf-8", errors="replace") for entry in listed if entry}
+                selected = [path for path in selected if path in tracked or (workspace.root / path).exists()]
             if not selected or not _changed_paths(repo, selected):
                 return CommitOutcome(False, skipped="nothing_to_commit", detail="Nothing changed in Git.")
             _git(repo, "add", "--all", "--", *selected)
