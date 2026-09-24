@@ -55,6 +55,17 @@ reader's UI bundle ships inside the installed package. The records in this
 repository remain its own project documentation. The desktop shell in
 [`desktop/`](desktop/README.md) opens and creates knowledge bases the same way.
 
+## Organize projects and folders
+
+`kos project create ID --title TITLE` creates a project, and `kos folder
+create PROJECT PATH --title TITLE` a folder, which is written as the folder's
+own `README.md` page so Git keeps it. `kos move`, `kos folder move`, `kos folder
+rename`, and `kos rename` move and rename pages and folders; record IDs stay the
+same and relative links to moved files are rewritten. Moving to another project
+changes scope and needs `--allow-scope-change`. In the app, use "New project"
+in the sidebar, each row's menu, or drag pages and folders in the project tree.
+See "Structure editing" in [`docs/architecture.md`](docs/architecture.md).
+
 ## Sync a knowledge base with Git
 
 Make the knowledge base folder its own Git repository with an upstream branch:
