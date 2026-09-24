@@ -8,9 +8,11 @@ import { dirname } from 'path'
 export interface AppSettings {
   /** Check GitHub for a newer release at startup and every few hours. */
   checkForUpdates: boolean
+  /** Open the most recently used knowledge base when the app starts. */
+  reopenLastWorkspace: boolean
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { checkForUpdates: true }
+export const DEFAULT_SETTINGS: AppSettings = { checkForUpdates: true, reopenLastWorkspace: true }
 
 /** Read the settings; a missing, damaged, or partial file falls back to the defaults per field. */
 export function loadSettings(file: string): AppSettings {
@@ -22,11 +24,11 @@ export function loadSettings(file: string): AppSettings {
   }
   const stored =
     typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {}
+  const flag = (key: keyof AppSettings): boolean =>
+    typeof stored[key] === 'boolean' ? (stored[key] as boolean) : DEFAULT_SETTINGS[key]
   return {
-    checkForUpdates:
-      typeof stored['checkForUpdates'] === 'boolean'
-        ? stored['checkForUpdates']
-        : DEFAULT_SETTINGS.checkForUpdates
+    checkForUpdates: flag('checkForUpdates'),
+    reopenLastWorkspace: flag('reopenLastWorkspace')
   }
 }
 

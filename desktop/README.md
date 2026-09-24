@@ -375,6 +375,18 @@ with `kos init`, and lists the ten most recently opened knowledge bases. The
 list is stored in `recent-workspaces.json` in Electron's user-data folder. The
 File menu has the same actions plus Close Knowledge Base.
 
+On start, the app reopens the most recently opened knowledge base when its
+folder still exists and still has its `knowledge-os.toml` marker
+(`src/main/reopen.ts`). It opens through the same path as Open Recent, so the
+runtime file for agents is written as usual. If the folder is gone, or it is
+no longer a knowledge base (no marker, or the core refuses it), the start page
+shows one line saying so, for example "The last knowledge base, my-kb, was not
+found at D:\notes\my-kb." Other failures, such as a missing Python, show the
+error screen as before. File → Reopen the Last Knowledge Base on Start turns
+this off; the choice is stored as `reopenLastWorkspace` in `settings.json`
+(default on). `KOS_DESKTOP_WORKSPACE` (see
+[Development hooks](#development-hooks)) takes precedence over reopening.
+
 An error screen explains a missing Python (or, in the installed app, a missing
 bundled core), a folder that is not a knowledge
 base, a core that stopped while starting or later, and a refused `kos init`,
@@ -471,6 +483,21 @@ rest of the app is unchanged.
 - `KOS_DESKTOP_WORKSPACE=PATH` opens that knowledge base at startup.
 - `KOS_DESKTOP_USER_DATA=PATH` uses a separate user-data folder, so a test run
   does not touch your recent list or settings.
+
+To try reopen-on-start without touching the real app's user data:
+
+```powershell
+$env:KOS_DESKTOP_USER_DATA = "$env:TEMP\kos-dev-userdata"
+$env:KOS_DESKTOP_WORKSPACE = 'D:\scratch\test-kb'   # first run: open it once
+npm run dev                                          # then quit the app
+Remove-Item Env:\KOS_DESKTOP_WORKSPACE
+npm run dev                                          # reopens test-kb
+```
+
+Rename the folder before the second run to see the start page's reason, or
+untick File → Reopen the Last Knowledge Base on Start to see the plain start
+page. `npm run dev -- --remoteDebuggingPort 9444` exposes the window to the
+Chrome DevTools Protocol for scripted checks.
 - `MAIN_VITE_KOS_UPDATE_TEST_FEED=URL`, set at build time, points the updater
   at a local test server (see [Testing an update locally](#testing-an-update-locally)).
 - `REFERAT_USER_DATA=PATH` makes the Referat plugin read meetings from that

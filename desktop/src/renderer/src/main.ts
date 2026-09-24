@@ -64,10 +64,14 @@ function render(state: ShellState): void {
     case 'start':
       nodes.push(
         element('h1', 'Knowledge OS'),
-        element('p', 'Open a knowledge base folder or create a new, empty one.'),
-        mainActions(),
-        ...recentList(state.recent)
+        element('p', 'Open a knowledge base folder or create a new, empty one.')
       )
+      if (state.notice) {
+        const notice = element('p', state.notice, 'notice')
+        notice.setAttribute('role', 'status')
+        nodes.push(notice)
+      }
+      nodes.push(mainActions(), ...recentList(state.recent))
       break
     case 'starting':
       nodes.push(element('h1', 'Opening knowledge base…'), element('p', state.root, 'path'))
