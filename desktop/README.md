@@ -97,7 +97,17 @@ The installer also puts a `kos` command on PATH, backed by the bundled core
 - If a pip-installed `kos` is already on PATH, both can coexist; whichever
   directory comes first on PATH wins for a bare `kos` invocation. Run
   `where kos` to see every `kos` on PATH in the order Windows will try them,
-  with the one that actually runs listed first.
+  with the one that actually runs listed first. `kos --version` reports which
+  one you are running (the bundled core's path, or the Python interpreter and
+  package path). To make that shadowing visible instead of silent, the shim
+  sets `KOS_LAUNCHED_BY_SHIM` to its own path before starting the core; the
+  core (`knowledge_os/version_info.py`) checks `shutil.which("kos")` against
+  that path and, if a bare `kos` would resolve elsewhere, prints a one-line
+  warning to stderr — never stdout, so `--json` output and `kos mcp`'s stdio
+  protocol stay clean. The same module warns from the pip-installed `kos` side
+  too, when it runs while the app is also installed (it does not compare
+  versions, only that both exist, which is enough to point at the fix).
+  `KOS_NO_PATH_WARNING=1` silences it.
 
 The core is a PyInstaller one-folder build (`resources\core\kos-core.exe`
 next to its `_internal\` folder), not a one-file build: it starts without

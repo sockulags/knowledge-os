@@ -25,6 +25,7 @@ from .index import rebuild_indexes, search_index
 from .ingest import ingest_source
 from .model import MetadataError, content_sha256
 from .mutations import accept_decision, supersede_decision, update_record, withdraw_decision
+from .version_info import path_warning, version_lines
 from .workspace import Workspace, WorkspaceError, validate_workspace
 
 
@@ -35,7 +36,12 @@ def _root_option(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kos", description="Knowledge OS local knowledge tools")
     _root_option(parser)
-    commands = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="print kos's version and where it runs from, then exit",
+    )
+    commands = parser.add_subparsers(dest="command", required=False)
 
     init = commands.add_parser("init", help="create a new, empty, valid workspace")
     init.add_argument("path", type=Path, help="folder to create the workspace in")
@@ -246,7 +252,17 @@ def _inspect(workspace: Workspace, record_id: str, full: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    warning = path_warning()
+    if warning:
+        print(warning, file=sys.stderr)
+    if args.version:
+        for line in version_lines():
+            print(line)
+        return 0
+    if args.command is None:
+        parser.error("the following arguments are required: command")
     try:
         if args.command == "documentation":
             if args.documentation_command == "init-global":
