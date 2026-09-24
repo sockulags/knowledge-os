@@ -10,6 +10,7 @@ import { PageSkeleton } from "../components/Skeleton";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
+import { loadErrorMessage } from "../lib/language";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { WriteFailureCallout } from "../components/WriteFailureCallout";
 import {
@@ -47,12 +48,15 @@ function cleanFolder(folder: string): string {
 export function NewRecord() {
   const { projectId } = useParams<{ projectId: string }>();
   const [params] = useSearchParams();
-  const { data, loading, notFound, error } = useApi(() => api.project(projectId!), [projectId]);
+  const { nav } = useShell();
+  const apiState = useApi(() => api.project(projectId!), [projectId]);
+  const { data, loading, notFound } = apiState;
 
   if (loading) return <PageSkeleton />;
   if (notFound)
     return <EmptyState title="Project not found" body={`No project named "${projectId}" exists in this workspace.`} />;
-  if (error || !data) return <LoadError>{error ?? "Could not load this project."}</LoadError>;
+  if (apiState.error || !data)
+    return <LoadError>{loadErrorMessage(apiState, nav?.language, "Could not load this project.")}</LoadError>;
 
   return (
     <NewRecordForm

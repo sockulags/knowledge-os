@@ -2,8 +2,9 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { useNavigate } from "react-router";
 import { Search } from "lucide-react";
 import type { NavPayload, SearchPayload } from "../api/types";
-import { api } from "../api/client";
+import { api, ApiUnreachableError } from "../api/client";
 import { iconFor } from "../lib/icons";
+import { networkErrorMessage } from "../lib/language";
 import { buildSections, type SwitchOption } from "../lib/quickSwitch";
 
 /** Wait this long after the last keystroke before asking the full-text search. */
@@ -29,6 +30,7 @@ interface TextSearch {
 export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () => void; nav: NavPayload | null }) {
   const [query, setQuery] = useState("");
   const [text, setText] = useState<TextSearch | null>(null);
+  const [textError, setTextError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -48,6 +50,7 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setQuery("");
     setText(null);
+    setTextError(null);
     setActiveIndex(0);
     inputRef.current?.focus();
   }, [open]);
@@ -61,16 +64,21 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
     const handle = setTimeout(() => {
       api
         .search(`?q=${encodeURIComponent(trimmed)}`, controller.signal)
-        .then((payload) => setText({ query: trimmed, payload }))
-        .catch(() => {
-          if (!controller.signal.aborted) setText(null);
+        .then((payload) => {
+          setText({ query: trimmed, payload });
+          setTextError(null);
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return;
+          setText(null);
+          setTextError(err instanceof ApiUnreachableError ? networkErrorMessage(language) : null);
         });
     }, TEXT_SEARCH_DELAY_MS);
     return () => {
       clearTimeout(handle);
       controller.abort();
     };
-  }, [open, trimmed]);
+  }, [open, trimmed, language]);
 
   // Only ever show full-text results for exactly what is typed now.
   const currentText = text !== null && text.query === trimmed ? text.payload : null;
@@ -161,7 +169,9 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
   if (!trimmed) status = language?.quick_find_hint ?? null;
   else if (options.length === 0 && searching) status = language?.quick_find_searching ?? null;
   else if (options.length === 0) status = language?.quick_find_no_matches.replace("{query}", trimmed) ?? null;
-  const textUnavailable = trimmed && currentText && !currentText.search_available ? currentText.disabled_reason : null;
+  const textUnavailable =
+    (trimmed && currentText && !currentText.search_available ? currentText.disabled_reason : null) ??
+    (trimmed ? textError : null);
 
   let flatIndex = 0;
   return (

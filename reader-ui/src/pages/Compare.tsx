@@ -6,6 +6,7 @@ import { EmptyState, RecordNotFound } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
 import { Pill } from "../components/Pill";
 import { useShell } from "../components/Shell";
+import { loadErrorMessage } from "../lib/language";
 import type { Comparison, DiffBlock } from "../api/types";
 
 const BLOCK_CLASSES: Record<DiffBlock["kind"], string> = {
@@ -80,11 +81,13 @@ function ComparisonBlock({ comparison }: { comparison: Comparison }) {
 export function Compare() {
   const { recordId } = useParams<{ recordId: string }>();
   const { nav } = useShell();
-  const { data, loading, notFound, error } = useApi(() => api.compare(recordId!), [recordId]);
+  const apiState = useApi(() => api.compare(recordId!), [recordId]);
+  const { data, loading, notFound } = apiState;
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
-  if (error || !data) return <LoadError>{error ?? "Could not load this comparison."}</LoadError>;
+  if (apiState.error || !data)
+    return <LoadError>{loadErrorMessage(apiState, nav?.language, "Could not load this comparison.")}</LoadError>;
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10">

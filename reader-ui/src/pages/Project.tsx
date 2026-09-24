@@ -15,6 +15,7 @@ import { LoadError } from "../components/Callout";
 import { ProjectPageTree } from "../components/ProjectTree";
 import { useShell } from "../components/Shell";
 import { useStructure } from "../components/Structure";
+import { loadErrorMessage } from "../lib/language";
 
 function GroupSection({ group }: { group: GroupPayload }) {
   return (
@@ -80,14 +81,16 @@ function Collapsible({ title, defaultOpen, children }: { title: string; defaultO
 
 export function Project() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { data, loading, notFound, error } = useApi(() => api.project(projectId!), [projectId]);
+  const apiState = useApi(() => api.project(projectId!), [projectId]);
+  const { data, loading, notFound } = apiState;
   const structure = useStructure();
   const { nav } = useShell();
 
   if (loading) return <PageSkeleton />;
   if (notFound)
     return <EmptyState title="Project not found" body={`No project named "${projectId}" exists in this workspace.`} />;
-  if (error || !data) return <LoadError>{error ?? "Could not load this project."}</LoadError>;
+  if (apiState.error || !data)
+    return <LoadError>{loadErrorMessage(apiState, nav?.language, "Could not load this project.")}</LoadError>;
 
   const treeHasContent = data.tree.records.length > 0 || data.tree.children.length > 0 || data.tree.broken.length > 0;
   // The project's short name, as the sidebar shows it.

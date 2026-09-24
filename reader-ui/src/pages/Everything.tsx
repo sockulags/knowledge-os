@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router";
 import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
-import { api } from "../api/client";
+import { api, ApiUnreachableError } from "../api/client";
 import { PageSkeleton } from "../components/Skeleton";
 import { LoadError, BrokenRecordCallout } from "../components/Callout";
 import { Pill } from "../components/Pill";
+import { useShell } from "../components/Shell";
+import { networkErrorMessage } from "../lib/language";
 import type { EverythingPayload } from "../api/types";
 
 const FILTER_KEYS = ["type", "status", "record_kind", "trust", "scope"] as const;
@@ -17,6 +19,7 @@ const SORT_COLUMNS: { key: string; label: string }[] = [
 ];
 
 export function Everything() {
+  const { nav } = useShell();
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState<EverythingPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +39,9 @@ export function Everything() {
         }
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Something went wrong.");
+        if (cancelled) return;
+        if (err instanceof ApiUnreachableError) setError(networkErrorMessage(nav?.language));
+        else setError(err instanceof Error ? err.message : "Something went wrong.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -44,7 +49,7 @@ export function Everything() {
     return () => {
       cancelled = true;
     };
-  }, [params]);
+  }, [params, nav]);
 
   function updateFilter(key: string, value: string) {
     const next = new URLSearchParams(params);

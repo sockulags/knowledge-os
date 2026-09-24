@@ -160,6 +160,7 @@ async def nav_view(request: Request) -> Response:
                 "not_found_title": strings.DOCUMENT_NOT_FOUND_TITLE,
                 "not_found_body": strings.DOCUMENT_NOT_FOUND_BODY,
                 "load_error": strings.DOCUMENT_LOAD_ERROR,
+                "network_error": strings.NETWORK_UNREACHABLE_ERROR,
             },
         }
     )

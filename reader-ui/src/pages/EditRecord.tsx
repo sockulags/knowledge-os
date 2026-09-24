@@ -10,6 +10,7 @@ import { PageSkeleton } from "../components/Skeleton";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { RecordNotFound } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
+import { loadErrorMessage } from "../lib/language";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ConflictCallout, WriteFailureCallout } from "../components/WriteFailureCallout";
 import {
@@ -65,11 +66,13 @@ export function EditRecord() {
   const navigate = useNavigate();
   const { refreshNav, nav } = useShell();
   const [loadKey, setLoadKey] = useState(0);
-  const { data, loading, notFound, error } = useApi(() => api.record(recordId!), [recordId, loadKey]);
+  const apiState = useApi(() => api.record(recordId!), [recordId, loadKey]);
+  const { data, loading, notFound } = apiState;
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
-  if (error || !data) return <LoadError>{error ?? nav?.language.load_error ?? "Could not load this page."}</LoadError>;
+  if (apiState.error || !data)
+    return <LoadError>{loadErrorMessage(apiState, nav?.language, "Could not load this page.")}</LoadError>;
   if (!data.editing.editable || data.editing.metadata === null || data.editing.raw_body === null) {
     return (
       <div className="mx-auto w-full max-w-[720px] px-6 py-12 sm:px-10">
