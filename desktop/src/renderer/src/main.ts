@@ -3,6 +3,7 @@
 // replaces this page with the reader UI.
 
 import './style.css'
+import mark from '../../../build/icon.svg'
 import type { ErrorKind, RecentWorkspace, ShellState } from '../../shared/types'
 
 const api = window.kosDesktop
@@ -25,6 +26,16 @@ function element<K extends keyof HTMLElementTagNameMap>(
   if (text !== undefined) node.textContent = text
   if (className !== undefined) node.className = className
   return node
+}
+
+/** The app's mark beside its name, at the top of the start page. */
+function brand(): HTMLElement {
+  const wrapper = element('div', undefined, 'brand')
+  const image = element('img')
+  image.src = mark
+  image.alt = ''
+  wrapper.append(image, element('h1', 'Knowledge OS'))
+  return wrapper
 }
 
 function button(label: string, action: () => Promise<void>, primary = false): HTMLButtonElement {
@@ -62,10 +73,7 @@ function render(state: ShellState): void {
   const nodes: HTMLElement[] = []
   switch (state.kind) {
     case 'start':
-      nodes.push(
-        element('h1', 'Knowledge OS'),
-        element('p', 'Open a knowledge base folder or create a new, empty one.')
-      )
+      nodes.push(brand(), element('p', 'Open a knowledge base folder or create a new, empty one.'))
       if (state.notice) {
         const notice = element('p', state.notice, 'notice')
         notice.setAttribute('role', 'status')

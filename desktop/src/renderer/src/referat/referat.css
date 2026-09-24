@@ -1,24 +1,18 @@
-:root {
-  --amber-bg: #fbf1dc;
-  --amber-text: #8a5a00;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --amber-bg: #3a2c10;
-    --amber-text: #f0c46a;
-  }
-}
+/* The Referat import window, on top of the shared tokens in ../style.css. */
 
 main.wide {
   max-width: 820px;
-  padding: 32px 24px 48px;
+  padding: 36px 24px 48px;
+}
+
+main.wide h1 {
+  font-size: 26px;
 }
 
 .muted,
 .hint,
 .reason {
-  color: var(--muted);
+  color: var(--faint);
   font-size: 13px;
 }
 
@@ -37,8 +31,9 @@ ul.records {
   margin: 16px 0 0;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--panel);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
@@ -47,7 +42,7 @@ ul.records li {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 11px 16px;
 }
 
 ul.meetings li + li,
@@ -56,7 +51,11 @@ ul.records li + li {
 }
 
 li.meeting.disabled {
-  opacity: 0.75;
+  background: var(--sidebar);
+}
+
+li.meeting.disabled strong {
+  color: var(--muted);
 }
 
 .meeting-main,
@@ -68,20 +67,38 @@ li.meeting.disabled {
   overflow-wrap: anywhere;
 }
 
+.meeting-main strong,
+.record-title strong {
+  font-weight: 600;
+}
+
 .meeting-side {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .pill,
 .kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
-  border-radius: 999px;
-  padding: 2px 8px;
+  font-weight: 500;
+  line-height: 1;
+  border-radius: 5px;
+  padding: 4px 7px;
   background: var(--hover);
   color: var(--muted);
   white-space: nowrap;
+}
+
+.pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .pill.amber {
@@ -89,29 +106,36 @@ li.meeting.disabled {
   color: var(--amber-text);
 }
 
+.kind {
+  background: var(--active);
+  color: var(--accent-text);
+}
+
 button.link {
   border: 0;
   background: transparent;
-  padding: 0;
+  padding: 2px 0;
   color: var(--muted);
   margin-bottom: 16px;
+  font-weight: 450;
 }
 
 button.link:hover {
   background: transparent;
-  color: var(--text);
+  color: var(--accent-text);
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
 
 .callout {
   background: var(--amber-bg);
   color: var(--text);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--amber-text) 30%, transparent);
+  border-radius: 10px;
+  padding: 14px 16px;
   margin: 16px 0;
 }
 
@@ -123,20 +147,25 @@ button:disabled {
 .form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 16px;
+  gap: 18px;
+  margin-top: 20px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .field-label,
 legend {
-  font-weight: 600;
+  font-weight: 500;
   font-size: 13px;
+  color: var(--muted);
+}
+
+legend {
+  padding: 0 4px;
 }
 
 .grid {
@@ -148,17 +177,29 @@ legend {
 select,
 input[type='text'] {
   font: inherit;
+  font-size: 14px;
   color: inherit;
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 7px 10px;
 }
 
+select:focus-visible,
+input[type='text']:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
+}
+
+input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
 fieldset {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-radius: 10px;
+  padding: 12px 16px 14px;
   margin: 0;
   background: var(--panel);
 }
@@ -193,6 +234,11 @@ label.check input {
 details summary {
   cursor: pointer;
   color: var(--muted);
+  border-radius: 6px;
+}
+
+details summary:hover {
+  color: var(--text);
 }
 
 details pre {
@@ -200,6 +246,6 @@ details pre {
 }
 
 .plan {
-  margin-top: 16px;
+  margin-top: 18px;
   color: var(--text);
 }
