@@ -694,6 +694,82 @@ would overwrite uncommitted changes), `conflict`, and `no_merge`; `400` for
 `network`, `timeout`, and `rejected` (the remote moved during the sync); `500`
 for any other Git failure.
 
+**Clone.** `kos clone URL PATH` (`knowledge_os/gitsetup.py`) clones a
+knowledge base into a folder that does not exist yet or is empty; a folder
+with anything in it is refused (`target_not_empty`). The URL must be an
+`https://`, `http://`, `ssh://`, `git://`, or `file://` address, the scp-like
+`git@host:path`, or an absolute local path; a URL that carries a password or
+token is refused (`bad_url`) so no credential is ever written into
+`.git/config`. Git runs through the same runner as sync, with `git clone
+--progress` streamed so progress can be shown, and is stopped (process tree
+killed) after 30 minutes in total, after 60 seconds without any output from
+Git, or on cancel. After a failed, timed-out, or cancelled clone everything
+the clone wrote is removed (an empty folder that existed before stays).
+After a successful clone the result must have `knowledge-os.toml` at its top
+level and load as a workspace; otherwise it is `not_a_knowledge_base` and the
+folder is left as it is. Then `kos lint` runs: without findings the indexes
+are rebuilt; with findings they are returned and the indexes are not built.
+Failures use the sync kinds plus `not_found` (no repository at that address)
+and `cancelled`. With `--json` every stdout line is one JSON object:
+`{"event": "progress", "phase": "clone" | "check" | "index", "line",
+"percent"}`, then `{"event": "done", "root", "name", "reindexed",
+"index_error", "issues"}` or `{"event": "error", "error", "detail"}`.
+`--cancel-on-stdin-eof` cancels when stdin closes, which is how the desktop
+app's Cancel button (and a quitting app) stops a clone.
+
+**Guided setup.** For a knowledge base that is not in Git, has no remote, or
+has never published its branch, the reader offers the steps that used to
+need the command line. The setup state is `init` (not a repository, or no
+commit yet), `remote` (no remote), `publish` (a remote but no upstream),
+`ready`, or one the app does not set up: `git_missing`, `source_repo` (the
+Knowledge OS source repository, checked before anything else, so it is never
+offered `git init` either), `nested` (inside another repository), `detached`,
+or `repo_error`.
+
+- *Initialise*: `git init` (branch `main` unless `init.defaultBranch` is
+  configured), add the generated-index rules to `.gitignore` when they are
+  missing, stage every file Git does not ignore (unstaging any generated
+  index file), and commit it as `Start versioning this knowledge base`.
+  Without a Git identity the step stops before changing anything
+  (`no_identity`) unless a name and email are given; those are stored in the
+  repository's own configuration, never globally.
+- *Identity*: store `user.name` and `user.email` repository-locally
+  (`bad_identity` for an empty name or an address without `@`).
+- *Check a remote*: `git ls-remote` under the no-prompt rules with the
+  network timeout. A remote without any ref is empty. For a remote with
+  branches, the branch to sync with (this branch's name if the remote has it,
+  else the remote's default) is fetched into a temporary ref, removed again,
+  to see whether it shares history with this knowledge base.
+- *Connect*: add (or re-point) the remote `origin`. An empty remote gets
+  `git push --set-upstream origin HEAD:refs/heads/<branch>`. A remote whose
+  branch shares history becomes the upstream and an ordinary sync follows,
+  which merges and may stop on conflicts like any sync. A remote with
+  unrelated commits is refused as `remote_not_empty` before anything
+  changes, with the advice to use an empty repository or clone that one
+  instead; nothing is ever force-pushed or overwritten.
+
+Each step checks that it still applies (`wrong_step` otherwise) and holds
+the workspace lock.
+
+- `GET /api/sync/setup` answers `{"state", "sentence", "label", "branch",
+  "remote", "remote_url", "identity", "language"}`; `sentence` and `label`
+  (the sync bar's text) come from `strings.SYNC_SETUP_*`, and every sync
+  status also carries `"setup": {"state", "sentence", "label"}`.
+- `POST /api/sync/setup/init` with `{}` or `{"name", "email"}` answers
+  `{"created_repository", "files", "sha", "setup", "status"}`.
+- `POST /api/sync/setup/identity` with `{"name", "email"}` answers
+  `{"identity", "setup", "status"}`.
+- `POST /api/sync/setup/check` with `{"url"}` (omit it to test the remote
+  already configured) answers `{"check": {"url", "empty", "branches",
+  "branch", "related"}, "setup", "status"}`.
+- `POST /api/sync/setup/connect` with `{"url"}` (or `{}`) answers `{"state":
+  "published" | "synced", "remote", "branch", "pushed", "pulled",
+  "reindexed", "index_error", "setup", "status"}`, or `409 conflict` when the
+  sync that follows stops on conflicts.
+
+Refusals use the sync error shape; `bad_url` and `bad_identity` are `400`,
+`remote_not_empty` and `wrong_step` `409`, `not_found` `502`.
+
 ## Agent access over MCP
 
 The accepted `agent-access` decision gives agents a narrow interface: `kos
@@ -752,6 +828,9 @@ server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
 
 ## CLI contract
 
+- `kos clone URL PATH [--json] [--cancel-on-stdin-eof]` clones a knowledge base
+  from Git into a new or empty folder, checks it, and rebuilds its indexes (see
+  "Git versioning and sync").
 - `kos ingest PATH` captures one local UTF-8 Markdown/text source with a full
   SHA-256 provenance digest and stable ID; identical input is idempotent.
 - `kos lint` validates workspace version, all managed records, cross-record
