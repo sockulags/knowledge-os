@@ -10,6 +10,7 @@ import { DecisionGuideToggle } from "../components/DecisionGuide";
 import { EmptyState } from "../components/EmptyState";
 import { useShell } from "../components/Shell";
 import { networkErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 /** One small icon per kind of proposer (`proposed_by.source`); an unknown
  * source gets the neutral question mark, so a new kind needs no change here. */
@@ -92,6 +93,7 @@ function ProposalRow({
  * sidebar count in the background, without a page reload. */
 export function Decide() {
   const { refreshNav, nav } = useShell();
+  useDocumentTitle(nav?.workspace_name, "Decide");
   const [params, setParams] = useSearchParams();
   const project = params.get("project");
   const [data, setData] = useState<DecidePayload | null>(null);

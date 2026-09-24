@@ -7,11 +7,13 @@ import { Callout, LoadError } from "../components/Callout";
 import { PageSkeleton } from "../components/Skeleton";
 import { useShell } from "../components/Shell";
 import { networkErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 const FILTER_KEYS = ["type", "status", "scope", "record_kind", "trust"] as const;
 
 export function Search() {
   const { nav } = useShell();
+  useDocumentTitle(nav?.workspace_name, "Search");
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState<SearchPayload | null>(null);
   const [loading, setLoading] = useState(true);

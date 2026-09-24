@@ -7,6 +7,7 @@ import { LoadError, BrokenRecordCallout } from "../components/Callout";
 import { Pill } from "../components/Pill";
 import { useShell } from "../components/Shell";
 import { networkErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { EverythingPayload } from "../api/types";
 
 const FILTER_KEYS = ["type", "status", "record_kind", "trust", "scope"] as const;
@@ -20,6 +21,7 @@ const SORT_COLUMNS: { key: string; label: string }[] = [
 
 export function Everything() {
   const { nav } = useShell();
+  useDocumentTitle(nav?.workspace_name, "Everything");
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState<EverythingPayload | null>(null);
   const [loading, setLoading] = useState(true);

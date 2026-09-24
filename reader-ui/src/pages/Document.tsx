@@ -14,6 +14,7 @@ import { LoadError, LineageCalloutRow } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { useShell } from "../components/Shell";
 import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { RelationView } from "../api/types";
 
 function RelationRow({ relation }: { relation: RelationView }) {
@@ -39,6 +40,7 @@ export function Document() {
   const [loadKey, setLoadKey] = useState(0);
   const apiState = useApi(() => api.record(recordId!), [recordId, loadKey]);
   const { data, loading, notFound } = apiState;
+  useDocumentTitle(nav?.workspace_name, data?.title ?? null);
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;

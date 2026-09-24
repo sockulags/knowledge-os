@@ -11,6 +11,7 @@ import { Breadcrumb } from "../components/Breadcrumb";
 import { RecordNotFound } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
 import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ConflictCallout, WriteFailureCallout } from "../components/WriteFailureCallout";
 import {
@@ -68,6 +69,7 @@ export function EditRecord() {
   const [loadKey, setLoadKey] = useState(0);
   const apiState = useApi(() => api.record(recordId!), [recordId, loadKey]);
   const { data, loading, notFound } = apiState;
+  useDocumentTitle(nav?.workspace_name, data ? `Edit ${data.title}` : null);
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;

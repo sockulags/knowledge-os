@@ -7,6 +7,7 @@ import { Callout, LoadError } from "../components/Callout";
 import { Pill } from "../components/Pill";
 import { useShell } from "../components/Shell";
 import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { Comparison, DiffBlock } from "../api/types";
 
 const BLOCK_CLASSES: Record<DiffBlock["kind"], string> = {
@@ -83,6 +84,7 @@ export function Compare() {
   const { nav } = useShell();
   const apiState = useApi(() => api.compare(recordId!), [recordId]);
   const { data, loading, notFound } = apiState;
+  useDocumentTitle(nav?.workspace_name, data ? `Compare ${data.record.title}` : null);
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;

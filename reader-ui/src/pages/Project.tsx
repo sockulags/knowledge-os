@@ -16,6 +16,7 @@ import { ProjectPageTree } from "../components/ProjectTree";
 import { useShell } from "../components/Shell";
 import { useStructure } from "../components/Structure";
 import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 function GroupSection({ group }: { group: GroupPayload }) {
   return (
@@ -85,6 +86,7 @@ export function Project() {
   const { data, loading, notFound } = apiState;
   const structure = useStructure();
   const { nav } = useShell();
+  useDocumentTitle(nav?.workspace_name, data?.title ?? null);
 
   if (loading) return <PageSkeleton />;
   if (notFound)

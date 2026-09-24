@@ -11,6 +11,7 @@ import { Breadcrumb } from "../components/Breadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
 import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { WriteFailureCallout } from "../components/WriteFailureCallout";
 import {
@@ -51,6 +52,7 @@ export function NewRecord() {
   const { nav } = useShell();
   const apiState = useApi(() => api.project(projectId!), [projectId]);
   const { data, loading, notFound } = apiState;
+  useDocumentTitle(nav?.workspace_name, data ? `New page in ${data.title}` : null);
 
   if (loading) return <PageSkeleton />;
   if (notFound)

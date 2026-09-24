@@ -9,12 +9,14 @@ import { Pill } from "../components/Pill";
 import { Callout, LoadError } from "../components/Callout";
 import { useShell } from "../components/Shell";
 import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export function Home() {
   const { nav } = useShell();
   const apiState = useApi(() => api.home(), []);
   const { data, loading } = apiState;
   const [health, setHealth] = useState<HealthSummary | null>(null);
+  useDocumentTitle(nav?.workspace_name, null);
 
   useEffect(() => {
     api

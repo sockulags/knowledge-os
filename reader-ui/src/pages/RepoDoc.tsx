@@ -9,6 +9,7 @@ import { EmptyState } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
 import { useShell } from "../components/Shell";
 import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export function RepoDoc() {
   const params = useParams<{ "*": string }>();
@@ -16,6 +17,7 @@ export function RepoDoc() {
   const { nav } = useShell();
   const apiState = useApi(() => api.doc(path), [path]);
   const { data, loading, notFound } = apiState;
+  useDocumentTitle(nav?.workspace_name, data?.title ?? null);
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <EmptyState title="Document not found" body={`No document at "${path}" exists here.`} />;

@@ -10,12 +10,14 @@ import { EmptyState } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
 import { useShell } from "../components/Shell";
 import { loadErrorMessage } from "../lib/language";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export function Skill() {
   const { skillName } = useParams<{ skillName: string }>();
   const { nav } = useShell();
   const apiState = useApi(() => api.skill(skillName!), [skillName]);
   const { data, loading, notFound } = apiState;
+  useDocumentTitle(nav?.workspace_name, data?.title ?? data?.name ?? null);
 
   if (loading) return <PageSkeleton />;
   if (notFound)
