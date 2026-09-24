@@ -1,6 +1,6 @@
 # Knowledge OS
 
-Knowledge OS `0.3.0` is a local-first durable knowledge system for Markdown
+Knowledge OS `0.4.0` is a local-first durable knowledge system for Markdown
 and text. Markdown is canonical truth. Sources and external-agent discoveries
 remain separate trust boundaries, while SQLite and the catalog are disposable
 indexes. Its root Codex plugin provides automatic, approval-gated conversational

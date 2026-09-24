@@ -1,6 +1,6 @@
 {
   "name": "knowledge-os-desktop",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Electron shell that runs the Knowledge OS Python core and loads the reader UI",
   "main": "./out/main/index.js",
