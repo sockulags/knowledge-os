@@ -6,6 +6,7 @@ import { sync as syncApi } from "../api/write";
 import { Callout } from "../components/Callout";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useShell } from "../components/Shell";
+import { SyncSetupPanel } from "../components/SyncSetup";
 import { relativeTime } from "../hooks/useSync";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
@@ -37,8 +38,19 @@ function IssueList({ issues }: { issues: Issue[] }) {
   );
 }
 
+/** Whether the guided setup covers what the status would otherwise explain
+ * with command-line instructions: a knowledge base not in Git, without a
+ * remote or upstream, or without a Git identity. */
+function setupHandles(status: SyncStatus): boolean {
+  const state = status.setup?.state;
+  if (state === "init" || state === "remote" || state === "publish") return true;
+  return state === "ready" && status.identity === null;
+}
+
 function StatusDetails({ status }: { status: SyncStatus }) {
+  const guided = setupHandles(status);
   if (!status.available) {
+    if (guided) return null;
     return (
       <Callout>
         <p className="font-medium">Changes are not versioned or synced.</p>
@@ -70,7 +82,7 @@ function StatusDetails({ status }: { status: SyncStatus }) {
           {status.identity ? `${status.identity.name} <${status.identity.email}>` : "No Git identity set"}
         </Row>
       </dl>
-      {status.identity === null && (
+      {status.identity === null && !guided && (
         <Callout tone="danger">
           <p className="font-medium">Git does not know who you are, so nothing is committed.</p>
           <p className="mt-1">
@@ -79,7 +91,7 @@ function StatusDetails({ status }: { status: SyncStatus }) {
           </p>
         </Callout>
       )}
-      {status.upstream === null && (
+      {status.upstream === null && !guided && (
         <Callout>
           <p className="font-medium">There is nowhere to sync to yet.</p>
           {status.remotes.length === 0 ? (
@@ -317,6 +329,15 @@ export function Sync() {
         <Callout icon={<Check size={16} />}>
           <p>{message}</p>
         </Callout>
+      )}
+      {status !== null && status.setup !== null && (
+        <SyncSetupPanel
+          version={[status.setup.state, status.identity?.email ?? "", status.upstream ?? ""].join("|")}
+          onDone={(done) => {
+            setMessage(done);
+            sync.refresh();
+          }}
+        />
       )}
       {status === null ? <p className="text-sm text-(--color-text-muted)">Reading the repository…</p> : <StatusDetails status={status} />}
 
