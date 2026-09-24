@@ -9,7 +9,7 @@ from __future__ import annotations
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .. import states, strings
+from .. import language, states, strings
 from ..app import get_library, json_response
 from ..library import Library
 from ..repodocs import list_repo_documents
@@ -89,13 +89,51 @@ async def nav_view(request: Request) -> Response:
                 title=record.title,
                 pill=pill_for(record),
                 project=project_id,
+                group=language.quick_find_group(record),
+                kind_label=language.quick_find_kind_label(record),
             )
         )
+    # A project with pages but no overview record of its own is still a
+    # place the quick switcher can jump to.
+    listed_projects = {entry["id"] for entry in record_index if entry["group"] == "projects"}
+    for project in projects:
+        if project["id"] not in listed_projects:
+            record_index.append(
+                record_index_entry(
+                    "project",
+                    id=str(project["id"]),
+                    title=str(project["title"]),
+                    pill=None,
+                    project=str(project["id"]),
+                    group="projects",
+                    kind_label=strings.QUICK_FIND_PROJECT_LABEL,
+                )
+            )
     for skill in library.skills:
-        record_index.append(record_index_entry("skill", id=skill.name, title=skill.name, pill=None, project=None))
+        record_index.append(
+            record_index_entry(
+                "skill",
+                id=skill.name,
+                title=skill.name,
+                pill=None,
+                project=None,
+                group="skills",
+                kind_label=strings.QUICK_FIND_SKILL_LABEL,
+            )
+        )
     for entry in list_repo_documents(workspace):
         if entry.readable:
-            record_index.append(record_index_entry("doc", id=entry.path, title=entry.title, pill=None, project=None))
+            record_index.append(
+                record_index_entry(
+                    "doc",
+                    id=entry.path,
+                    title=entry.title,
+                    pill=None,
+                    project=None,
+                    group="docs",
+                    kind_label=strings.QUICK_FIND_DOC_LABEL,
+                )
+            )
 
     return json_response(
         {
@@ -114,6 +152,11 @@ async def nav_view(request: Request) -> Response:
             # the nav rather than re-fetched per page.
             "language": {
                 "quick_find_placeholder": strings.QUICK_FIND_PLACEHOLDER,
+                "quick_find_label": strings.QUICK_FIND_LABEL,
+                "quick_find_hint": strings.QUICK_FIND_HINT,
+                "quick_find_no_matches": strings.QUICK_FIND_NO_MATCHES,
+                "quick_find_searching": strings.QUICK_FIND_SEARCHING,
+                "quick_find_groups": strings.QUICK_FIND_GROUPS,
                 "not_found_title": strings.DOCUMENT_NOT_FOUND_TITLE,
                 "not_found_body": strings.DOCUMENT_NOT_FOUND_BODY,
                 "load_error": strings.DOCUMENT_LOAD_ERROR,

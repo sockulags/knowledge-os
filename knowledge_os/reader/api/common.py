@@ -179,12 +179,31 @@ def record_summary_with_sentence(library: Library, record: Record) -> dict[str, 
     return summary
 
 
-def record_index_entry(kind: str, *, id: str, title: str, pill: Pill | None, project: str | None) -> dict[str, object]:
-    """One row of the quick-find index (workspace nav): a record, a skill,
-    or a repository document, all in the same flat shape so client-side
-    title search never has to special-case which kind of page it found."""
+def record_index_entry(
+    kind: str,
+    *,
+    id: str,
+    title: str,
+    pill: Pill | None,
+    project: str | None,
+    group: str,
+    kind_label: str,
+) -> dict[str, object]:
+    """One row of the quick-find index (workspace nav): a record, a project,
+    a skill, or a repository document, all in the same flat shape so
+    client-side title search never has to special-case which kind of page it
+    found. ``group`` is a key of ``strings.QUICK_FIND_GROUPS`` and
+    ``kind_label`` the plain-language label shown next to the title."""
 
-    return {"id": id, "title": title, "kind": kind, "status_pill": pill, "project": project}
+    return {
+        "id": id,
+        "title": title,
+        "kind": kind,
+        "status_pill": pill,
+        "project": project,
+        "group": group,
+        "kind_label": kind_label,
+    }
 
 
 def properties_block(library: Library, record: Record) -> dict[str, object]:

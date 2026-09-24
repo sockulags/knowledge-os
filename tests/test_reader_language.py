@@ -699,6 +699,14 @@ class ShellVocabularyTests(unittest.TestCase):
             strings.DOCUMENT_NOT_FOUND_BODY,
             strings.DOCUMENT_LOAD_ERROR,
             strings.QUICK_FIND_PLACEHOLDER,
+            strings.QUICK_FIND_LABEL,
+            strings.QUICK_FIND_HINT,
+            strings.QUICK_FIND_NO_MATCHES,
+            strings.QUICK_FIND_SEARCHING,
+            *strings.QUICK_FIND_GROUPS.values(),
+            *strings.QUICK_FIND_DECISION_LABELS.values(),
+            strings.QUICK_FIND_PROJECT_LABEL,
+            *strings.QUICK_FIND_TYPE_LABELS.values(),
             strings.EVERYTHING_TITLE,
             strings.EVERYTHING_INTRO,
         ]
@@ -707,6 +715,59 @@ class ShellVocabularyTests(unittest.TestCase):
         for text in self._texts():
             with self.subTest(text=text):
                 self.assertIsNone(self.CONTRACT_WORDS.search(text))
+
+
+class QuickFindLabelTests(unittest.TestCase):
+    """The quick switcher's group and label per record: a project's
+    overview is the project, its other pages are pages, and a decision
+    names its state."""
+
+    def test_groups_and_labels(self) -> None:
+        def record(root: Path, path: str, **fields: object) -> None:
+            write_record(
+                root,
+                path,
+                {
+                    "type": "project",
+                    "status": "active",
+                    "scope": "project:demo",
+                    "created": "2026-08-29",
+                    "updated": "2026-08-29",
+                    "provenance": [{"kind": "fixture", "reference": "demo"}],
+                    **fields,
+                },
+            )
+
+        def build(root: Path) -> None:
+            record(root, "projects/demo/README.md", id="demo", title="Demo")
+            record(root, "projects/demo/notes/plan.md", id="plan", title="Plan")
+            record(root, "projects/demo/decisions/idea.md", id="idea", title="Idea", record_kind="decision", status="draft")
+            record(
+                root,
+                "projects/demo/decisions/rule.md",
+                id="rule",
+                title="Rule",
+                record_kind="decision",
+                provenance=[
+                    {
+                        "kind": "decision-acceptance",
+                        "reference": "conversation:2026-08-30:rule",
+                        "captured": "2026-08-30T00:00:00Z",
+                    }
+                ],
+            )
+
+        library = _load(build)
+        expected = {
+            "demo": ("projects", "Project"),
+            "plan": ("pages", "Project page"),
+            "idea": ("decisions", "Proposed decision"),
+            "rule": ("decisions", "Decision in force"),
+        }
+        for record_id, labels in expected.items():
+            with self.subTest(record_id=record_id):
+                found = library.records_by_id[record_id]
+                self.assertEqual((language.quick_find_group(found), language.quick_find_kind_label(found)), labels)
 
 
 if __name__ == "__main__":

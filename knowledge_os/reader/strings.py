@@ -310,7 +310,43 @@ SEARCH_EMPTY_QUERY = "Type something to search."
 
 #: The Ctrl K / Cmd K command palette's input placeholder (Sec. "JSON API"
 #: below; delivered through the nav payload's ``language`` block).
-QUICK_FIND_PLACEHOLDER = "Jump to a page, skill, or document…"
+QUICK_FIND_PLACEHOLDER = "Jump to a page, project, decision, or skill…"
+
+#: The palette's accessible name (the dialog and its search field).
+QUICK_FIND_LABEL = "Quick switcher"
+
+#: Shown before anything is typed, when nothing matches, and while the
+#: full-text search is still answering.
+QUICK_FIND_HINT = "Type a title or a word from the text. Use ↑ and ↓ to choose and Enter to open."
+QUICK_FIND_NO_MATCHES = "Nothing matches “{query}”."
+QUICK_FIND_SEARCHING = "Searching the text…"
+
+#: Group headings, in the order the palette shows groups whose best match
+#: ranks equally. ``text`` holds pages found only by a word in their body.
+QUICK_FIND_GROUPS: dict[str, str] = {
+    "projects": "Projects",
+    "decisions": "Decisions",
+    "pages": "Pages",
+    "skills": "Skills",
+    "docs": "Repository documents",
+    "text": "Found in the text",
+}
+
+#: What each palette row is, next to its title. Decisions say their state
+#: too, so a proposal and a decision in force read differently at a glance.
+QUICK_FIND_DECISION_LABELS: dict[str, str] = {
+    "draft": "Proposed decision",
+    "active": "Decision in force",
+    "superseded": "Replaced decision",
+    "archived": "Withdrawn decision",
+}
+QUICK_FIND_DECISION_FALLBACK = "Decision"
+QUICK_FIND_PROJECT_LABEL = "Project"
+#: Record types whose EVERYTHING_TYPE_LABELS noun reads wrong in the
+#: switcher: a page inside a project is not the project itself.
+QUICK_FIND_TYPE_LABELS: dict[str, str] = {"project": "Project page"}
+QUICK_FIND_SKILL_LABEL = "Skill"
+QUICK_FIND_DOC_LABEL = "Repository document"
 
 # ---------------------------------------------------------------------------
 # Everything view
