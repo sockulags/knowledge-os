@@ -425,6 +425,44 @@ class ProvenanceSentenceTests(unittest.TestCase):
         sentence = language.provenance_sentence(library, record, record.provenance[1])
         self.assertEqual(sentence, "Withdrawn on 23 September 2026: No longer needed <after the merge>")
 
+    def test_decision_withdrawal_without_a_reason_names_only_the_date(self) -> None:
+        def build(root: Path) -> None:
+            write_record(
+                root,
+                "knowledge/choice.md",
+                {
+                    "id": "choice",
+                    "title": "Choice",
+                    "type": "knowledge",
+                    "record_kind": "decision",
+                    "status": "archived",
+                    "scope": "general",
+                    "created": "2026-09-22",
+                    "updated": "2026-09-23",
+                    "provenance": [
+                        {"kind": "fixture", "reference": "test"},
+                        {
+                            "kind": "decision-withdrawal",
+                            "reference": "interface:2026-09-23T08:00:00Z:withdraw",
+                            "captured": "2026-09-23T08:00:00Z",
+                        },
+                        {
+                            "kind": "decision-withdrawal",
+                            "reference": "cli:2026-09-23T08:00:00Z:withdraw",
+                            "captured": "2026-09-23T08:00:00Z",
+                        },
+                    ],
+                },
+            )
+
+        library = _load(build)
+        record = library.records_by_id["choice"]
+        for entry in record.provenance[1:]:
+            with self.subTest(reference=entry.reference):
+                self.assertEqual(language.provenance_sentence(library, record, entry), "Withdrawn on 23 September 2026")
+        self.assertEqual(language.status_sentence(library, record)[0], "Withdrawn on 23 September 2026, without being accepted")
+        self.assertFalse(language.is_neutral_withdrawal("interface: we chose otherwise :withdraw"))
+
     def test_repository_file_provenance_never_shows_its_path(self) -> None:
         """``repository-file``'s own reference is a workspace-relative
         path; the reading path must never show a file path (design brief),
@@ -652,14 +690,15 @@ class DecisionVocabularyTests(unittest.TestCase):
             strings.DECISION_GUIDE_INTRO,
             strings.DECISION_GUIDE_UNDO,
             *strings.DECISION_GUIDE_STATES.values(),
-            strings.DECISION_DIALOG_ACCEPTED_TODAY,
-            strings.DECISION_DIALOG_REPLACED_BY,
             *strings.PROPOSED_BY.values(),
             strings.PROPOSED_BY_REFERAT_UNDATED,
             strings.PROPOSED_BY_FALLBACK,
         ]
-        for dialog in strings.DECISION_DIALOGS.values():
-            texts.extend(dialog.values())
+        for outcome in strings.DECISION_OUTCOMES.values():
+            texts.extend(outcome.values())
+        texts.extend(strings.DELETE_LABELS.values())
+        texts.extend(strings.DELETE_BLOCKERS.values())
+        texts.append(strings.PROVENANCE_WITHDRAWN_NO_REASON)
         texts.extend(value for name, value in vars(strings).items() if name.startswith("DECIDE_") and isinstance(value, str))
         return texts
 
@@ -678,10 +717,14 @@ class DecisionVocabularyTests(unittest.TestCase):
             list(strings.DECISION_STATE_LABELS.values()), ["Proposed", "In force", "Replaced", "Withdrawn"]
         )
 
-    def test_every_dialog_says_whether_it_can_be_undone(self) -> None:
-        for action, dialog in strings.DECISION_DIALOGS.items():
+    def test_every_one_click_action_has_a_notice_and_a_summary(self) -> None:
+        self.assertEqual(set(strings.DECISION_OUTCOMES), {"accept", "withdraw", "supersede"})
+        for action, outcome in strings.DECISION_OUTCOMES.items():
             with self.subTest(action=action):
-                self.assertRegex(dialog["body"], r"undo|undone")
+                self.assertEqual(set(outcome), {"notice", "summary"})
+        self.assertIn("Undo", strings.DECISION_GUIDE_UNDO)
+        self.assertNotIn("…", strings.DECISION_ACTION_LABELS["withdraw"])
+        self.assertIn("optional", strings.DECISION_ACTION_LABELS["reason_placeholder"])
 
 
 class ShellVocabularyTests(unittest.TestCase):

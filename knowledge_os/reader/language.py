@@ -302,6 +302,8 @@ def provenance_sentence(library: Library, record: Record, entry: ProvenanceEntry
         return template.format(reference=entry.reference)
     if entry.kind == "decision-withdrawal":
         date = entry.captured or record.updated
+        if is_neutral_withdrawal(entry.reference):
+            return strings.PROVENANCE_WITHDRAWN_NO_REASON.format(date=format_date(date))
         return template.format(date=format_date(date), reference=entry.reference)
     if entry.kind == "discovery":
         target = library.records_by_id.get(entry.reference)
@@ -313,6 +315,20 @@ def provenance_sentence(library: Library, record: Record, entry: ProvenanceEntry
     if entry.kind == "agent-authored":
         return agent_sentence(entry.reference, template, strings.PROVENANCE_AGENT_NO_PLACE, strings.PROVENANCE_AGENT_UNKNOWN)
     return template
+
+
+#: The neutral reference of a withdrawal recorded without a reason:
+#: ``<origin>:<UTC timestamp>:withdraw``, where origin is ``interface`` (the
+#: app), ``cli`` (``kos decision withdraw`` without ``--reason``), or ``kos``
+#: (a direct core call). ``mutations.neutral_withdrawal_reference`` writes
+#: it; the reader may not import the core, so the shape is repeated here.
+_NEUTRAL_WITHDRAWAL = re.compile(r"^(?:interface|cli|kos):\d{4}-\d{2}-\d{2}T[0-9:.]+Z:withdraw$")
+
+
+def is_neutral_withdrawal(reference: str) -> bool:
+    """True for a withdrawal's machine reference, false for a reason someone gave."""
+
+    return bool(_NEUTRAL_WITHDRAWAL.fullmatch(reference.strip()))
 
 
 def agent_sentence(reference: str, with_place: str, without_place: str, unknown: str) -> str:

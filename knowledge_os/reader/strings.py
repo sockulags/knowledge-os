@@ -84,6 +84,10 @@ DECISION_STATUS: dict[str, str] = {
 #: A withdrawn decision with no withdrawal date to show.
 DECISION_WITHDRAWN_UNDATED = "Withdrawn, without being accepted"
 
+#: The provenance line of a withdrawal recorded without a reason (its
+#: reference is a neutral ``interface:<time>:withdraw`` or ``cli:...`` stamp).
+PROVENANCE_WITHDRAWN_NO_REASON = "Withdrawn on {date}"
+
 #: Status label for non-decision durable records (ordinary knowledge/project,
 #: memory, synthesis). "superseded" is rare outside decisions but the schema
 #: allows it, so a template is provided for completeness.
@@ -901,19 +905,44 @@ DECISION_STATE_LABELS: dict[str, str] = {
 DECISION_ACTION_LABELS: dict[str, str] = {
     "accept": "Accept",
     "accept_replacement": "Accept as replacement",
-    "withdraw": "Withdraw…",
+    "withdraw": "Withdraw",
     "replace_with": "Replace with…",
     "compare": "Compare the two first",
     "compare_short": "Compare the two",
     "how_it_works": "How decisions work",
     "reason_label": "Reason",
-    "reason_placeholder": "Why this proposal is being dropped (required)",
+    "reason_placeholder": "Why this proposal is dropped (optional)",
+    "add_reason": "Add a reason",
+    "save_reason": "Save",
+    "undo": "Undo",
+    "dismiss": "Dismiss",
+    "undone": "Undone. Nothing was changed.",
+    "saving": "Saving…",
+    "failed": "This was not saved.",
     "cancel": "Cancel",
     "working": "Working…",
     "conflict": (
         "This decision changed on disk after the page was loaded. Nothing was "
-        "changed; close this and reload to see the current version."
+        "changed; reload to see the current version."
     ),
+}
+
+#: What each one-click decision action says while its undo window is open
+#: (the notice with Undo) and how the page shows the decision meanwhile.
+#: {title} is the decision acted on; {old} the decision it replaces.
+DECISION_OUTCOMES: dict[str, dict[str, str]] = {
+    "accept": {
+        "notice": "Accepted “{title}”.",
+        "summary": "Accepted. It is in force from today.",
+    },
+    "withdraw": {
+        "notice": "Withdrew “{title}”.",
+        "summary": "Withdrawn. It was never in force.",
+    },
+    "supersede": {
+        "notice": "Accepted “{title}”; it replaces “{old}”.",
+        "summary": "Accepted. It is in force from today and replaces “{old}”.",
+    },
 }
 
 #: The sentence at the top of a decision's action box. {title} is the
@@ -941,48 +970,14 @@ DECISION_GUIDE_STATES: dict[str, str] = {
     "draft": "Suggested, not yet in force. It changes nothing until you accept or withdraw it.",
     "active": "You accepted it. It is the rule the project follows now.",
     "superseded": "A newer decision took its place. It stays readable as history.",
-    "archived": "Dropped before it was ever accepted, with the reason you gave. It stays readable.",
+    "archived": "Dropped before it was ever accepted, with a reason if you gave one. It stays readable.",
 }
 DECISION_GUIDE_UNDO = (
-    "Nothing is ever deleted. There is no undo button for accepting; to change your "
-    "mind later, propose a new decision that replaces it."
+    "Accepting and withdrawing take one click, and the notice that follows offers Undo "
+    "for a few seconds. After that, change your mind by proposing a new decision that "
+    "replaces it. A proposal can be deleted; a decision in force or replaced cannot, and "
+    "stays as history."
 )
-
-#: Confirmation dialogs. Each body is one sentence saying what will change
-#: and whether it can be undone. {title} is the decision acted on; {old} the
-#: decision it replaces; {project} the project's short name.
-DECISION_DIALOGS: dict[str, dict[str, str]] = {
-    "accept": {
-        "title": "Accept this decision?",
-        "body": (
-            "“{title}” goes into force for {project} today; there is no undo button, "
-            "but a later decision can replace it."
-        ),
-        "confirm": "Accept",
-        "history": "Your acceptance is saved in the decision's history.",
-    },
-    "withdraw": {
-        "title": "Withdraw this proposal?",
-        "body": (
-            "“{title}” is set aside with your reason and can never be accepted; this "
-            "cannot be undone, though the idea can be proposed again as a new decision."
-        ),
-        "confirm": "Withdraw",
-        "history": "Your reason is saved with it.",
-    },
-    "supersede": {
-        "title": "Accept as the replacement?",
-        "body": (
-            "“{title}” goes into force and “{old}” becomes replaced, both today; "
-            "there is no undo button, but a later decision can replace this one in turn."
-        ),
-        "confirm": "Accept as replacement",
-        "history": "Both decisions stay readable, and the change is saved in their history.",
-    },
-}
-#: The "from -> to" line in a dialog: the state today and the state after.
-DECISION_DIALOG_ACCEPTED_TODAY = "In force, from today"
-DECISION_DIALOG_REPLACED_BY = "Replaced by “{title}”"
 
 # ---------------------------------------------------------------------------
 # Decide view (the decision inbox, GET /api/decisions/proposed)
@@ -1121,4 +1116,51 @@ SYNC_SETUP_LABELS: dict[str, str] = {
     "failed": "Setup did not finish.",
     "cancel": "Cancel",
     "working": "Working…",
+}
+
+
+# ---------------------------------------------------------------------------
+# Deleting a page or a folder (issue #78): the confirmation dialog, served
+# with each deletion preview (GET .../delete-preview). {title} is the page or
+# folder; {other} the record that refers to it; {count} a number.
+# ---------------------------------------------------------------------------
+
+DELETE_LABELS: dict[str, str] = {
+    "page_title": "Delete “{title}”?",
+    "folder_title": "Delete the folder “{title}”?",
+    "page_intro": "“{title}” is removed from this knowledge base.",
+    "folder_intro": "The folder “{title}” is removed with everything in it:",
+    "folder_other_files_one": "and 1 other file",
+    "folder_other_files": "and {count} other files",
+    "decision_draft": "It is a proposed decision that was never in force.",
+    "decision_withdrawn": "It is a withdrawn proposal that was never in force.",
+    "cleaned_heading": "These pages list it under Related or Sources. The reference is removed from them:",
+    "linked_heading": "These pages link to it in their text. The links stay but will lead nowhere:",
+    "nothing_refers": "No other page refers to it.",
+    "blocked_heading": "It cannot be deleted:",
+    "history": "The change is saved as one commit, so Git history keeps a copy of everything deleted.",
+    "confirm_page": "Delete",
+    "confirm_folder": "Delete folder",
+    "cancel": "Cancel",
+    "close": "Close",
+    "working": "Deleting…",
+    "loading": "Checking what refers to it…",
+    "action": "Delete…",
+    "done_page": "Deleted “{title}”.",
+    "done_folder": "Deleted the folder “{title}”.",
+    "failed": "Nothing was deleted.",
+}
+
+#: Why a deletion is refused, keyed by ``structure.DeleteBlocker.kind``.
+DELETE_BLOCKERS: dict[str, str] = {
+    "type": "“{title}” is raw material, a synthesis, or an observation, which keep their own workflow.",
+    "overview": "“{title}” is the project's overview; a whole project cannot be deleted here.",
+    "folder_page": "“{title}” is its folder's own page; delete the folder instead.",
+    "in_force": "“{title}” is a decision in force. Propose a decision that replaces it instead.",
+    "replaced": "“{title}” was replaced and stays as history of the decision that replaced it.",
+    "replaced_by": "“{other}” replaces “{title}”, so “{title}” stays as its history.",
+    "origin": "“{other}” names “{title}” as where it came from.",
+    "evidence": "The observation “{other}” cites “{title}” as evidence.",
+    "promoted": "“{title}” was started from the observation “{other}”, which points at it.",
+    "raw_reference": "The raw material “{other}” refers to “{title}”, and raw material is never changed.",
 }

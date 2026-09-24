@@ -241,7 +241,7 @@ class DecideApiTests(unittest.TestCase):
         self.assertEqual(plain["effect"], "Accepting puts it in force for Alpha.")
         self.assertEqual(plain["excerpt"], "Use short names for folders. Second paragraph.")
         self.assertTrue(plain["actions"]["accept"])
-        self.assertEqual(set(plain["actions"]["dialogs"]), {"accept", "withdraw"})
+        self.assertEqual(set(plain["actions"]["outcomes"]), {"accept", "withdraw"})
         self.assertEqual(plain["project"], {"id": "alpha", "title": "Alpha"})
 
         replacement = rows["alpha-replacement"]
@@ -253,7 +253,7 @@ class DecideApiTests(unittest.TestCase):
         self.assertEqual(
             replacement["actions"]["supersede"]["content_sha256"], hashlib.sha256(target.read_bytes()).hexdigest()
         )
-        self.assertEqual(set(replacement["actions"]["dialogs"]), {"supersede", "withdraw"})
+        self.assertEqual(set(replacement["actions"]["outcomes"]), {"supersede", "withdraw"})
         source = self.root / "projects/alpha/decisions/alpha-replacement.md"
         self.assertEqual(replacement["content_sha256"], hashlib.sha256(source.read_bytes()).hexdigest())
 
@@ -322,16 +322,17 @@ class DecideApiTests(unittest.TestCase):
                 with self.subTest(record_id=record_id, text=text):
                     self.assertIsNone(CONTRACT_WORDS.search(text))
 
-    def test_decision_page_offers_the_guide_and_a_dialog_sentence_per_action(self) -> None:
+    def test_decision_page_offers_the_guide_and_an_undo_notice_per_action(self) -> None:
         data = self.get("/api/records/alpha-replacement")
         self.assertEqual(data["lineage"][0]["text"], "Would replace Alpha rule in force once accepted.")
-        dialogs = data["editing"]["decision_actions"]["dialogs"]
-        self.assertIn("no undo button", dialogs["supersede"]["body"])
-        self.assertIn("cannot be undone", dialogs["withdraw"]["body"])
+        outcomes = data["editing"]["decision_actions"]["outcomes"]
         self.assertEqual(
-            dialogs["supersede"]["changes"][1],
-            {"subject": "Alpha rule in force", "from": "In force", "to": "Replaced by “Alpha replacement”"},
+            outcomes["supersede"]["notice"], "Accepted “Alpha replacement”; it replaces “Alpha rule in force”."
         )
+        self.assertEqual(outcomes["withdraw"]["notice"], "Withdrew “Alpha replacement”.")
+        self.assertEqual(outcomes["supersede"]["status"]["pill"], {"label": "In force", "tone": "green"})
+        self.assertEqual(data["decision_language"]["labels"]["undo"], "Undo")
+        self.assertIn("Undo", data["decision_language"]["guide"]["undo"])
         states = [state["label"] for state in data["decision_language"]["guide"]["states"]]
         self.assertEqual(states, ["Proposed", "In force", "Replaced", "Withdrawn"])
         self.assertIsNone(self.get("/api/records/alpha")["decision_language"])
