@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './settings'
+import { DEFAULT_SETTINGS, loadSettings, saveSettings, sidebarWidth } from './settings'
 
 describe('loadSettings and saveSettings', () => {
   let dir: string
@@ -18,25 +18,49 @@ describe('loadSettings and saveSettings', () => {
   })
 
   it('checks for updates and reopens the last knowledge base by default when there is no file', () => {
-    expect(loadSettings(file)).toEqual({ checkForUpdates: true, reopenLastWorkspace: true })
+    expect(loadSettings(file)).toEqual({
+      checkForUpdates: true,
+      reopenLastWorkspace: true,
+      readerSidebarWidth: null
+    })
   })
 
   it('round-trips a turned-off automatic check', () => {
-    saveSettings(file, { checkForUpdates: false, reopenLastWorkspace: true })
-    expect(loadSettings(file)).toEqual({ checkForUpdates: false, reopenLastWorkspace: true })
+    saveSettings(file, {
+      checkForUpdates: false,
+      reopenLastWorkspace: true,
+      readerSidebarWidth: null
+    })
+    expect(loadSettings(file)).toEqual({
+      checkForUpdates: false,
+      reopenLastWorkspace: true,
+      readerSidebarWidth: null
+    })
     expect(JSON.parse(readFileSync(file, 'utf-8')).version).toBe(1)
   })
 
   it('round-trips a turned-off reopen', () => {
-    saveSettings(file, { checkForUpdates: true, reopenLastWorkspace: false })
-    expect(loadSettings(file)).toEqual({ checkForUpdates: true, reopenLastWorkspace: false })
+    saveSettings(file, {
+      checkForUpdates: true,
+      reopenLastWorkspace: false,
+      readerSidebarWidth: null
+    })
+    expect(loadSettings(file)).toEqual({
+      checkForUpdates: true,
+      reopenLastWorkspace: false,
+      readerSidebarWidth: null
+    })
     expect(JSON.parse(readFileSync(file, 'utf-8')).reopenLastWorkspace).toBe(false)
   })
 
   it('reopens by default when a file from an older version lacks the setting', () => {
     const older = join(dir, 'older.json')
     writeFileSync(older, JSON.stringify({ version: 1, checkForUpdates: false }), 'utf-8')
-    expect(loadSettings(older)).toEqual({ checkForUpdates: false, reopenLastWorkspace: true })
+    expect(loadSettings(older)).toEqual({
+      checkForUpdates: false,
+      reopenLastWorkspace: true,
+      readerSidebarWidth: null
+    })
   })
 
   it('falls back to the defaults for a damaged file', () => {
@@ -59,6 +83,24 @@ describe('loadSettings and saveSettings', () => {
     const loaded = loadSettings(join(dir, 'missing.json'))
     loaded.checkForUpdates = false
     loaded.reopenLastWorkspace = false
-    expect(DEFAULT_SETTINGS).toEqual({ checkForUpdates: true, reopenLastWorkspace: true })
+    expect(DEFAULT_SETTINGS).toEqual({
+      checkForUpdates: true,
+      reopenLastWorkspace: true,
+      readerSidebarWidth: null
+    })
+  })
+
+  it('round-trips the reader sidebar width', () => {
+    saveSettings(file, { ...DEFAULT_SETTINGS, readerSidebarWidth: 384 })
+    expect(loadSettings(file).readerSidebarWidth).toBe(384)
+  })
+
+  it('forgets a damaged or implausible sidebar width', () => {
+    const odd = join(dir, 'width.json')
+    for (const value of ['wide', -5, 99999, null]) {
+      writeFileSync(odd, JSON.stringify({ version: 1, readerSidebarWidth: value }), 'utf-8')
+      expect(loadSettings(odd).readerSidebarWidth).toBeNull()
+    }
+    expect(sidebarWidth(320.4)).toBe(320)
   })
 })

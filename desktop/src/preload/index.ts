@@ -1,10 +1,13 @@
-// Exposes only the workspace actions to the start page. The main process
-// rejects these calls from any other page, including the reader UI.
+// Exposes the workspace actions to the start page, which the main process
+// rejects from any other page, and the sidebar width to the reader UI,
+// which the main process answers only for the reader.
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IPC, type DesktopApi, type ShellState } from '../shared/types'
 
 const api: DesktopApi = {
+  getSidebarWidth: () => ipcRenderer.sendSync(IPC.getSidebarWidth),
+  setSidebarWidth: (width) => ipcRenderer.send(IPC.setSidebarWidth, width),
   getState: () => ipcRenderer.invoke(IPC.getState),
   onStateChanged: (callback) => {
     const listener = (_event: IpcRendererEvent, state: ShellState): void => callback(state)
