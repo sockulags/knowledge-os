@@ -78,6 +78,25 @@ and the sync finishes only when the result passes `kos lint`. Git must be on
 never asks for credentials. CLI commands do not commit. See "Git versioning and
 sync" in [`docs/architecture.md`](docs/architecture.md).
 
+## Command line
+
+The desktop app installer puts a `kos` command on PATH (see "The `kos` command" in
+[`desktop/README.md`](desktop/README.md)); a checkout gets the same command from `pip install -e .`
+instead. Both can end up on PATH at once, and whichever directory comes first wins for a bare `kos`
+invocation, which can silently run the wrong one. `where kos` (PowerShell) or `which kos` (POSIX
+shells) lists every `kos` on PATH in the order Windows or the shell will try them, with the one that
+actually runs listed first. `kos --version` reports the version and where that particular `kos` runs
+from: `installed app (bundled core at ...)` for the app's bundled core, or `Python X.Y.Z at
+<interpreter>, package at <path>` (with `(editable install)` appended when detectable) for a Python
+install. When the app's `kos` runs but a bare `kos` on PATH would reach a different one, or a Python
+`kos` runs while the app is also installed, `kos` prints a one-line warning to stderr (never stdout,
+so `--json` output and `kos mcp`'s stdio protocol stay clean) saying how to fix it: uninstall the pip
+package (`py -3.11 -m pip uninstall knowledge-os`) or reorder PATH. Set `KOS_NO_PATH_WARNING=1` to
+silence it.
+
+Agents reach the knowledge base through `kos mcp` (below), never a bare `kos`; people and scripts
+use the plain `kos` command directly.
+
 ## Agents (MCP)
 
 Agents such as Claude Code and Codex working in other repositories use the knowledge base through
