@@ -9,6 +9,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { ScrollToTop } from "./ScrollToTop";
 import { SyncBar, SyncFailureBanner } from "./SyncBar";
 import { useSync, type SyncState } from "../hooks/useSync";
+import { MAC, isQuickSwitchShortcut } from "../lib/quickSwitch";
 
 export interface ShellContext {
   /** Reload the sidebar after a write changed titles or added a page. */
@@ -56,8 +57,8 @@ export function Shell() {
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
-      const isShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
-      if (isShortcut) {
+      // On the window, so it works from every view, the editor included.
+      if (isQuickSwitchShortcut(event, MAC)) {
         event.preventDefault();
         setQuickFindOpen(true);
       }

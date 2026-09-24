@@ -1,172 +1,286 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useNavigate } from "react-router";
 import { Search } from "lucide-react";
-import type { NavPayload, RecordIndexEntry, SearchResult } from "../api/types";
+import type { NavPayload, SearchPayload } from "../api/types";
 import { api } from "../api/client";
 import { iconFor } from "../lib/icons";
-import { Pill } from "./Pill";
+import { buildSections, type SwitchOption } from "../lib/quickSwitch";
 
-function hrefFor(kind: string, id: string): string {
-  if (kind === "skill") return `/s/${id}`;
-  if (kind === "doc") return `/f/${id}`;
-  return `/r/${id}`;
+/** Wait this long after the last keystroke before asking the full-text search. */
+const TEXT_SEARCH_DELAY_MS = 150;
+
+interface TextSearch {
+  query: string;
+  payload: SearchPayload;
 }
 
-/** Ctrl K / Cmd K command palette. Title matching runs client-side over the
- * nav's record index (works with no search index built); when a full-text
- * index is available, matching results from /api/search appear under
- * their own heading, debounced so typing stays snappy. */
+/** The Ctrl K / Cmd K quick switcher. Titles of pages, projects, decisions,
+ * skills, and repository documents are matched client-side over the nav's
+ * record index as you type; the full-text search (/api/search) is asked
+ * after a short pause, cancelling any request a newer keystroke made stale,
+ * and adds the pages found only by a word in their text. Choosing a result
+ * navigates through the router, so an editor with unsaved changes asks
+ * first (useUnsavedChanges) and nothing typed there is lost.
+ *
+ * Accessibility: a modal dialog whose only focusable element is the search
+ * field (an ARIA combobox); results are a listbox of grouped options
+ * reached with aria-activedescendant, and focus cannot leave the dialog
+ * while it is open. */
 export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () => void; nav: NavPayload | null }) {
   const [query, setQuery] = useState("");
-  const [fullText, setFullText] = useState<SearchResult[]>([]);
+  const [text, setText] = useState<TextSearch | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  /** Set while closing, so the focus trap lets focus go back where it came from. */
+  const closingRef = useRef(false);
   const navigate = useNavigate();
+  const baseId = useId();
+  const listboxId = `${baseId}-listbox`;
+  const optionId = (index: number) => `${baseId}-option-${index}`;
+  const language = nav?.language;
 
-  useEffect(() => {
-    if (open) {
-      setQuery("");
-      setFullText([]);
-      setActiveIndex(0);
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
-  }, [open]);
-
-  const titleMatches = useMemo<RecordIndexEntry[]>(() => {
-    const trimmed = query.trim().toLowerCase();
-    if (!trimmed || !nav) return [];
-    return nav.record_index.filter((entry) => entry.title.toLowerCase().includes(trimmed)).slice(0, 8);
-  }, [query, nav]);
-
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      setFullText([]);
-      return;
-    }
-    const handle = setTimeout(() => {
-      api
-        .search(`?q=${encodeURIComponent(trimmed)}`)
-        .then((data) => setFullText(data.search_available ? data.results.slice(0, 6) : []))
-        .catch(() => setFullText([]));
-    }, 150);
-    return () => clearTimeout(handle);
-  }, [query]);
-
-  const combined = useMemo(() => {
-    const titleIds = new Set(titleMatches.map((entry) => entry.id));
-    const extraFullText = fullText.filter((result) => !titleIds.has(result.id));
-    return [
-      ...titleMatches.map((entry) => ({ kind: "title" as const, entry })),
-      ...extraFullText.map((result) => ({ kind: "fulltext" as const, result })),
-    ];
-  }, [titleMatches, fullText]);
-
-  useEffect(() => setActiveIndex(0), [query]);
-
+  // Reset on every open and remember where focus was, to give it back on close.
   useEffect(() => {
     if (!open) return;
-    function handleKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      } else if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setActiveIndex((index) => Math.min(index + 1, combined.length - 1));
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setActiveIndex((index) => Math.max(index - 1, 0));
-      } else if (event.key === "Enter") {
-        event.preventDefault();
-        const item = combined[activeIndex];
-        if (!item) return;
-        const href = item.kind === "title" ? hrefFor(item.entry.kind, item.entry.id) : `/r/${item.result.id}`;
-        navigate(href);
-        onClose();
-      }
+    closingRef.current = false;
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setQuery("");
+    setText(null);
+    setActiveIndex(0);
+    inputRef.current?.focus();
+  }, [open]);
+
+  // Full-text search, debounced; the cleanup aborts a request the next
+  // keystroke has made stale.
+  const trimmed = query.trim();
+  useEffect(() => {
+    if (!open || trimmed.length < 2) return;
+    const controller = new AbortController();
+    const handle = setTimeout(() => {
+      api
+        .search(`?q=${encodeURIComponent(trimmed)}`, controller.signal)
+        .then((payload) => setText({ query: trimmed, payload }))
+        .catch(() => {
+          if (!controller.signal.aborted) setText(null);
+        });
+    }, TEXT_SEARCH_DELAY_MS);
+    return () => {
+      clearTimeout(handle);
+      controller.abort();
+    };
+  }, [open, trimmed]);
+
+  // Only ever show full-text results for exactly what is typed now.
+  const currentText = text !== null && text.query === trimmed ? text.payload : null;
+  const searching = trimmed.length >= 2 && currentText === null;
+
+  const sections = useMemo(
+    () =>
+      trimmed
+        ? buildSections(nav?.record_index ?? [], trimmed, currentText?.search_available ? currentText.results : null)
+        : [],
+    [nav, trimmed, currentText],
+  );
+  const options = useMemo(() => sections.flatMap((section) => section.options), [sections]);
+
+  useEffect(() => setActiveIndex(0), [trimmed]);
+  useEffect(() => {
+    if (activeIndex >= options.length && options.length > 0) setActiveIndex(options.length - 1);
+  }, [activeIndex, options.length]);
+
+  useEffect(() => {
+    if (!open || options.length === 0) return;
+    document.getElementById(`${baseId}-option-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
+  }, [open, activeIndex, options.length, baseId]);
+
+  // Focus trap: anything that takes focus outside the dialog hands it back.
+  useEffect(() => {
+    if (!open) return;
+    function handleFocusIn(event: FocusEvent) {
+      if (closingRef.current || !dialogRef.current) return;
+      if (!dialogRef.current.contains(event.target as Node)) inputRef.current?.focus();
     }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [open, combined, activeIndex, navigate, onClose]);
+    document.addEventListener("focusin", handleFocusIn);
+    return () => document.removeEventListener("focusin", handleFocusIn);
+  }, [open]);
+
+  /** Close and give focus back to where it was (the editor, say). */
+  function dismiss() {
+    closingRef.current = true;
+    const previous = returnFocusRef.current;
+    if (previous?.isConnected) previous.focus();
+    onClose();
+  }
+
+  /** Close, then navigate. If an editor has unsaved changes, its own
+   * confirmation holds the navigation and focus is back in the editor. */
+  function choose(option: SwitchOption | undefined) {
+    if (!option) return;
+    dismiss();
+    navigate(option.href);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        if (options.length > 0) setActiveIndex((index) => (index + 1) % options.length);
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        if (options.length > 0) setActiveIndex((index) => (index - 1 + options.length) % options.length);
+        break;
+      case "Home":
+      case "End":
+        if (options.length > 0 && event.ctrlKey) {
+          event.preventDefault();
+          setActiveIndex(event.key === "Home" ? 0 : options.length - 1);
+        }
+        break;
+      case "Enter":
+        event.preventDefault();
+        choose(options[activeIndex]);
+        break;
+      case "Escape":
+        event.preventDefault();
+        event.stopPropagation();
+        dismiss();
+        break;
+      case "Tab":
+        // The search field is the dialog's only stop; keep focus in it.
+        event.preventDefault();
+        break;
+    }
+  }
 
   if (!open) return null;
 
+  let status: string | null = null;
+  if (!trimmed) status = language?.quick_find_hint ?? null;
+  else if (options.length === 0 && searching) status = language?.quick_find_searching ?? null;
+  else if (options.length === 0) status = language?.quick_find_no_matches.replace("{query}", trimmed) ?? null;
+  const textUnavailable = trimmed && currentText && !currentText.search_available ? currentText.disabled_reason : null;
+
+  let flatIndex = 0;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[12vh]" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[12vh]"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) dismiss();
+      }}
+    >
       <div
-        className="mx-4 w-full max-w-lg overflow-hidden rounded-xl border border-(--color-border) bg-(--color-bg-raised) shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={language?.quick_find_label}
+        className="mx-4 w-full max-w-xl overflow-hidden rounded-xl border border-(--color-border) bg-(--color-bg-raised) shadow-2xl"
       >
         <div className="flex items-center gap-2.5 border-b border-(--color-border) px-4 py-3">
-          <Search size={16} className="text-(--color-text-faint)" />
+          <Search size={16} className="text-(--color-text-faint)" aria-hidden="true" />
           <input
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={nav?.language.quick_find_placeholder ?? "Jump to a page, skill, or document…"}
+            onKeyDown={handleKeyDown}
+            role="combobox"
+            aria-label={language?.quick_find_label}
+            aria-expanded={options.length > 0}
+            aria-controls={listboxId}
+            aria-autocomplete="list"
+            aria-activedescendant={options.length > 0 ? optionId(activeIndex) : undefined}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={language?.quick_find_placeholder}
             className="w-full bg-transparent text-sm outline-none placeholder:text-(--color-text-faint)"
           />
         </div>
-        <div className="max-h-[60vh] overflow-y-auto py-2">
-          {combined.length === 0 && (
-            <p className="px-4 py-6 text-center text-sm text-(--color-text-faint)">
-              {query.trim() ? "No matches." : "Start typing to search."}
-            </p>
-          )}
-          {titleMatches.length > 0 && (
-            <p className="px-4 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide text-(--color-text-faint)">
-              Titles
-            </p>
-          )}
-          {titleMatches.map((entry, index) => {
-            const active = index === activeIndex;
-            const Icon = iconFor(entry.kind, entry.kind === "decision");
+        <div id={listboxId} role="listbox" aria-label={language?.quick_find_label} className="max-h-[60vh] overflow-y-auto py-1">
+          {sections.map((section) => {
+            const headingId = `${baseId}-group-${section.group}`;
             return (
-              <button
-                key={`t-${entry.id}`}
-                type="button"
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => {
-                  navigate(hrefFor(entry.kind, entry.id));
-                  onClose();
-                }}
-                className={`flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm ${active ? "bg-(--color-bg-hover)" : ""}`}
-              >
-                <Icon size={14} className="shrink-0 opacity-70" />
-                <span className="min-w-0 flex-1 truncate">{entry.title}</span>
-                <Pill pill={entry.status_pill} />
-              </button>
-            );
-          })}
-          {combined.length > titleMatches.length && (
-            <p className="px-4 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-(--color-text-faint)">
-              Full text
-            </p>
-          )}
-          {combined.slice(titleMatches.length).map((item, offset) => {
-            if (item.kind !== "fulltext") return null;
-            const index = titleMatches.length + offset;
-            const active = index === activeIndex;
-            return (
-              <button
-                key={`f-${item.result.id}`}
-                type="button"
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => {
-                  navigate(`/r/${item.result.id}`);
-                  onClose();
-                }}
-                className={`flex w-full flex-col gap-0.5 px-4 py-2 text-left text-sm ${active ? "bg-(--color-bg-hover)" : ""}`}
-              >
-                <span className="truncate font-medium">{item.result.title}</span>
-                <span
-                  className="truncate text-xs text-(--color-text-faint) [&_mark]:bg-transparent [&_mark]:font-semibold [&_mark]:text-(--color-text)"
-                  dangerouslySetInnerHTML={{ __html: item.result.snippet_html }}
-                />
-              </button>
+              <div key={section.group} role="group" aria-labelledby={headingId} className="py-1">
+                <div
+                  id={headingId}
+                  role="presentation"
+                  className="px-4 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wide text-(--color-text-faint)"
+                >
+                  {language?.quick_find_groups[section.group] ?? section.group}
+                </div>
+                {section.options.map((option) => {
+                  const index = flatIndex++;
+                  return (
+                    <Option
+                      key={option.key}
+                      id={optionId(index)}
+                      option={option}
+                      active={index === activeIndex}
+                      onHover={() => setActiveIndex(index)}
+                      onChoose={() => choose(option)}
+                    />
+                  );
+                })}
+              </div>
             );
           })}
         </div>
+        {(status || textUnavailable) && (
+          <p role="status" className="border-t border-(--color-border) px-4 py-3 text-xs text-(--color-text-faint)">
+            {status ?? textUnavailable}
+          </p>
+        )}
       </div>
+    </div>
+  );
+}
+
+function Option({
+  id,
+  option,
+  active,
+  onHover,
+  onChoose,
+}: {
+  id: string;
+  option: SwitchOption;
+  active: boolean;
+  onHover: () => void;
+  onChoose: () => void;
+}) {
+  const { entry } = option;
+  const Icon = iconFor(entry.kind, entry.kind === "decision");
+  return (
+    <div
+      id={id}
+      role="option"
+      aria-selected={active}
+      // Keep focus in the search field; the click chooses.
+      onMouseDown={(event) => event.preventDefault()}
+      onMouseMove={() => {
+        if (!active) onHover();
+      }}
+      onClick={onChoose}
+      className={`flex cursor-pointer items-start gap-2.5 px-4 py-2 text-sm ${active ? "bg-(--color-bg-hover)" : ""}`}
+    >
+      <Icon size={14} className="mt-0.5 shrink-0 opacity-70" aria-hidden="true" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate">{entry.title}</span>
+        {option.snippetHtml && (
+          <span
+            className="truncate text-xs text-(--color-text-faint) [&_mark]:bg-transparent [&_mark]:font-semibold [&_mark]:text-(--color-text)"
+            dangerouslySetInnerHTML={{ __html: option.snippetHtml }}
+          />
+        )}
+      </span>
+      <span
+        className={`shrink-0 text-xs ${
+          entry.status_pill?.tone === "amber" ? "text-(--color-accent-amber-text)" : "text-(--color-text-faint)"
+        }`}
+      >
+        {entry.kind_label}
+      </span>
     </div>
   );
 }

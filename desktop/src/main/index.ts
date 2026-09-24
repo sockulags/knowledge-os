@@ -4,7 +4,7 @@
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { pathToFileURL } from 'url'
 import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
@@ -19,6 +19,7 @@ import {
 } from './pythonCore'
 import { bundledCore, findRepoRoot, interpreterCandidates } from './pythonInterpreter'
 import { addRecent, loadRecent, saveRecent } from './recentWorkspaces'
+import { decideStartup, notAKnowledgeBaseNotice, type PathKind } from './reopen'
 import {
   fetchWriteToken,
   removeRuntimeFile,
@@ -165,7 +166,13 @@ async function ensurePython(): Promise<string | null> {
   return pythonExecutable
 }
 
-async function openWorkspace(root: string): Promise<void> {
+/**
+ * Open `root`. `reopened` is the recent entry when this is the knowledge base
+ * reopened on start: if the core then says the folder is not a knowledge
+ * base, the start page shows that as a one-line reason instead of the error
+ * screen. Every other failure shows the error screen.
+ */
+async function openWorkspace(root: string, reopened: RecentWorkspace | null = null): Promise<void> {
   const generation = ++openGeneration
   const previous = core
   core = null
@@ -181,7 +188,12 @@ async function openWorkspace(root: string): Promise<void> {
     return
   }
   if (!result.ok) {
-    showError(root, result.failure)
+    if (reopened !== null && result.failure.error === 'invalid-workspace') {
+      console.error('could not reopen the last knowledge base:', result.failure.message)
+      setState({ kind: 'start', recent, notice: notAKnowledgeBaseNotice(reopened) })
+    } else {
+      showError(root, result.failure)
+    }
     return
   }
 
@@ -256,8 +268,8 @@ async function chooseAndCreate(): Promise<void> {
   await openWorkspace(result.root)
 }
 
-function setAutoCheck(enabled: boolean): void {
-  settings = { ...settings, checkForUpdates: enabled }
+function changeSettings(change: Partial<AppSettings>): void {
+  settings = { ...settings, ...change }
   try {
     saveSettings(settingsFile, settings)
   } catch (error) {
@@ -320,7 +332,7 @@ function helpMenu(): MenuItemConstructorOptions {
       type: 'checkbox',
       checked: settings.checkForUpdates,
       enabled: updatesSupported(),
-      click: (item) => setAutoCheck(item.checked)
+      click: (item) => changeSettings({ checkForUpdates: item.checked })
     }
   ]
   if (update.phase === 'ready') {
@@ -355,6 +367,12 @@ function buildMenu(): void {
           click: () => void chooseAndCreate()
         },
         { label: 'Open Recent', submenu: recentItems },
+        {
+          label: 'Reopen the Last Knowledge Base on Start',
+          type: 'checkbox',
+          checked: settings.reopenLastWorkspace,
+          click: (item) => changeSettings({ reopenLastWorkspace: item.checked })
+        },
         { type: 'separator' },
         {
           label: 'Close Knowledge Base',
@@ -502,6 +520,29 @@ process.on('uncaughtException', (error) => {
 })
 app.on('will-quit', stopCoreSync)
 
+function pathKind(path: string): PathKind {
+  try {
+    return statSync(path).isDirectory() ? 'directory' : 'file'
+  } catch {
+    return 'missing'
+  }
+}
+
+/** Open the requested or the last knowledge base, or say on the start page why not. */
+function startup(): void {
+  const decision = decideStartup({
+    explicit: process.env['KOS_DESKTOP_WORKSPACE'] || null,
+    reopenEnabled: settings.reopenLastWorkspace,
+    recent,
+    pathKind
+  })
+  if (decision.kind === 'open') {
+    void openWorkspace(decision.root, decision.reopened ? (recent[0] ?? null) : null)
+  } else if (decision.notice !== null) {
+    setState({ kind: 'start', recent, notice: decision.notice })
+  }
+}
+
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) =>
     callback(false)
@@ -521,8 +562,7 @@ app.whenReady().then(() => {
   buildMenu()
   createWindow()
 
-  const initial = process.env['KOS_DESKTOP_WORKSPACE']
-  if (initial) void openWorkspace(initial)
+  startup()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

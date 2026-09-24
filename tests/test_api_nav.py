@@ -12,6 +12,7 @@ from pathlib import Path
 
 from reader_support import (
     FIXTURE_GOVERNING_IDS,
+    FIXTURE_PROJECT_ID,
     FIXTURE_PROPOSED_ID,
     REPOSITORY,
     serve,
@@ -44,6 +45,34 @@ class NavTests(unittest.TestCase):
             self.assertIn("doc", kinds)
             titles = {entry["title"] for entry in data["record_index"]}
             self.assertIn("Read-only reader for Knowledge OS", titles)
+
+    def test_quick_find_index_groups_and_labels_each_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_decision_fixture(root)
+            with serve(root, PORT) as base_url:
+                data = _get(base_url, "/api/nav")
+                by_id = {entry["id"]: entry for entry in data["record_index"]}
+                project = by_id[FIXTURE_PROJECT_ID]
+                self.assertEqual((project["group"], project["kind_label"]), ("projects", "Project"))
+                proposed = by_id[FIXTURE_PROPOSED_ID]
+                self.assertEqual((proposed["group"], proposed["kind_label"]), ("decisions", "Proposed decision"))
+                for governing_id in FIXTURE_GOVERNING_IDS:
+                    self.assertEqual(by_id[governing_id]["kind_label"], "Decision in force")
+                groups = data["language"]["quick_find_groups"]
+                self.assertTrue({entry["group"] for entry in data["record_index"]} <= set(groups))
+                self.assertEqual(groups["decisions"], "Decisions")
+
+    def test_project_without_an_overview_is_still_in_the_quick_find_index(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_decision_fixture(root)
+            (root / "projects" / FIXTURE_PROJECT_ID / "README.md").unlink()
+            with serve(root, PORT) as base_url:
+                data = _get(base_url, "/api/nav")
+                projects = [entry for entry in data["record_index"] if entry["group"] == "projects"]
+                self.assertEqual([entry["id"] for entry in projects], [FIXTURE_PROJECT_ID])
+                self.assertEqual(projects[0]["kind_label"], "Project")
 
     def test_skills_and_repo_docs_sections_are_populated(self) -> None:
         with serve(REPOSITORY, PORT) as base_url:

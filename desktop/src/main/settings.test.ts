@@ -17,14 +17,26 @@ describe('loadSettings and saveSettings', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('checks for updates by default when there is no file', () => {
-    expect(loadSettings(file)).toEqual({ checkForUpdates: true })
+  it('checks for updates and reopens the last knowledge base by default when there is no file', () => {
+    expect(loadSettings(file)).toEqual({ checkForUpdates: true, reopenLastWorkspace: true })
   })
 
   it('round-trips a turned-off automatic check', () => {
-    saveSettings(file, { checkForUpdates: false })
-    expect(loadSettings(file)).toEqual({ checkForUpdates: false })
+    saveSettings(file, { checkForUpdates: false, reopenLastWorkspace: true })
+    expect(loadSettings(file)).toEqual({ checkForUpdates: false, reopenLastWorkspace: true })
     expect(JSON.parse(readFileSync(file, 'utf-8')).version).toBe(1)
+  })
+
+  it('round-trips a turned-off reopen', () => {
+    saveSettings(file, { checkForUpdates: true, reopenLastWorkspace: false })
+    expect(loadSettings(file)).toEqual({ checkForUpdates: true, reopenLastWorkspace: false })
+    expect(JSON.parse(readFileSync(file, 'utf-8')).reopenLastWorkspace).toBe(false)
+  })
+
+  it('reopens by default when a file from an older version lacks the setting', () => {
+    const older = join(dir, 'older.json')
+    writeFileSync(older, JSON.stringify({ version: 1, checkForUpdates: false }), 'utf-8')
+    expect(loadSettings(older)).toEqual({ checkForUpdates: false, reopenLastWorkspace: true })
   })
 
   it('falls back to the defaults for a damaged file', () => {
@@ -35,13 +47,18 @@ describe('loadSettings and saveSettings', () => {
 
   it('falls back per field for a wrong type', () => {
     const odd = join(dir, 'odd.json')
-    writeFileSync(odd, JSON.stringify({ version: 1, checkForUpdates: 'no' }), 'utf-8')
+    writeFileSync(
+      odd,
+      JSON.stringify({ version: 1, checkForUpdates: 'no', reopenLastWorkspace: 0 }),
+      'utf-8'
+    )
     expect(loadSettings(odd)).toEqual(DEFAULT_SETTINGS)
   })
 
   it('does not hand out the shared defaults object', () => {
     const loaded = loadSettings(join(dir, 'missing.json'))
     loaded.checkForUpdates = false
-    expect(DEFAULT_SETTINGS.checkForUpdates).toBe(true)
+    loaded.reopenLastWorkspace = false
+    expect(DEFAULT_SETTINGS).toEqual({ checkForUpdates: true, reopenLastWorkspace: true })
   })
 })

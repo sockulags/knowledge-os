@@ -21,7 +21,12 @@ export type ErrorKind =
 
 /** What the start page shows; while a workspace is open the window shows the reader instead. */
 export type ShellState =
-  | { kind: 'start'; recent: RecentWorkspace[] }
+  | {
+      kind: 'start'
+      recent: RecentWorkspace[]
+      /** Why the last knowledge base was not reopened on start, if it was not. */
+      notice?: string
+    }
   | { kind: 'starting'; root: string; recent: RecentWorkspace[] }
   | { kind: 'ready'; root: string; name: string; url: string; recent: RecentWorkspace[] }
   | {

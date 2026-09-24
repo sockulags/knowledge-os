@@ -451,3 +451,35 @@ def type_label(record: Record) -> str:
     type for one this table does not name)."""
 
     return strings.EVERYTHING_TYPE_LABELS.get(record.type, record.type.capitalize())
+
+
+def quick_find_group(record: Record) -> str:
+    """Which quick-switcher group a record is listed under (a key of
+    ``strings.QUICK_FIND_GROUPS``): its decisions, its projects, or every
+    other page."""
+
+    if record.is_decision:
+        return "decisions"
+    if is_project_overview(record):
+        return "projects"
+    return "pages"
+
+
+def is_project_overview(record: Record) -> bool:
+    """A project's own overview record (``projects/<id>/README.md``), as
+    opposed to the other pages scoped to that project, which share its
+    ``project`` type."""
+
+    return record.type == "project" and record.scope == f"project:{record.id}"
+
+
+def quick_find_kind_label(record: Record) -> str:
+    """The short label next to a record's title in the quick switcher: a
+    decision's state ("Proposed decision"), "Project" for a project's
+    overview, otherwise the record's type."""
+
+    if record.is_decision:
+        return strings.QUICK_FIND_DECISION_LABELS.get(record.status, strings.QUICK_FIND_DECISION_FALLBACK)
+    if is_project_overview(record):
+        return strings.QUICK_FIND_PROJECT_LABEL
+    return strings.QUICK_FIND_TYPE_LABELS.get(record.type, type_label(record))
