@@ -9,6 +9,7 @@ export function ConfirmDialog({
   tone = "neutral",
   busy = false,
   confirmDisabled = false,
+  hideConfirm = false,
   cancelLabel = "Cancel",
   workingLabel = "Working…",
   onConfirm,
@@ -20,6 +21,8 @@ export function ConfirmDialog({
   tone?: "neutral" | "danger";
   busy?: boolean;
   confirmDisabled?: boolean;
+  /** Only explain (why something cannot be done): the one button closes it. */
+  hideConfirm?: boolean;
   cancelLabel?: string;
   workingLabel?: string;
   onConfirm: () => void;
@@ -54,15 +57,17 @@ export function ConfirmDialog({
           <button type="button" data-cancel onClick={onCancel} disabled={busy} className="kos-btn kos-btn-ghost">
             {cancelLabel}
           </button>
-          <button
-            type="button"
-            data-confirm
-            onClick={onConfirm}
-            disabled={busy || confirmDisabled}
-            className={`kos-btn ${tone === "danger" ? "kos-btn-danger" : "kos-btn-primary"}`}
-          >
-            {busy ? workingLabel : confirmLabel}
-          </button>
+          {!hideConfirm && (
+            <button
+              type="button"
+              data-confirm
+              onClick={onConfirm}
+              disabled={busy || confirmDisabled}
+              className={`kos-btn ${tone === "danger" ? "kos-btn-danger" : "kos-btn-primary"}`}
+            >
+              {busy ? workingLabel : confirmLabel}
+            </button>
+          )}
         </div>
       </div>
     </div>

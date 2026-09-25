@@ -1,12 +1,9 @@
-import { useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight } from "lucide-react";
-import type { DecisionActions as DecisionActionsData, DecisionDialog, DecisionLanguage, WriteFailure } from "../api/types";
+import type { DecisionActions as DecisionActionsData, DecisionLanguage, WriteFailure } from "../api/types";
 import { write, type Outcome } from "../api/write";
-import { ConfirmDialog } from "./ConfirmDialog";
+import type { PendingExtra, RunOptions, RunResult } from "../lib/pendingActions";
+import { decisionKey, pendingActions, type DecisionEntry } from "../lib/pendingStore";
 import { DecisionGuideToggle } from "./DecisionGuide";
-import { WriteFailureCallout } from "./WriteFailureCallout";
-import { fieldLabelClass, inputClass } from "./EditorParts";
 
 type Action = "accept" | "withdraw" | "supersede";
 
@@ -20,103 +17,112 @@ export interface DecisionTarget {
   folder: string;
 }
 
-function DialogChanges({ dialog }: { dialog: DecisionDialog }) {
-  return (
-    <ul className="mt-4 space-y-2 rounded-(--radius-card) border border-(--color-border) bg-(--color-bg-sidebar) px-3.5 py-3">
-      {dialog.changes.map((change, index) => (
-        <li key={index}>
-          {change.subject && <span className="block text-xs text-(--color-text-faint)">{change.subject}</span>}
-          <span className="flex flex-wrap items-center gap-1.5 text-(--color-text)">
-            <span>{change.from}</span>
-            <ArrowRight size={13} className="text-(--color-text-faint)" />
-            <span className="font-medium">{change.to}</span>
-          </span>
-        </li>
-      ))}
-      <li>{dialog.history}</li>
-    </ul>
-  );
-}
-
 // Accepting is the step a proposal waits for, so it is the one primary
 // button; withdrawing and replacing are secondary.
 const primaryClass = "kos-btn kos-btn-primary";
 const buttonClass = "kos-btn kos-btn-secondary";
+const linkClass = "font-medium text-(--color-accent-text) underline decoration-1 underline-offset-[3px]";
 
-/** Accept, withdraw, or accept-as-replacement for a decision, each behind a
- * confirmation that says what will change and whether it can be undone.
- * Which buttons appear and every word in the dialogs come from the API; the
- * core re-checks every rule. The "page" variant is the box on a decision
- * page (with its summary sentence and the "How decisions work" link); the
- * "inline" variant is just the buttons, for an inbox row. */
+function result(outcome: Outcome<unknown>, conflict: string): RunResult {
+  if (outcome.ok) return { ok: true };
+  const failure: WriteFailure = outcome.failure;
+  return { ok: false, error: failure.error, detail: failure.error === "conflict" ? conflict : failure.detail };
+}
+
+/** Start one decision action: the interface shows its outcome at once and the
+ * write waits a few seconds for Undo (see lib/pendingActions.ts). */
+export function startDecisionAction(target: DecisionTarget, action: Action, language: DecisionLanguage): void {
+  const { actions, content_sha256: sha } = target;
+  const outcome = actions.outcomes[action];
+  if (sha === null || outcome === undefined) return;
+  const replaces = actions.supersede;
+  const conflict = language.labels.conflict;
+  const run = async (extra: PendingExtra, options: RunOptions): Promise<RunResult> => {
+    if (action === "accept") return result(await write.accept(target.id, sha, options), conflict);
+    if (action === "withdraw") return result(await write.withdraw(target.id, sha, extra.reason, options), conflict);
+    return result(
+      await write.supersede(target.id, sha, replaces!.id, replaces!.content_sha256 ?? "", options),
+      conflict,
+    );
+  };
+  pendingActions.schedule({
+    key: decisionKey(target.id),
+    kind: action,
+    meta: { recordId: target.id, outcome, labels: language.labels, allowReason: action === "withdraw" },
+    run,
+  });
+}
+
+/** Accept, withdraw, or accept-as-replacement for a decision, each in one
+ * click with no dialog. While the write waits for Undo (or runs), `pending`
+ * is its entry and the box shows the outcome instead of the buttons. Which
+ * buttons appear and every word come from the API; the core re-checks every
+ * rule. The "page" variant is the box on a decision page (with its summary
+ * sentence and the "How decisions work" link); the "inline" variant is just
+ * the buttons, for an inbox row. */
 export function DecisionActions({
   target,
   language,
-  onDone,
+  pending = null,
   variant = "page",
 }: {
   target: DecisionTarget;
   language: DecisionLanguage;
-  onDone: (action: Action) => void;
+  pending?: DecisionEntry | null;
   variant?: "page" | "inline";
 }) {
   const { actions, content_sha256: sha } = target;
   const labels = language.labels;
-  const [open, setOpen] = useState<Action | null>(null);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<WriteFailure | null>(null);
-
   const replaces = actions.supersede;
   const hasButtons =
     sha !== null && (actions.accept || actions.withdraw || replaces !== null || actions.propose_replacement);
 
-  function close() {
-    setOpen(null);
-    setFailure(null);
-    setReason("");
-  }
-
-  async function run(action: Action) {
-    setBusy(true);
-    setFailure(null);
-    let outcome: Outcome<unknown>;
-    if (action === "accept") outcome = await write.accept(target.id, sha!);
-    else if (action === "withdraw") outcome = await write.withdraw(target.id, sha!, reason.trim());
-    else outcome = await write.supersede(target.id, sha!, replaces!.id, replaces!.content_sha256 ?? "");
-    setBusy(false);
-    if (outcome.ok) {
-      close();
-      onDone(action);
-    } else {
-      setFailure(outcome.failure);
-    }
-  }
-
-  const failureView =
-    failure === null ? null : (
-      <div className="mt-3">
-        <WriteFailureCallout failure={failure.error === "conflict" ? { ...failure, detail: labels.conflict } : failure} />
-      </div>
+  if (pending !== null) {
+    const undoable = pending.state === "waiting" || pending.state === "paused";
+    const box = (
+      <p className="text-sm text-(--color-text)" role="status">
+        {pending.meta.outcome.summary}{" "}
+        {undoable && (
+          <button type="button" className={linkClass} onClick={() => pendingActions.undo(pending.id)}>
+            {labels.undo}
+          </button>
+        )}
+        {pending.state === "saving" && <span className="text-(--color-text-faint)">{labels.saving}</span>}
+      </p>
     );
-
-  const dialogProps = { busy, cancelLabel: labels.cancel, workingLabel: labels.working, onCancel: close };
-  const dialogs = actions.dialogs;
+    if (variant === "inline") return box;
+    return (
+      <section className="kos-card mb-8 mt-6 px-5 py-4" aria-label="Decision actions">
+        {box}
+        <div className="mt-4 border-t border-(--color-border) pt-3">
+          <DecisionGuideToggle language={language} />
+        </div>
+      </section>
+    );
+  }
 
   const buttons = hasButtons ? (
-    <div className={variant === "page" ? "mt-3 flex flex-wrap gap-2" : "flex flex-wrap gap-2"}>
-      {actions.accept && dialogs.accept && (
-        <button type="button" className={primaryClass} onClick={() => setOpen("accept")}>
+    <div className={variant === "page" ? "mt-3 flex flex-wrap items-center gap-2" : "flex flex-wrap items-center gap-2"}>
+      {actions.accept && actions.outcomes.accept && (
+        <button type="button" className={primaryClass} onClick={() => startDecisionAction(target, "accept", language)}>
           {labels.accept}
         </button>
       )}
-      {replaces !== null && dialogs.supersede && (
-        <button type="button" className={primaryClass} onClick={() => setOpen("supersede")}>
+      {replaces !== null && actions.outcomes.supersede && (
+        <button
+          type="button"
+          className={primaryClass}
+          onClick={() => startDecisionAction(target, "supersede", language)}
+        >
           {labels.accept_replacement}
         </button>
       )}
-      {actions.withdraw && dialogs.withdraw && (
-        <button type="button" className={buttonClass} onClick={() => setOpen("withdraw")}>
+      {actions.withdraw && actions.outcomes.withdraw && (
+        <button
+          type="button"
+          className={buttonClass}
+          onClick={() => startDecisionAction(target, "withdraw", language)}
+        >
           {labels.withdraw}
         </button>
       )}
@@ -128,73 +134,15 @@ export function DecisionActions({
           {labels.replace_with}
         </Link>
       )}
+      {variant === "page" && replaces !== null && (
+        <Link to={`/r/${target.id}/compare`} className={`${linkClass} ml-1 text-sm`}>
+          {labels.compare_short}
+        </Link>
+      )}
     </div>
   ) : null;
 
-  const dialogViews = (
-    <>
-      {open === "accept" && dialogs.accept && (
-        <ConfirmDialog title={dialogs.accept.title} confirmLabel={dialogs.accept.confirm} onConfirm={() => void run("accept")} {...dialogProps}>
-          <p>{dialogs.accept.body}</p>
-          <DialogChanges dialog={dialogs.accept} />
-          {failureView}
-        </ConfirmDialog>
-      )}
-
-      {open === "withdraw" && dialogs.withdraw && (
-        <ConfirmDialog
-          title={dialogs.withdraw.title}
-          confirmLabel={dialogs.withdraw.confirm}
-          tone="danger"
-          confirmDisabled={reason.trim() === ""}
-          onConfirm={() => void run("withdraw")}
-          {...dialogProps}
-        >
-          <p>{dialogs.withdraw.body}</p>
-          <DialogChanges dialog={dialogs.withdraw} />
-          <label className="mt-3 block">
-            <span className={fieldLabelClass}>
-              {labels.reason_label}
-            </span>
-            <textarea
-              className={`${inputClass} min-h-[4.5rem] resize-y`}
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder={labels.reason_placeholder}
-            />
-          </label>
-          {failureView}
-        </ConfirmDialog>
-      )}
-
-      {open === "supersede" && replaces !== null && dialogs.supersede && (
-        <ConfirmDialog
-          title={dialogs.supersede.title}
-          confirmLabel={dialogs.supersede.confirm}
-          onConfirm={() => void run("supersede")}
-          {...dialogProps}
-        >
-          <p>{dialogs.supersede.body}</p>
-          <DialogChanges dialog={dialogs.supersede} />
-          <p className="mt-3">
-            <Link to={`/r/${target.id}/compare`} className="font-medium text-(--color-accent-text) underline decoration-1 underline-offset-[3px]">
-              {labels.compare}
-            </Link>
-          </p>
-          {failureView}
-        </ConfirmDialog>
-      )}
-    </>
-  );
-
-  if (variant === "inline") {
-    return (
-      <>
-        {buttons}
-        {dialogViews}
-      </>
-    );
-  }
+  if (variant === "inline") return buttons;
 
   return (
     <section className="kos-card mb-8 mt-6 px-5 py-4" aria-label="Decision actions">
@@ -203,7 +151,6 @@ export function DecisionActions({
       <div className={actions.summary || buttons ? "mt-4 border-t border-(--color-border) pt-3" : ""}>
         <DecisionGuideToggle language={language} />
       </div>
-      {dialogViews}
     </section>
   );
 }

@@ -161,6 +161,8 @@ async def proposed_view(request: Request) -> Response:
             "intro": strings.DECIDE_INTRO,
             "count": len(drafts),
             "count_label": count_label(len(drafts)) if drafts else None,
+            # For the count while an action waits for Undo: "{count}" is filled in.
+            "count_templates": {"one": strings.DECIDE_COUNT_SINGULAR, "other": strings.DECIDE_COUNT_PLURAL},
             "project": wanted,
             "filter_label": strings.DECIDE_PROJECT_FILTER_LABEL,
             "all_projects_label": strings.DECIDE_ALL_PROJECTS,

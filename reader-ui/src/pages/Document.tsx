@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useParams, Link } from "react-router";
-import { AlertTriangle, FilePlus, Pencil } from "lucide-react";
+import { AlertTriangle, FilePlus, Pencil, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { PageSkeleton } from "../components/Skeleton";
@@ -13,6 +13,9 @@ import { RecordNotFound } from "../components/EmptyState";
 import { LoadError, LineageCalloutRow } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { useShell } from "../components/Shell";
+import { useStructure, type TreeItem } from "../components/Structure";
+import { showsOutcome } from "../lib/pendingActions";
+import { decisionKey, pendingActions, useOnPendingSettled, usePendingEntries } from "../lib/pendingStore";
 import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { RelationView } from "../api/types";
@@ -35,12 +38,32 @@ function RelationRow({ relation }: { relation: RelationView }) {
 
 export function Document() {
   const { recordId } = useParams<{ recordId: string }>();
-  const { refreshNav, nav } = useShell();
-  // Bumped after a decision action so the page shows the new state.
+  const { nav } = useShell();
+  const structure = useStructure();
+  // Bumped after a decision action was saved (or failed) so the page shows
+  // what the core now holds.
   const [loadKey, setLoadKey] = useState(0);
-  const apiState = useApi(() => api.record(recordId!), [recordId, loadKey]);
+  const loadedAt = useRef(0);
+  const apiState = useApi(() => {
+    loadedAt.current = Date.now();
+    return api.record(recordId!);
+  }, [recordId, loadKey]);
   const { data, loading, notFound } = apiState;
   useDocumentTitle(nav?.workspace_name, data?.title ?? null);
+
+  // A decision action on this page shows its outcome from the click on,
+  // while the write waits for Undo, and until the page has reloaded.
+  const entries = usePendingEntries();
+  const key = recordId ? decisionKey(recordId) : "";
+  const pending = entries.find((entry) => entry.key === key && showsOutcome(entry, loadedAt.current)) ?? null;
+  useOnPendingSettled(
+    useCallback(() => {
+      const entry = pendingActions.entry(key);
+      if (entry !== null && entry.settledAt !== null && entry.settledAt > loadedAt.current) {
+        setLoadKey((value) => value + 1);
+      }
+    }, [key]),
+  );
 
   if (loading) return <PageSkeleton />;
   if (notFound) return <RecordNotFound nav={nav} recordId={recordId} />;
@@ -48,6 +71,14 @@ export function Document() {
     return <LoadError>{loadErrorMessage(apiState, nav?.language, "Could not load this page.")}</LoadError>;
 
   const showToc = data.headings.length >= 3;
+  const properties = pending ? { ...data.properties, status: pending.meta.outcome.status } : data.properties;
+  const deletion = data.editing.delete;
+  const deleteItem: TreeItem | null =
+    deletion === null
+      ? null
+      : deletion.kind === "folder"
+        ? { kind: "folder", projectId: deletion.project_id, path: deletion.path, title: data.title, hasPage: true }
+        : { kind: "page", id: data.id, title: data.title, projectId: data.editing.project_id ?? "", folder: data.editing.folder };
 
   return (
     <div className="mx-auto flex w-full max-w-[1100px] gap-10 px-6 py-12 sm:px-10">
@@ -73,6 +104,12 @@ export function Document() {
                 Edit
               </Link>
             )}
+            {deleteItem !== null && (
+              <button type="button" className="kos-btn kos-btn-ghost kos-btn-sm" onClick={() => structure.remove(deleteItem)}>
+                <Trash2 size={14} />
+                Delete…
+              </button>
+            )}
           </div>
         </div>
         <h1 className="kos-title">{data.title}</h1>
@@ -84,7 +121,7 @@ export function Document() {
         ))}
 
         <div className="mt-6">
-          <PropertiesBlock properties={data.properties} />
+          <PropertiesBlock properties={properties} />
         </div>
         <TechnicalDetails details={data.technical_details} />
         {data.decision_language && data.editing.decision_actions && (
@@ -98,10 +135,7 @@ export function Document() {
               folder: data.editing.folder,
             }}
             language={data.decision_language}
-            onDone={() => {
-              setLoadKey((value) => value + 1);
-              refreshNav();
-            }}
+            pending={pending}
           />
         )}
 

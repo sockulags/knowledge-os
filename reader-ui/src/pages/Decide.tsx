@@ -11,6 +11,8 @@ import { EmptyState } from "../components/EmptyState";
 import { useShell } from "../components/Shell";
 import { networkErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { showsOutcome } from "../lib/pendingActions";
+import { useOnPendingSettled, usePendingEntries } from "../lib/pendingStore";
 
 /** One small icon per kind of proposer (`proposed_by.source`); an unknown
  * source gets the neutral question mark, so a new kind needs no change here. */
@@ -22,15 +24,7 @@ const SOURCE_ICONS: Record<string, typeof User> = {
   observation: Eye,
 };
 
-function ProposalRow({
-  row,
-  language,
-  onDone,
-}: {
-  row: ProposedDecision;
-  language: DecidePayload["language"];
-  onDone: (id: string) => void;
-}) {
+function ProposalRow({ row, language }: { row: ProposedDecision; language: DecidePayload["language"] }) {
   const SourceIcon = SOURCE_ICONS[row.proposed_by.source] ?? CircleHelp;
   return (
     <li className="kos-card px-5 py-4">
@@ -81,7 +75,6 @@ function ProposalRow({
             folder: "",
           }}
           language={language}
-          onDone={() => onDone(row.id)}
         />
       </div>
     </li>
@@ -89,24 +82,30 @@ function ProposalRow({
 }
 
 /** The decision inbox: every proposed decision, newest first, filterable by
- * project. Acting on a row removes it at once and reloads the list and the
- * sidebar count in the background, without a page reload. */
+ * project. Acting on a row removes it at once (one click, no dialog); the
+ * notice offers Undo, which brings the row back. The list reloads in the
+ * background once the write is saved. */
 export function Decide() {
-  const { refreshNav, nav } = useShell();
+  const { nav } = useShell();
   useDocumentTitle(nav?.workspace_name, "Decide");
   const [params, setParams] = useSearchParams();
   const project = params.get("project");
   const [data, setData] = useState<DecidePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const latest = useRef(0);
+  // When the list request that `data` answers started.
+  const [loadedAt, setLoadedAt] = useState(0);
+  const entries = usePendingEntries();
 
   const load = useCallback(() => {
     const request = ++latest.current;
+    const started = Date.now();
     api
       .proposedDecisions(project)
       .then((payload) => {
         if (request === latest.current) {
           setData(payload);
+          setLoadedAt(started);
           setError(null);
         }
       })
@@ -121,29 +120,29 @@ export function Decide() {
     load();
   }, [load]);
 
-  function handleDone(id: string) {
-    setData((current) =>
-      current === null
-        ? current
-        : {
-            ...current,
-            items: current.items.filter((item) => item.id !== id),
-            count: Math.max(current.count - 1, 0),
-          },
-    );
-    refreshNav();
-    load();
-  }
+  useOnPendingSettled(load);
 
   if (error && !data) return <LoadError>{error}</LoadError>;
   if (!data) return <PageSkeleton />;
 
+  // Rows accepted or withdrawn here leave the list from the click on.
+  const acted = new Set(
+    entries.filter((entry) => showsOutcome(entry, loadedAt)).map((entry) => entry.meta.recordId),
+  );
+  const items = data.items.filter((item) => !acted.has(item.id));
+  const count = Math.max(data.count - acted.size, 0);
+  const countLabel =
+    count === 0
+      ? null
+      : count === 1
+        ? data.count_templates.one
+        : data.count_templates.other.replace("{count}", String(count));
 
   return (
     <div className="mx-auto w-full max-w-[760px] px-6 py-12 sm:px-10">
       <h1 className="kos-title">{data.title}</h1>
       <p className="kos-lede">{data.intro}</p>
-      {data.count_label && <p className="mt-1.5 text-sm text-(--color-text-faint)">{data.count_label}</p>}
+      {countLabel && <p className="mt-1.5 text-sm text-(--color-text-faint)">{countLabel}</p>}
 
       <div className="mt-5">
         <DecisionGuideToggle language={data.language} defaultOpen={data.count === 0} />
@@ -152,7 +151,7 @@ export function Decide() {
       {data.projects.length > 1 && (
         <nav className="mt-6 flex flex-wrap items-center gap-2" aria-label={data.filter_label}>
           <button type="button" className="kos-chip" aria-pressed={project === null} onClick={() => setParams({})}>
-            {data.all_projects_label} · {data.count}
+            {data.all_projects_label} · {count}
           </button>
           {data.projects.map((entry) => (
             <button
@@ -168,14 +167,14 @@ export function Decide() {
         </nav>
       )}
 
-      {data.items.length === 0 ? (
+      {items.length === 0 ? (
         <div className="mt-8">
           <EmptyState title={data.empty.title} body={data.empty.body} icon={<Inbox size={28} strokeWidth={1.5} />} action={<></>} />
         </div>
       ) : (
         <ul className="mt-6 space-y-3">
-          {data.items.map((row) => (
-            <ProposalRow key={row.id} row={row} language={data.language} onDone={handleDone} />
+          {items.map((row) => (
+            <ProposalRow key={row.id} row={row} language={data.language} />
           ))}
         </ul>
       )}

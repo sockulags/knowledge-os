@@ -1,11 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { api } from "../api/client";
-import type { NavPayload, StructureResult, TreeNode, WriteFailure } from "../api/types";
+import type { DeletePreview, NavPayload, StructureResult, TreeNode, WriteFailure } from "../api/types";
 import { structure, type Outcome } from "../api/write";
 import { hasUnsavedChanges } from "../hooks/useUnsavedChanges";
+import { pendingActions } from "../lib/pendingStore";
 import { folderDisplayName } from "../lib/text";
+import { WriteFailureCallout } from "./WriteFailureCallout";
 import { slugify } from "../pages/NewRecord";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { fieldLabelClass, inputClass } from "./EditorParts";
@@ -38,6 +40,8 @@ interface StructureApi {
   newProject: () => void;
   newFolder: (projectId: string, parent: string, parentLabel: string) => void;
   moveTo: (item: TreeItem) => void;
+  /** Open the delete confirmation for a page or a folder. */
+  remove: (item: TreeItem) => void;
   busy: boolean;
 }
 
@@ -122,6 +126,8 @@ export function StructureProvider({
   const [creatingFolder, setCreatingFolder] = useState<{ projectId: string; parent: string; parentLabel: string } | null>(
     null,
   );
+  const [deleting, setDeleting] = useState<TreeItem | null>(null);
+  const location = useLocation();
 
   useEffect(() => {
     if (feedback?.tone !== "ok") return;
@@ -167,6 +173,9 @@ export function StructureProvider({
       if (item.kind === "project" || !guardUnsaved()) return false;
       setBusy(true);
       try {
+        // A decision action still waiting for Undo is written first, so the
+        // move reads the files as they will be.
+        await pendingActions.flushAll();
         const where =
           place.projectId !== item.projectId && place.folder
             ? `${place.label} in ${projectTitle(nav, place.projectId)}`
@@ -213,6 +222,7 @@ export function StructureProvider({
       if (!trimmed || !guardUnsaved()) return false;
       setBusy(true);
       try {
+        await pendingActions.flushAll();
         if (item.kind === "folder") {
           const name = slugify(trimmed);
           if (!name) {
@@ -241,6 +251,36 @@ export function StructureProvider({
     [guardUnsaved, pageSha, report],
   );
 
+  /** Delete what the dialog showed, then leave a page that no longer exists. */
+  const confirmDelete = useCallback(
+    async (item: TreeItem, preview: DeletePreview): Promise<Outcome<StructureResult>> => {
+      setBusy(true);
+      try {
+        await pendingActions.flushAll();
+        let outcome: Outcome<StructureResult>;
+        if (item.kind === "folder") {
+          outcome = await structure.deleteFolder(item.projectId, item.path, preview.expected);
+        } else {
+          // The page's hash as the dialog showed it, so a page that changed
+          // since is refused rather than deleted unseen.
+          outcome = await structure.deletePage(preview.id ?? "", preview.expected[preview.path] ?? "", preview.expected);
+        }
+        if (outcome.ok) {
+          setDeleting(null);
+          const gone = new Set(preview.records.map((record) => `/r/${record.id}`));
+          const leaving = gone.has(location.pathname);
+          setFeedback({ tone: "ok", text: preview.dialog.done + commitNote(outcome.data) });
+          if (leaving) navigate(preview.project ? `/p/${preview.project}` : "/");
+          onChanged(!leaving && !hasUnsavedChanges());
+        }
+        return outcome;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [location.pathname, navigate, onChanged],
+  );
+
   const value = useMemo<StructureApi>(
     () => ({
       dragging,
@@ -251,9 +291,12 @@ export function StructureProvider({
       newProject: () => setCreatingProject(true),
       newFolder: (projectId, parent, parentLabel) => setCreatingFolder({ projectId, parent, parentLabel }),
       moveTo: (item) => setMoving(item),
+      remove: (item) => {
+        if (item.kind !== "project" && guardUnsaved()) setDeleting(item);
+      },
       busy,
     }),
-    [busy, dragging, drop, rename],
+    [busy, dragging, drop, guardUnsaved, rename],
   );
 
   return (
@@ -330,6 +373,15 @@ export function StructureProvider({
               setCreatingFolder(null);
             }
           }}
+        />
+      )}
+
+      {deleting && (
+        <DeleteDialog
+          item={deleting}
+          busy={busy}
+          onCancel={() => setDeleting(null)}
+          onConfirm={(preview) => confirmDelete(deleting, preview)}
         />
       )}
 
@@ -572,6 +624,125 @@ function MoveDialog({
       <p className="mt-2 text-xs text-(--color-text-faint)">
         Moving keeps the page ids, updates links that point at what moves, and is saved as one commit.
       </p>
+    </ConfirmDialog>
+  );
+}
+
+function PageList({ heading, pages }: { heading: string; pages: { id: string; title: string }[] }) {
+  return (
+    <div className="mt-3">
+      <p>{heading}</p>
+      <ul className="mt-1.5 max-h-40 space-y-0.5 overflow-y-auto rounded-(--radius-card) border border-(--color-border) bg-(--color-bg-sidebar) px-3.5 py-2">
+        {pages.map((page) => (
+          <li key={page.id} className="text-(--color-text)">
+            {page.title}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** The one confirmation left for a destructive action: what exactly is
+ * deleted, which pages refer to it and what happens to them, and why it
+ * cannot be deleted when it cannot. Every word comes from the preview. */
+function DeleteDialog({
+  item,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  item: TreeItem;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (preview: DeletePreview) => Promise<Outcome<StructureResult>>;
+}) {
+  const [preview, setPreview] = useState<DeletePreview | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<WriteFailure | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load =
+      item.kind === "folder" ? api.folderDeletion(item.projectId, item.path) : api.pageDeletion(item.kind === "page" ? item.id : "");
+    load
+      .then((data) => !cancelled && setPreview(data))
+      .catch((error: unknown) => !cancelled && setLoadError(error instanceof Error ? error.message : String(error)));
+    return () => {
+      cancelled = true;
+    };
+  }, [item]);
+
+  const title = preview?.dialog.title ?? `Delete “${item.title}”?`;
+  if (preview === null) {
+    return (
+      <ConfirmDialog title={title} confirmLabel="Delete" tone="danger" confirmDisabled onCancel={onCancel} onConfirm={() => undefined}>
+        {loadError ? <p>{loadError}</p> : <p>Checking what refers to it…</p>}
+      </ConfirmDialog>
+    );
+  }
+
+  const dialog = preview.dialog;
+  const pages = preview.kind === "folder" ? preview.records : [];
+  return (
+    <ConfirmDialog
+      title={dialog.title}
+      confirmLabel={dialog.confirm}
+      hideConfirm={!preview.deletable}
+      cancelLabel={preview.deletable ? dialog.cancel : dialog.close}
+      workingLabel={dialog.working}
+      tone="danger"
+      busy={busy}
+      confirmDisabled={!preview.deletable}
+      onCancel={onCancel}
+      onConfirm={async () => {
+        setFailure(null);
+        const outcome = await onConfirm(preview);
+        if (!outcome.ok) setFailure(outcome.failure);
+      }}
+    >
+      <div data-testid="delete-dialog">
+        {preview.deletable && <p>{dialog.intro}</p>}
+        {pages.length > 0 && (
+          <ul className="mt-1.5 max-h-40 space-y-0.5 overflow-y-auto rounded-(--radius-card) border border-(--color-border) bg-(--color-bg-sidebar) px-3.5 py-2">
+            {pages.map((page) => (
+              <li key={page.id} className="text-(--color-text)">
+                {page.title}
+              </li>
+            ))}
+            {dialog.other_files && <li className="text-(--color-text-faint)">{dialog.other_files}</li>}
+          </ul>
+        )}
+        {dialog.notes.map((note) => (
+          <p key={note} className="mt-2">
+            {note}
+          </p>
+        ))}
+        {!preview.deletable ? (
+          <div className="mt-3">
+            <p className="font-medium text-(--color-text)">{dialog.blocked_heading}</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              {preview.blockers.map((blocker) => (
+                <li key={blocker}>{blocker}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <>
+            {preview.cleaned.length > 0 && <PageList heading={dialog.cleaned_heading} pages={preview.cleaned} />}
+            {preview.linked.length > 0 && <PageList heading={dialog.linked_heading} pages={preview.linked} />}
+            {preview.cleaned.length === 0 && preview.linked.length === 0 && (
+              <p className="mt-2">{dialog.nothing_refers}</p>
+            )}
+            <p className="mt-3 text-xs text-(--color-text-faint)">{dialog.history}</p>
+          </>
+        )}
+        {failure && (
+          <div className="mt-3">
+            <WriteFailureCallout failure={failure} />
+          </div>
+        )}
+      </div>
     </ConfirmDialog>
   );
 }

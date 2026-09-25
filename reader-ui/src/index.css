@@ -536,12 +536,29 @@ body {
     opacity: 0;
   }
 }
+/* The undo notice's countdown: a thin line that shrinks from the time left
+   (--from, a fraction of the whole window) to nothing. */
+@keyframes kos-notice-timer {
+  from {
+    transform: scaleX(var(--from, 1));
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.kos-notice-timer {
+  width: 100%;
+  transform-origin: left;
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+  .kos-notice-timer {
+    display: none;
   }
 }
 

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Outlet, useOutletContext } from "react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Outlet, useLocation, useOutletContext } from "react-router";
 import { Menu, PanelLeftClose, PanelLeft } from "lucide-react";
 import { api } from "../api/client";
 import type { NavPayload } from "../api/types";
@@ -10,8 +10,12 @@ import { ThemeToggle } from "./ThemeToggle";
 import { ScrollToTop } from "./ScrollToTop";
 import { SyncBar, SyncFailureBanner } from "./SyncBar";
 import { StructureProvider } from "./Structure";
+import { UndoNotices } from "./UndoNotices";
 import { useSync, type SyncState } from "../hooks/useSync";
 import { MAC, isQuickSwitchShortcut } from "../lib/quickSwitch";
+import { showsOutcome } from "../lib/pendingActions";
+import { pendingActions, useOnPendingSettled, usePendingEntries } from "../lib/pendingStore";
+import { prepareSession } from "../api/write";
 
 export interface ShellContext {
   /** Reload the sidebar after a write changed titles or added a page. */
@@ -41,8 +45,19 @@ export function Shell() {
   // re-reads what the pull changed.
   const [dataVersion, setDataVersion] = useState(0);
 
+  // When the nav request started, so a decision action that finished before
+  // it no longer needs subtracting from the Decide count.
+  const [navLoadedAt, setNavLoadedAt] = useState(0);
+
   const loadNav = useCallback(() => {
-    api.nav().then(setNav).catch(() => setNav(null));
+    const started = Date.now();
+    api
+      .nav()
+      .then((payload) => {
+        setNav(payload);
+        setNavLoadedAt(started);
+      })
+      .catch(() => setNav(null));
   }, []);
 
   const sync = useSync(
@@ -56,6 +71,37 @@ export function Shell() {
   useEffect(() => {
     loadNav();
   }, [loadNav]);
+
+  // One-click decision actions wait a few seconds for Undo before they are
+  // written (lib/pendingActions.ts). Leaving never drops one: a new route
+  // sends everything still waiting and then reloads the page it shows, and a
+  // page that is hidden or closed sends it with keepalive.
+  const location = useLocation();
+  useEffect(() => {
+    if (pendingActions.pendingCount() === 0) return;
+    void pendingActions.flushAll().then((sent) => {
+      if (sent > 0) setDataVersion((value) => value + 1);
+    });
+  }, [location.pathname]);
+  useEffect(() => {
+    prepareSession();
+    const flush = () => void pendingActions.flushAll({ keepalive: true });
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
+  useOnPendingSettled(loadNav);
+
+  // The sidebar's Decide count leaves out proposals already accepted or
+  // withdrawn here, from the click on.
+  const pending = usePendingEntries();
+  const acted = pending.filter((entry) => showsOutcome(entry, navLoadedAt)).length;
+  const shownNav = useMemo(
+    () =>
+      nav !== null && acted > 0
+        ? { ...nav, decide: { ...nav.decide, count: Math.max(nav.decide.count - acted, 0) } }
+        : nav,
+    [nav, acted],
+  );
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
@@ -94,7 +140,7 @@ export function Shell() {
         }`}
       >
         <div className="kos-sidebar-inner h-full">
-          <Sidebar nav={nav} onOpenQuickFind={() => setQuickFindOpen(true)} />
+          <Sidebar nav={shownNav} onOpenQuickFind={() => setQuickFindOpen(true)} />
         </div>
         {!collapsed && (
           <SidebarResizer label={nav?.language.sidebar_resize_label} hint={nav?.language.sidebar_resize_hint} />
@@ -107,7 +153,7 @@ export function Shell() {
           <div className="kos-scrim absolute inset-0" onClick={() => setDrawerOpen(false)} />
           <aside className="absolute inset-y-0 left-0 w-72 border-r border-(--color-border) bg-(--color-bg-sidebar)">
             <Sidebar
-              nav={nav}
+              nav={shownNav}
               onNavigate={() => setDrawerOpen(false)}
               onOpenQuickFind={() => {
                 setDrawerOpen(false);
@@ -150,6 +196,7 @@ export function Shell() {
       </div>
 
       <QuickFind open={quickFindOpen} onClose={() => setQuickFindOpen(false)} nav={nav} />
+      <UndoNotices />
     </div>
     </StructureProvider>
   );
