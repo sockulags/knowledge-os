@@ -5,14 +5,11 @@
 // know nothing about Referat; without Referat installed the plugin shows
 // that and nothing else changes.
 
-import {
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  nativeTheme,
-  type MenuItemConstructorOptions
-} from 'electron'
+import { BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import appIcon from '../../../../build/icon.ico?asset'
+import { SHELL_TEXT } from '../../../shared/shellText'
+import type { MenuSpec } from '../../menuModel'
+import { followSystemTheme, framedWindowOptions } from '../../windowChrome'
 import type { IpcMainInvokeEvent } from 'electron'
 import {
   findReferat,
@@ -46,10 +43,21 @@ export interface ReferatHost {
   pageUrl: string
   /** Absolute path of the import window's preload script. */
   preloadPath: string
+  /** Shows a quiet notice in the main window. */
+  notify: (notice: { tone: 'info' | 'warning'; message: string; detail: string }) => void
+  /** Shows `url` in the main window, after the unsaved-changes question if needed. */
+  navigateMain: (url: string) => Promise<boolean>
 }
 
+export const REFERAT_COMMAND = {
+  record: 'referat:record',
+  import: 'referat:import'
+} as const
+
 export interface ReferatPlugin {
-  menu: () => MenuItemConstructorOptions
+  menu: () => MenuSpec
+  /** Runs one of the menu's commands; false when `command` is not the plugin's. */
+  run: (command: string) => boolean
   /** Call when the open knowledge base changes or closes. */
   workspaceChanged: () => void
 }
@@ -141,22 +149,16 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
 
   async function launchFromMenu(): Promise<void> {
     const result = await launch()
-    const parent = host.mainWindow()
     if (result.ok && !result.alreadyRunning) return
-    const options = result.ok
-      ? {
-          type: 'info' as const,
-          message: 'Referat is already running.',
-          detail: 'Switch to Referat to record the meeting.'
-        }
-      : {
-          type: 'warning' as const,
-          message: result.error,
-          detail:
-            'Install Referat to record meetings. Meetings recorded with Referat can then be imported with Referat > Import Meeting from Referat.'
-        }
-    if (parent) await dialog.showMessageBox(parent, { ...options, title: 'Referat' })
-    else await dialog.showMessageBox({ ...options, title: 'Referat' })
+    host.notify(
+      result.ok
+        ? {
+            tone: 'info',
+            message: SHELL_TEXT.referat.alreadyRunning,
+            detail: SHELL_TEXT.referat.alreadyRunningDetail
+          }
+        : { tone: 'warning', message: result.error, detail: SHELL_TEXT.referat.notInstalledDetail }
+    )
   }
 
   function openWindow(): void {
@@ -175,6 +177,7 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
       title: 'Import from Referat',
       icon: appIcon,
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#15181b' : '#fbfaf7',
+      ...framedWindowOptions(),
       autoHideMenuBar: true,
       webPreferences: {
         preload: host.preloadPath,
@@ -186,6 +189,7 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
     window = created
     windowCoreUrl = host.coreUrl()
     created.setMenu(null)
+    followSystemTheme(created)
     created.on('ready-to-show', () => created.show())
     created.on('closed', () => {
       if (window === created) window = null
@@ -373,7 +377,8 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
     if (typeof id !== 'string' || !RECORD_ID_PATTERN.test(id) || core === null || main === null) {
       return
     }
-    await main.loadURL(`${core.replace(/\/+$/, '')}/r/${id}`)
+    // Unsaved edits in the reader are asked about first; keeping them keeps this window open.
+    if (!(await host.navigateMain(`${core.replace(/\/+$/, '')}/r/${id}`))) return
     main.focus()
     window?.close()
   })
@@ -386,20 +391,19 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
     menu: () => {
       const open = host.coreUrl() !== null
       return {
-        label: 'Referat',
-        submenu: [
-          {
-            label: 'Record Meeting with Referat',
-            enabled: open,
-            click: () => void launchFromMenu()
-          },
-          {
-            label: 'Import Meeting from Referat…',
-            enabled: open,
-            click: () => openWindow()
-          }
+        label: SHELL_TEXT.referat.menu,
+        items: [
+          { command: REFERAT_COMMAND.record, label: SHELL_TEXT.referat.record, enabled: open },
+          { command: REFERAT_COMMAND.import, label: SHELL_TEXT.referat.import, enabled: open }
         ]
       }
+    },
+    run: (command) => {
+      if (host.coreUrl() === null) return command.startsWith('referat:')
+      if (command === REFERAT_COMMAND.record) void launchFromMenu()
+      else if (command === REFERAT_COMMAND.import) openWindow()
+      else return false
+      return true
     },
     workspaceChanged: () => {
       if (pending !== null && pending.url !== host.coreUrl()) pending = null

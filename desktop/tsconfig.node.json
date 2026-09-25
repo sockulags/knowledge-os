@@ -5,6 +5,7 @@
     "vitest.config.*",
     "src/main/**/*",
     "src/preload/**/*",
+    "src/chrome/**/*",
     "src/shared/**/*"
   ],
   "compilerOptions": {

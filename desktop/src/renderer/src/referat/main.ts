@@ -5,6 +5,7 @@
 
 import '../style.css'
 import './referat.css'
+import { mountWindowChrome } from '../../../chrome/windowChrome'
 import type {
   ExistingRecord,
   ImportContext,
@@ -17,6 +18,9 @@ import type {
 
 const api = window.referat
 const root = document.getElementById('app') as HTMLElement
+
+// The window's title bar; this window has no menu.
+mountWindowChrome(null)
 let context: ImportContext | null = null
 
 function element<K extends keyof HTMLElementTagNameMap>(

@@ -1,17 +1,33 @@
 // Electron main process: one window that shows either the start page (pick,
 // create, or reopen a workspace; errors) or the reader UI served by the Python
-// core for the open workspace.
+// core for the open workspace. The window's frame, menu, notices, and dialogs
+// are the shell's own (see windowChrome.ts).
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
-import type { IpcMainEvent, IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron'
+import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { pathToFileURL } from 'url'
+import { SHELL_TEXT } from '../shared/shellText'
 import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
 import appIcon from '../../build/icon.ico?asset'
-import { CLONE_TEXT } from '../shared/cloneText'
+import {
+  LeaveGuard,
+  UNSAVED_ACTION,
+  UPDATE_ACTION,
+  unsavedChangesDialog,
+  updateNotice
+} from './chromeState'
 import { createCloneWindow, type CloneWindow } from './cloneWindow'
 import { flushReaderActions } from './flushReader'
+import {
+  buildMenus,
+  COMMAND,
+  menuViews,
+  nativeTemplate,
+  recentIndex,
+  type MenuSpec
+} from './menuModel'
 import { decideNavigation } from './navigation'
 import { createReferatPlugin, type ReferatPlugin } from './plugins/referat'
 import {
@@ -39,6 +55,7 @@ import {
   updateState,
   updatesSupported
 } from './updater'
+import { framedWindowOptions, MainWindowChrome, systemTheme } from './windowChrome'
 
 // Development and test hook: keep this run's settings apart from others.
 if (process.env['KOS_DESKTOP_USER_DATA']) {
@@ -69,6 +86,57 @@ let referat: ReferatPlugin | null = null
 let cloneWindow: CloneWindow | null = null
 /** The core process id the runtime file for agents currently describes, if any. */
 let publishedCorePid: number | null = null
+/** The main window's title bar, menu, notices, and dialogs, created once the app is ready. */
+let chrome: MainWindowChrome | null = null
+/** Set once closing the window has passed the unsaved-changes question. */
+let closeConfirmed = false
+/** The core URL of the last reader the window was sent to, for the chrome's IPC. */
+let readerUrl: string | null = null
+
+/**
+ * Whether the reader holds unsaved edits: its editor cancels `beforeunload`
+ * then, so a synthetic one tells without leaving the page. Only the reader
+ * is asked; the start page never holds edits.
+ */
+async function readerHasUnsavedChanges(): Promise<boolean> {
+  const window = mainWindow
+  if (window === null || window.isDestroyed()) return false
+  const url = window.webContents.getURL()
+  if (url === '' || decideNavigation(url, [startPageUrl]) === 'allow') return false
+  const probe = `(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  })()`
+  const answer = window.webContents.executeJavaScript(probe).then((value) => value === true)
+  const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500))
+  return Promise.race([answer, timeout])
+}
+
+/** Asks before anything leaves the page while the reader holds unsaved edits. */
+const leaveGuard = new LeaveGuard({
+  hasUnsavedChanges: readerHasUnsavedChanges,
+  ask: () => chrome?.ask(unsavedChangesDialog) ?? Promise.resolve(UNSAVED_ACTION.keep)
+})
+
+/** Keeping the edits also cancels a pending "Restart to update" or quit. */
+function keepEditing(): void {
+  restartPending = false
+  quitRequested = false
+  closeConfirmed = false
+}
+
+/** Shows `url` in the main window once unsaved edits are dealt with; false when they were kept. */
+async function navigateMain(url: string): Promise<boolean> {
+  let went = false
+  await leaveGuard.leave(() => {
+    went = true
+    const window = mainWindow
+    // A load the page still cancels is answered in 'will-prevent-unload'.
+    if (window !== null && !window.isDestroyed()) window.loadURL(url).catch(() => undefined)
+  }, keepEditing)
+  return went
+}
 
 const startPageUrl =
   !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
@@ -131,16 +199,18 @@ function setState(next: ShellState): void {
     // "<page> — <workspace> — Knowledge OS" shape, refined with the current
     // page's own title. Electron mirrors the window title from the page's
     // `document.title` by default, so nothing here needs to intercept that.
-    window.setTitle(`${next.name || basename(next.root)} — Knowledge OS`)
-    void window.loadURL(next.url)
+    window.setTitle(`${next.name || basename(next.root)} — ${SHELL_TEXT.appName}`)
+    readerUrl = next.url
+    void navigateMain(next.url)
   } else {
-    window.setTitle('Knowledge OS')
+    window.setTitle(SHELL_TEXT.appName)
     if (decideNavigation(window.webContents.getURL(), [startPageUrl]) === 'allow') {
       window.webContents.send(IPC.stateChanged, next)
     } else {
-      void window.loadURL(startPageUrl)
+      void navigateMain(startPageUrl)
     }
   }
+  chrome?.setWorkspace(next.kind === 'ready' ? next.name || basename(next.root) : null)
   referat?.workspaceChanged()
   buildMenu()
 }
@@ -191,8 +261,12 @@ async function ensurePython(): Promise<string | null> {
  * screen. Every other failure shows the error screen.
  */
 async function openWorkspace(root: string, reopened: RecentWorkspace | null = null): Promise<void> {
-  // Decision actions still waiting for Undo in the open reader are written
-  // before its core stops.
+  // Before the open knowledge base's core stops: first its editor's unsaved
+  // edits, then the decision actions still waiting for Undo.
+  if (!(await leaveGuard.confirm())) {
+    keepEditing()
+    return
+  }
   if (state.kind === 'ready') await flushReaderActions(mainWindow)
   const generation = ++openGeneration
   const previous = core
@@ -245,6 +319,10 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
 }
 
 async function showStart(): Promise<void> {
+  if (!(await leaveGuard.confirm())) {
+    keepEditing()
+    return
+  }
   if (state.kind === 'ready') await flushReaderActions(mainWindow)
   openGeneration++
   const previous = core
@@ -280,6 +358,10 @@ async function chooseAndCreate(): Promise<void> {
     'Create knowledge base'
   )
   if (folder === null) return
+  if (!(await leaveGuard.confirm())) {
+    keepEditing()
+    return
+  }
   const executable = await ensurePython()
   if (executable === null) return
   const result = await initWorkspace(executable, folder, pythonEnv)
@@ -316,113 +398,101 @@ function restartToUpdate(): void {
   window.close()
 }
 
+/** Update news is a quiet notice under the title bar, never a modal box. */
 function showUpdateNotice(notice: UpdateNotice): void {
+  chrome?.showNotice(updateNotice(notice), (action) => {
+    if (action === UPDATE_ACTION.restart) restartToUpdate()
+  })
+}
+
+function setZoomLevel(level: (current: number) => number): void {
   const window = mainWindow
   if (window === null || window.isDestroyed()) return
-  if (notice.kind === 'message') {
-    void dialog.showMessageBox(window, {
-      type: 'info',
-      title: 'Software update',
-      message: notice.message,
-      detail: notice.detail
-    })
+  window.webContents.setZoomLevel(level(window.webContents.getZoomLevel()))
+  chrome?.refreshZoom()
+}
+
+/** Runs a command from the in-app menu, its keyboard shortcut, or the native menu on macOS. */
+function runCommand(command: string): void {
+  const window = mainWindow
+  const index = recentIndex(command)
+  if (index !== null) {
+    const item = recent[index]
+    if (item !== undefined) void openWorkspace(item.root)
     return
   }
-  void dialog
-    .showMessageBox(window, {
-      type: 'info',
-      buttons: ['Restart to update', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Update ready',
-      message: `Knowledge OS ${notice.version} is ready to install.`,
-      detail:
-        'Restart now to update, or later from Help → Restart to Update. ' +
-        'It is also installed the next time you quit.'
-    })
-    .then(({ response }) => {
-      if (response === 0) restartToUpdate()
-    })
-}
-
-function helpMenu(): MenuItemConstructorOptions {
-  const update = updateState()
-  const items: MenuItemConstructorOptions[] = [
-    { label: 'Check for Updates…', click: () => checkForUpdatesManually() },
-    {
-      label: 'Check for Updates Automatically',
-      type: 'checkbox',
-      checked: settings.checkForUpdates,
-      enabled: updatesSupported(),
-      click: (item) => changeSettings({ checkForUpdates: item.checked })
-    }
-  ]
-  if (update.phase === 'ready') {
-    items.push(
-      { type: 'separator' },
-      { label: `Restart to Update (${update.version})`, click: () => restartToUpdate() }
-    )
+  switch (command) {
+    case COMMAND.open:
+      return void chooseAndOpen()
+    case COMMAND.create:
+      return void chooseAndCreate()
+    case COMMAND.clone:
+      return cloneWindow?.show()
+    case COMMAND.reopenOnStart:
+      return changeSettings({ reopenLastWorkspace: !settings.reopenLastWorkspace })
+    case COMMAND.close:
+      if (state.kind === 'ready') void showStart()
+      return
+    case COMMAND.exit:
+      return app.quit()
+    case COMMAND.reload:
+      if (window !== null && !window.isDestroyed()) {
+        void leaveGuard.leave(() => window.webContents.reload(), keepEditing)
+      }
+      return
+    case COMMAND.devTools:
+      return window?.webContents.toggleDevTools()
+    case COMMAND.resetZoom:
+      return setZoomLevel(() => 0)
+    case COMMAND.zoomIn:
+      return setZoomLevel((level) => level + 0.5)
+    case COMMAND.zoomOut:
+      return setZoomLevel((level) => level - 0.5)
+    case COMMAND.fullScreen:
+      return window?.setFullScreen(!window.isFullScreen())
+    case COMMAND.checkForUpdates:
+      return checkForUpdatesManually()
+    case COMMAND.checkAutomatically:
+      if (updatesSupported()) changeSettings({ checkForUpdates: !settings.checkForUpdates })
+      return
+    case COMMAND.restartToUpdate:
+      if (updateState().phase === 'ready') restartToUpdate()
+      return
+    default:
+      referat?.run(command)
   }
-  return { label: 'Help', submenu: items }
 }
 
+function currentMenus(): MenuSpec[] {
+  const update = updateState()
+  return buildMenus({
+    recent,
+    reopenLastWorkspace: settings.reopenLastWorkspace,
+    workspaceOpen: state.kind === 'ready',
+    checkForUpdates: settings.checkForUpdates,
+    updatesSupported: updatesSupported(),
+    updateReadyVersion: update.phase === 'ready' ? update.version : null,
+    pluginMenus: referat !== null ? [referat.menu()] : []
+  })
+}
+
+/**
+ * Rebuilds the menu after anything it shows changed. The title bar draws
+ * it; macOS also gets it as the native application menu, where the system
+ * expects one. On Windows the native menu bar is gone and the title bar's
+ * menu runs the shortcuts (see windowChrome.ts).
+ */
 function buildMenu(): void {
-  const recentItems: MenuItemConstructorOptions[] =
-    recent.length > 0
-      ? recent.map((item) => ({
-          label: `${item.name}  (${item.root})`,
-          click: () => void openWorkspace(item.root)
-        }))
-      : [{ label: 'No recent knowledge bases', enabled: false }]
-  const template: MenuItemConstructorOptions[] = [
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'Open Knowledge Base…',
-          accelerator: 'CmdOrCtrl+O',
-          click: () => void chooseAndOpen()
-        },
-        {
-          label: 'New Knowledge Base…',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => void chooseAndCreate()
-        },
-        { label: CLONE_TEXT.menuItem, click: () => cloneWindow?.show() },
-        { label: 'Open Recent', submenu: recentItems },
-        {
-          label: 'Reopen the Last Knowledge Base on Start',
-          type: 'checkbox',
-          checked: settings.reopenLastWorkspace,
-          click: (item) => changeSettings({ reopenLastWorkspace: item.checked })
-        },
-        { type: 'separator' },
-        {
-          label: 'Close Knowledge Base',
-          enabled: state.kind === 'ready',
-          click: () => void showStart()
-        },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' }
-      ]
-    },
-    ...(referat !== null ? [referat.menu()] : []),
-    helpMenu()
-  ]
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  const menus = currentMenus()
+  const mac = process.platform === 'darwin'
+  chrome?.setMenus(menus, menuViews(menus, mac))
+  const update = updateState()
+  chrome?.setTitleAction(
+    update.phase === 'ready'
+      ? { command: COMMAND.restartToUpdate, label: SHELL_TEXT.titleBar.updateReady }
+      : null
+  )
+  if (mac) Menu.setApplicationMenu(Menu.buildFromTemplate(nativeTemplate(menus, runCommand)))
 }
 
 function allowedOrigins(): Array<string | null> {
@@ -440,10 +510,11 @@ function createWindow(): void {
     minWidth: 720,
     minHeight: 480,
     show: false,
-    title: 'Knowledge OS',
+    title: SHELL_TEXT.appName,
     icon: appIcon,
     // The start page's paper tone, so the window never flashes white first.
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#15181b' : '#fbfaf7',
+    ...framedWindowOptions(systemTheme()),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -452,24 +523,43 @@ function createWindow(): void {
     }
   })
   mainWindow = window
+  closeConfirmed = false
+  chrome?.attach(window)
   window.on('ready-to-show', () => window.show())
-  // Closing (or quitting) first lets the reader write the decision actions
-  // still waiting for Undo, then closes for real; the core is stopped after.
-  let flushedForClose = false
+  // Every close (the window's close button, Alt+F4, File → Exit, quitting,
+  // Restart to update) first deals with unsaved edits in the reader; keeping
+  // them keeps the window and cancels a pending restart or quit. Then the
+  // reader writes the decision actions still waiting for Undo, and only then
+  // does the window close for real (which stops the core, and afterwards
+  // starts a pending update's installer).
+  let closing = false
   window.on('close', (event) => {
-    if (flushedForClose || state.kind !== 'ready') return
+    if (closeConfirmed) return
     event.preventDefault()
-    flushedForClose = true
-    void flushReaderActions(window).finally(() => {
-      if (window.isDestroyed()) return
-      if (quitRequested) app.quit()
-      else window.close()
-    })
+    if (closing) return
+    closing = true
+    void leaveGuard.leave(
+      () => {
+        const flushed = state.kind === 'ready' ? flushReaderActions(window) : Promise.resolve()
+        void flushed.finally(() => {
+          closing = false
+          if (window.isDestroyed()) return
+          closeConfirmed = true
+          if (quitRequested) app.quit()
+          else window.close()
+        })
+      },
+      () => {
+        closing = false
+        keepEditing()
+      }
+    )
   })
   // The window shows the start page or the reader; the core has no use
   // without it, so closing the window stops the core right away.
   window.on('closed', () => {
     mainWindow = null
+    leaveGuard.reset()
     openGeneration++
     stopCoreSync()
     state = { kind: 'start', recent }
@@ -485,28 +575,21 @@ function createWindow(): void {
     event.preventDefault()
     if (decision === 'open-external') void shell.openExternal(url)
   }
-  // The reader's editor cancels `beforeunload` while it has unsaved changes.
-  // Electron then keeps the page without asking, so ask here: on window
-  // close, quit, or reload, the person decides whether to discard the edits.
+  // The reader's editor cancels `beforeunload` while it has unsaved changes,
+  // and Electron then keeps the page. The leave guard has normally asked
+  // already and lets a confirmed discard through; otherwise the page stays,
+  // and the question is asked for the attempt that was cancelled.
   window.webContents.on('will-prevent-unload', (event) => {
-    const choice = dialog.showMessageBoxSync(window, {
-      type: 'warning',
-      buttons: ['Discard changes', 'Keep editing'],
-      defaultId: 1,
-      cancelId: 1,
-      title: 'Unsaved changes',
-      message: 'You have changes that are not saved.',
-      detail: 'Leaving now discards them.'
-    })
-    if (choice === 0) event.preventDefault()
-    else {
-      // Keeping the edits also cancels a pending "Restart to update" or quit,
-      // and the next close flushes the reader again.
-      restartPending = false
-      quitRequested = false
-      flushedForClose = false
+    const { allow, retry } = leaveGuard.unloadPrevented()
+    if (allow) {
+      event.preventDefault()
+      return
     }
+    closeConfirmed = false
+    if (retry !== null) void leaveGuard.leave(retry, keepEditing, true)
+    else keepEditing()
   })
+  window.webContents.on('did-navigate', () => leaveGuard.reset())
   window.webContents.on('will-navigate', guard)
   window.webContents.on('will-redirect', guard)
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -621,6 +704,14 @@ app.whenReady().then(() => {
     callback(false)
   )
   registerIpc()
+  // Windows and Linux get no native menu bar: the title bar draws the menu.
+  if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
+  chrome = new MainWindowChrome({
+    // The reader stays allowed after its core stopped, so it can still
+    // answer the unsaved-changes question before the error screen replaces it.
+    allowedPage: (url) => decideNavigation(url, [startPageUrl, readerUrl]) === 'allow',
+    command: runCommand
+  })
   initUpdater({
     autoCheckEnabled: () => settings.checkForUpdates,
     notify: showUpdateNotice,
@@ -630,7 +721,9 @@ app.whenReady().then(() => {
     mainWindow: () => mainWindow,
     coreUrl: () => (state.kind === 'ready' ? state.url : null),
     pageUrl: referatPageUrl,
-    preloadPath: join(__dirname, '../preload/referat.js')
+    preloadPath: join(__dirname, '../preload/referat.js'),
+    notify: (notice) => chrome?.showNotice({ key: 'referat', actions: [], ...notice }),
+    navigateMain
   })
   cloneWindow = createCloneWindow({
     mainWindow: () => mainWindow,

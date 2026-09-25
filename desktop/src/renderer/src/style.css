@@ -1,5 +1,5 @@
-/* The desktop shell's own pages (start page, error screens, Referat import
-   window) use the reader's tokens so the window looks like one product
+/* The desktop shell's own pages (start page, error screens, Clone and
+   Referat import windows) use the reader's tokens so the window looks like one product
    before and after a knowledge base opens. The values are copied from
    reader-ui/src/index.css; change both together. */
 @import '@fontsource-variable/inter';
@@ -64,6 +64,8 @@
 
 body {
   margin: 0;
+  /* Room for the title bar the preload script draws over the page. */
+  padding-top: var(--kos-titlebar-height, 0px);
 }
 
 main {
