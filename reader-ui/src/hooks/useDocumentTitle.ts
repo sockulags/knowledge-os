@@ -8,6 +8,8 @@ const APP_NAME = "Knowledge OS";
  * Electron mirrors a BrowserWindow's title from its page's `document.title`
  * by default, so writing it here is enough to keep the OS window title and
  * the page in agreement, in the desktop app and in a plain browser alike.
+ * The desktop app's own title bar shows the same page and workspace names,
+ * read from `document.title`.
  *
  * Same format everywhere: "<page title> — <workspace> — Knowledge OS", or
  * "<workspace> — Knowledge OS" with no page title (home), falling back to

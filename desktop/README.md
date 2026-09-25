@@ -222,13 +222,15 @@ The installed app updates itself from the
 [GitHub releases](https://github.com/sockulags/knowledge-os/releases) of this
 repository with electron-updater. It checks 10 seconds after startup and every
 4 hours after that, and whenever you choose Help → Check for Updates…. A newer
-release downloads in the background. When the download is finished the app
-asks whether to restart now; Help → Restart to Update does the same later, and
+release downloads in the background. When the download is finished a quiet
+notice under the title bar offers *Restart to update* (it never blocks the
+window), and a *Restart to update* button stays in the title bar until then;
+Help → Restart to Update does the same, and
 a downloaded update is also installed silently the next time you quit. The app
 never restarts on its own.
 
 Restarting to update closes the window first, so unsaved changes in the editor
-get the same "Discard changes / Keep editing" question as closing the window;
+get the same in-app "Discard changes / Keep editing" dialog as closing the window;
 keeping the edits cancels the restart. Closing the window stops the core the
 same way quitting does (the whole process tree), and only then does the
 installer start, so no `kos-core.exe` from the old version keeps running and
@@ -442,6 +444,59 @@ Setting up sync for a knowledge base that is not in Git yet, has no remote,
 or has never been published is done in the reader, on its Sync page (see
 "Guided setup" in [`docs/architecture.md`](../docs/architecture.md)).
 
+## Window frame, menu, and dialogs
+
+Every window draws its own frame in the app's design instead of the stock
+Windows title bar (`src/main/windowChrome.ts`, `src/chrome/`). The native
+title bar is hidden with `titleBarStyle: 'hidden'`, and Windows' own
+minimise, maximise, and close buttons stay through the title-bar overlay,
+coloured from the design tokens (`--color-bg-sidebar` behind, `--color-text`
+for the symbols). Keeping Windows' buttons keeps snap layouts on the maximise
+button, the system menu (Alt+Space, or right-click on the bar), double-click
+to maximise, and the right behaviour when maximised; fully custom buttons
+would have to rebuild all of that. The overlay follows the page's theme: the
+start page and the secondary windows follow the system, the reader follows its
+own light/dark toggle.
+
+The rest of the title bar (app icon, menu, page title and knowledge base
+name, and room for Windows' buttons) is drawn into the page, in a closed
+shadow root, so page styles cannot change it. In the main window the preload
+script draws it, from its isolated world, into both the start page and the
+reader; the reader is served by the core and knows nothing of the app except
+that it leaves room at the top through the `--kos-titlebar-height` CSS
+variable. The Clone and Referat windows draw the same bar, without a menu,
+from their own pages. The bar keeps its size whatever the page's zoom, and
+gives up the space for Windows' buttons in full screen, where there are none.
+
+The menu is the same as the old native menu bar, built from one model
+(`src/main/menuModel.ts`) that also matches the keyboard shortcuts in the
+main process (`before-input-event`), so Ctrl+O and the rest work from any
+page. Alt or F10 moves the focus to the menu (with underlined access keys),
+Alt+letter opens a menu, arrow keys, Home, End, and first letters move
+through it, Enter or Space runs an item, and Escape goes back one level and
+then to the page. On macOS the same model is also the native application
+menu, which the system expects there.
+
+No shell path uses `dialog.showMessageBox` any more. Update news and the
+Referat plugin's messages are quiet notices under the title bar that never
+block the window. The unsaved-changes question is an in-app dialog: before
+the window closes (the close button, Alt+F4, File → Exit, Restart to update),
+reloads, closes the knowledge base, or opens another one, the main process
+asks the reader whether its editor would object to leaving (a synthetic
+`beforeunload` event) and, if so, shows the dialog; *Keep editing* keeps the
+page and cancels a pending restart to update, *Discard changes* lets exactly
+that one unload through. After that question, and before the core is stopped,
+the reader is asked to write the decision actions still waiting for Undo
+(`src/main/flushReader.ts`, at most 8 seconds); only then does the window close,
+the core stop, and, for Restart to update, the installer start. The native file and folder pickers stay native. All of the shell's
+own wording is in `src/shared/shellText.ts`.
+
+The chrome's calls from the main window (menu commands, notice and dialog
+answers, the page's theme) are answered only for that window's top frame,
+and only while it shows the start page or the open knowledge base's core;
+they are not exposed to the page's own scripts, and the chrome only acts on
+trusted input events.
+
 ## Security
 
 The window runs with `contextIsolation`, `sandbox`, and no `nodeIntegration`.
@@ -550,6 +605,12 @@ page. `npm run dev -- --remoteDebuggingPort 9444` exposes the window to the
 Chrome DevTools Protocol for scripted checks.
 - `MAIN_VITE_KOS_UPDATE_TEST_FEED=URL`, set at build time, points the updater
   at a local test server (see [Testing an update locally](#testing-an-update-locally)).
+- `KOS_DESKTOP_SIMULATE_UPDATE=VERSION`, in a development run only, makes the
+  updater act as if that version were published: every check (the first one
+  three seconds after start, or Help → Check for Updates…) finds it, "downloads"
+  it in two seconds, and shows the *Restart to update* notice. Restarting closes
+  the window through the unsaved-changes question as usual and then only logs
+  that the update would be installed. A packaged app ignores the variable.
 - `REFERAT_USER_DATA=PATH` makes the Referat plugin read meetings from that
   folder (it holds `meetings/`) instead of the installed Referat's, for
   example a synthetic data folder. Referat itself honours the same variable.

@@ -17,6 +17,7 @@ import {
 } from '../shared/clone'
 import { CLONE_TEXT } from '../shared/cloneText'
 import { startClone, type CloneRun } from './cloneRunner'
+import { followSystemTheme, framedWindowOptions } from './windowChrome'
 
 export interface CloneHost {
   mainWindow: () => BrowserWindow | null
@@ -147,6 +148,7 @@ export function createCloneWindow(host: CloneHost): CloneWindow {
       title: CLONE_TEXT.windowTitle,
       icon: appIcon,
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#15181b' : '#fbfaf7',
+      ...framedWindowOptions(),
       autoHideMenuBar: true,
       webPreferences: {
         preload: host.preloadPath,
@@ -157,6 +159,7 @@ export function createCloneWindow(host: CloneHost): CloneWindow {
     })
     window = created
     created.setMenu(null)
+    followSystemTheme(created)
     created.on('ready-to-show', () => created.show())
     created.on('closed', () => {
       if (window === created) window = null

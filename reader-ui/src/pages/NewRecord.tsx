@@ -153,7 +153,7 @@ function NewRecordForm({
     <div className="mx-auto w-full max-w-[860px] px-6 py-10 sm:px-10">
       <Breadcrumb items={breadcrumb} current={heading} />
 
-      <div className="sticky top-[49px] z-20 -mx-2 mb-6 flex flex-wrap items-center gap-3 border-b border-(--color-border) bg-(--color-bg) px-2 py-2.5">
+      <div className="sticky top-[calc(49px_+_var(--frame-top))] z-20 -mx-2 mb-6 flex flex-wrap items-center gap-3 border-b border-(--color-border) bg-(--color-bg) px-2 py-2.5">
         <h1 className="kos-heading mr-auto">{heading}</h1>
         <SecondaryButton onClick={() => navigate(-1)}>Cancel</SecondaryButton>
         <PrimaryButton onClick={() => void create()} disabled={!canSave}>

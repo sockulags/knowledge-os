@@ -17,6 +17,7 @@
 
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { SHELL_TEXT } from '../shared/shellText'
 import {
   INITIAL_UPDATE_STATE,
   canRestartToUpdate,
@@ -42,6 +43,8 @@ export interface UpdaterHooks {
 let state: UpdateState = INITIAL_UPDATE_STATE
 let hooks: UpdaterHooks | null = null
 let active = false
+/** The version a development run pretends to find; see simulatedVersion(). */
+let simulated: string | null = null
 
 function log(text: string, error?: unknown): void {
   if (error !== undefined) console.error(`[updater] ${text}`, error)
@@ -54,9 +57,10 @@ function dispatch(event: UpdateEvent): void {
   if (result.notice !== null) hooks?.notify(result.notice)
   hooks?.changed()
   if (result.startCheck) {
+    if (simulated !== null) simulateCheck()
     // Failures also arrive through the 'error' event, which logs them and
     // dispatches 'failed', so the rejection needs no handling of its own.
-    autoUpdater.checkForUpdates().catch(() => undefined)
+    else autoUpdater.checkForUpdates().catch(() => undefined)
   }
 }
 
@@ -70,11 +74,40 @@ export function updateState(): UpdateState {
 }
 
 /**
+ * Development only: `KOS_DESKTOP_SIMULATE_UPDATE=<version>` makes an unpacked
+ * app act as if that version were published, so the update notices can be
+ * seen and driven without a release or an installer. Every check finds the
+ * version, "downloads" it in a moment, and offers the restart; restarting
+ * closes the window as usual and then only logs instead of installing. A
+ * packaged app ignores the variable.
+ */
+function simulatedVersion(): string | null {
+  const raw = process.env['KOS_DESKTOP_SIMULATE_UPDATE']?.trim()
+  return !app.isPackaged && raw ? raw : null
+}
+
+function simulateCheck(): void {
+  const version = simulated
+  if (version === null) return
+  setTimeout(() => dispatch({ type: 'available', version }), 800)
+  setTimeout(() => dispatch({ type: 'downloaded', version }), 2000)
+}
+
+/**
  * Wires up electron-updater. It stays inactive when the app is not packaged:
  * there is no app-update.yml to read and no installation to replace.
  */
 export function initUpdater(options: UpdaterHooks): void {
   hooks = options
+  simulated = simulatedVersion()
+  if (simulated !== null) {
+    log(`simulating an update to ${simulated} (KOS_DESKTOP_SIMULATE_UPDATE)`)
+    active = true
+    setTimeout(() => {
+      if (options.autoCheckEnabled()) dispatch({ type: 'check', manual: false })
+    }, 3000)
+    return
+  }
   if (!app.isPackaged) {
     log('inactive: the app is not packaged')
     return
@@ -119,10 +152,7 @@ export function initUpdater(options: UpdaterHooks): void {
 /** Help → Check for Updates…: always reports its outcome. */
 export function checkForUpdatesManually(): void {
   if (!active) {
-    hooks?.notify({
-      kind: 'message',
-      message: 'Updates are only available in the installed app.'
-    })
+    hooks?.notify({ kind: 'message', message: SHELL_TEXT.update.onlyInstalled })
     return
   }
   dispatch({ type: 'check', manual: true })
@@ -134,6 +164,10 @@ export function checkForUpdatesManually(): void {
  */
 export function installDownloadedUpdate(): void {
   if (!canRestartToUpdate(state)) return
+  if (simulated !== null) {
+    log(`simulated: the window has closed; ${simulated} would be installed now`)
+    return
+  }
   log('installing the downloaded update and restarting')
   try {
     // Silent install, then start the updated app.

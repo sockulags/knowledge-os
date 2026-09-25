@@ -5,6 +5,7 @@
 
 import '../style.css'
 import './clone.css'
+import { mountWindowChrome } from '../../../chrome/windowChrome'
 import {
   folderNameFromUrl,
   folderNameProblem,
@@ -15,6 +16,9 @@ import { CLONE_TEXT, fill } from '../../../shared/cloneText'
 
 const api = window.kosClone
 const root = document.getElementById('app') as HTMLElement
+
+// The window's title bar; this window has no menu.
+mountWindowChrome(null)
 
 const form = { url: '', parent: '', name: '', nameEdited: false, showErrors: false }
 
