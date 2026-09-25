@@ -2,6 +2,10 @@
 // so it is unit-testable: what state the updater is in, what (if anything) to
 // tell the person, and when "Restart to update" may be offered.
 
+import { SHELL_TEXT, fillText } from '../shared/shellText'
+
+const TEXT = SHELL_TEXT.update
+
 export type UpdateState =
   | { phase: 'idle' }
   | { phase: 'checking'; manual: boolean }
@@ -65,7 +69,10 @@ export function nextUpdateState(
         // A manual check joins the running download, so its outcome is reported.
         return {
           state: { ...state, manual: true },
-          notice: message(`Knowledge OS ${state.version} is downloading.`, downloadingDetail),
+          notice: message(
+            fillText(TEXT.downloading, { version: state.version }),
+            TEXT.downloadingDetail
+          ),
           startCheck: false
         }
       }
@@ -77,8 +84,8 @@ export function nextUpdateState(
         state: { phase: 'downloading', version: event.version, manual: state.manual },
         notice: state.manual
           ? message(
-              `Knowledge OS ${event.version} is available and downloading.`,
-              downloadingDetail
+              fillText(TEXT.availableDownloading, { version: event.version }),
+              TEXT.downloadingDetail
             )
           : null,
         startCheck: false
@@ -89,7 +96,7 @@ export function nextUpdateState(
       return {
         state: { phase: 'idle' },
         notice: state.manual
-          ? message('Knowledge OS is up to date.', `You have version ${currentVersion}.`)
+          ? message(TEXT.upToDate, fillText(TEXT.upToDateDetail, { version: currentVersion }))
           : null,
         startCheck: false
       }
@@ -109,18 +116,14 @@ export function nextUpdateState(
         state: { phase: 'idle' },
         notice: state.manual
           ? message(
-              state.phase === 'checking'
-                ? 'Could not check for updates.'
-                : 'Could not download the update.',
-              'Check your internet connection and try again later.'
+              state.phase === 'checking' ? TEXT.checkFailed : TEXT.downloadFailed,
+              TEXT.failedDetail
             )
           : null,
         startCheck: false
       }
   }
 }
-
-const downloadingDetail = 'You will be asked to restart when it is ready.'
 
 /** "Restart to update" is offered only once an update has been downloaded. */
 export function canRestartToUpdate(state: UpdateState): boolean {
