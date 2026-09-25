@@ -105,7 +105,8 @@ entry with `kind: decision-acceptance`; a draft decision must not contain one.
 Acceptance records the basis for authority. It does not mean that the decision
 was implemented or that any factual claim was verified. An archived decision
 that was withdrawn requires a provenance entry with `kind:
-decision-withdrawal` recording the reason; that provenance kind is rejected on
+decision-withdrawal` recording the reason, or a neutral reference when no
+reason was given; that provenance kind is rejected on
 any record that is not an archived decision. `kos decision withdraw` is the
 only path from `draft` to `archived`; an active decision is retired through
 `kos supersede`, never withdrawn. Capture creates
@@ -264,8 +265,8 @@ context.
 
 Ingest, capture, conflict-safe update, decision acceptance, decision
 withdrawal, decision supersession, discovery add/retain/reject/promote, the
-structure changes (project and folder creation, page and folder moves and
-renames), and index replacement all use one workspace-scoped advisory mutation
+structure changes (project and folder creation, page and folder moves,
+renames, and deletions), and index replacement all use one workspace-scoped advisory mutation
 lock owned by workspace infrastructure.
 Each mutation follows this order:
 
@@ -296,9 +297,12 @@ decision-acceptance lineage. An accepted decision body may change only with an
 explicit non-material confirmation and a recorded change reference. Material
 changes use a new draft decision.
 
-`kos decision withdraw ID --expected-sha256 HASH --reason TEXT` moves one
+`kos decision withdraw ID --expected-sha256 HASH [--reason TEXT]` moves one
 draft decision to `archived` and appends `decision-withdrawal` provenance
-with the given reason. It uses the same exact-revision SHA-256 guard, shared
+with the given reason. The reason is optional: without one the reference is
+the neutral `<origin>:<UTC timestamp>:withdraw`, where origin is `cli` (the
+command line), `interface` (the app), or `kos` (a direct core call), and the
+reader shows it as "Withdrawn on <date>" with no reason. It uses the same exact-revision SHA-256 guard, shared
 workspace lock, and atomic canonical write as `kos decision accept`, and
 refuses records that are not decisions, decisions that are not draft, and a
 stale hash. Withdrawal ends consideration of a proposal without accepting it;
@@ -409,8 +413,9 @@ answer `422 validation`.
   `{"expected_sha256": "..."}`. The acceptance reference is
   `interface:<UTC timestamp>:accept`.
 - `POST /api/records/{id}/withdraw` archives draft decision `id`. Body:
-  `{"expected_sha256": "...", "reason": "..."}`. `reason` is required and
-  becomes the `decision-withdrawal` provenance reference.
+  `{"expected_sha256": "...", "reason": "..."}`. `reason` is optional; when
+  given it becomes the `decision-withdrawal` provenance reference, otherwise
+  the reference is `interface:<UTC timestamp>:withdraw`.
 - `POST /api/records/{id}/supersede` is called on the draft replacement,
   which must declare `supersedes: [old_id]`: `id` becomes active and
   `old_id` becomes superseded. Body: `{"expected_sha256": "<draft hash>",
@@ -436,19 +441,43 @@ non-decision, otherwise `accept`, `withdraw`, `propose_replacement`, and
 `supersede`, which names the active decision a draft replacement would
 retire with its current `content_sha256`). `decision_actions` only decides
 which buttons the interface shows; the core re-checks every precondition.
-It also carries `summary` (the sentence above the buttons) and `dialogs`,
-the finished text of each available action's confirmation (`title`, `body`,
-`confirm`, `history`, and `changes: [{"subject", "from", "to"}]`). A
-decision's payload adds `decision_language` (button labels and the "How
-decisions work" guide, one line per state); it is `null` for other records.
-All of these words come from `strings.py`.
+It also carries `summary` (the sentence above the buttons) and `outcomes`,
+for each available action what the interface shows while it waits for Undo:
+`notice` (the notice text), `summary` (the action box's sentence), and
+`status` (the Status row as it will read once saved today). A decision's
+payload adds `decision_language` (button labels, the words of the undo
+notice, and the "How decisions work" guide, one line per state); it is
+`null` for other records. All of these words come from `strings.py`.
+`editing.delete` says what the page's Delete action removes: `{"kind":
+"page"}`, `{"kind": "folder", "project_id", "path"}` for a folder's own
+`README.md` page, or `null` for a project overview and for types the
+interface does not delete.
+
+**One click with Undo.** Accept, Withdraw, and Accept as replacement have no
+confirmation dialog. The interface shows the new state at once (the page's
+Status row and action box, the inbox row gone, the sidebar count) and holds
+the request for six seconds while a notice offers Undo; a withdrawal's notice
+also offers "Add a reason", an optional field that stops the countdown while
+it is open. Undo drops the request, so nothing is written or committed and no
+reverse operation exists. Pointing at or focusing the notice stops the
+countdown. Leaving never drops a held request: changing route sends every
+held request at once and then reloads the page; hiding or closing the page
+sends them with `fetch` `keepalive`; a structure change (move, rename,
+delete) sends them first; and the desktop app calls
+`window.kosFlushPendingActions()` and waits for it before it stops the core
+when it switches or closes the knowledge base, closes the window, or quits.
+Until a held request is sent the core, agents, and other windows see the
+record unchanged; the interface that holds it hides it from its own Decide
+inbox. The alternative, writing at once and undoing with a reverse
+operation, was rejected: the lifecycle has no transition back to proposed,
+and every undone click would leave two commits.
 
 `GET /api/decisions/proposed` is the Decide inbox: every draft decision,
 newest first by the `captured` time of its first provenance entry that is
 not an acceptance or withdrawal (the record's `created` date when there is
 none), then by title. `?project=<id>` narrows it to one project, and
 `general` to decisions that apply everywhere. The answer is `{"title",
-"intro", "count", "count_label", "project", "filter_label",
+"intro", "count", "count_label", "count_templates": {"one", "other"}, "project", "filter_label",
 "all_projects_label", "projects": [{"id", "title", "count"}], "items",
 "empty": {"title", "body"}, "open_label", "language"}`, where `count` and
 `projects` ignore the filter and `language` is `decision_language`. Each
@@ -490,7 +519,7 @@ import of the same meeting by this reference.
 
 ## Structure editing
 
-Projects and folders are created, and pages and folders moved and renamed,
+Projects and folders are created, and pages and folders moved, renamed, and deleted,
 only through `knowledge_os/structure.py`. The CLI, the local API, and the
 interface's drag and drop all call it; the interface never touches files.
 
@@ -585,9 +614,60 @@ folder's `path` inside the project and `in_project`, false for a folder that
 only groups project-scoped records filed outside the project directory (such
 as observations), which cannot be moved.
 
+**Deleting.** `kos delete ID --expected-sha256 HASH` deletes one
+`knowledge`, `project`, or `memory` page, and `kos folder delete PROJECT
+PATH` deletes a folder with every file in it (its pages, its `README.md`,
+subfolders, and any other file); `--dry-run` on either prints what would be
+deleted and changed without writing. Deleting follows the move's all or
+nothing rules: the workspace lock, the SHA-256 guard, staged lint of the
+whole result, and a journal that restores every file and directory after a
+caught failure. The rules:
+
+- *References.* Other records' `related` and `sources` entries for a
+  deleted record are removed in the same change (a list left empty is
+  dropped), so lint keeps passing. Markdown links to deleted files are left
+  as they are and reported: rewriting prose would edit bodies that may be
+  accepted decisions or raw sources, and the text of the link still says
+  what it pointed at. Git history keeps the deleted page.
+- *Refusals.* A project overview (a project cannot be deleted this way), a
+  folder's own `README.md` on its own (delete the folder), a raw source,
+  synthesis, or discovery (their own workflows), a decision in force or
+  replaced (retire it with `kos supersede`; a replaced decision stays as
+  history), a record another record `supersedes` (lineage), one another
+  record names in `kind: record` provenance or discovery evidence, the target
+  of a promoted discovery, and one a raw source lists in `related` or
+  `sources` (sources are never rewritten). A proposed decision and a
+  withdrawn one may be deleted: neither was ever in force, so nothing
+  governed by it is lost, and Git history keeps it. References between
+  records deleted together do not count, so a folder goes as a whole or not
+  at all.
+
+The API mirrors this. `GET /api/records/{id}/delete-preview` and `GET
+/api/projects/{project_id}/folders/delete-preview?path=PATH` write nothing
+and answer `{"kind", "id", "title", "project", "folder", "path",
+"deletable", "records": [{"id", "title", "path"}], "other_files", "cleaned":
+[{"id", "title", "path", "fields"}], "linked": [{"id", "title", "path"}],
+"blockers": [sentence], "expected": {path: sha256}, "dialog": {...}}`, where
+`cleaned` lists the pages that lose a reference, `linked` the pages whose
+links will lead nowhere, and `dialog` the confirmation's finished words from
+`strings.py`. `POST /api/records/{id}/delete` with `{"expected_sha256",
+"expected"}` and `POST /api/projects/{project_id}/folders/delete` with
+`{"path", "expected"}` delete, answering the structure response plus
+`deleted: [path]`. With `expected` (the preview's), any file the deletion
+would remove or rewrite that the preview did not show, such as a page added
+to the folder since, answers `409 conflict` and nothing is deleted.
+Refusals answer `422`. The commit is `Delete <title>` or `Delete folder
+<title>` and covers every removed and rewritten path. There is no MCP tool
+for deleting.
+
 The interface has "New project" in the sidebar, and each project, folder, and
-page row has a menu with "New page here", "New folder", "Rename" (inline), and
-"Move to…" (a keyboard-usable dialog with every project's folders). Pages and
+page row has a menu with "New page here", "New folder", "Rename" (inline),
+"Move to…" (a keyboard-usable dialog with every project's folders), and, for
+pages and folders, "Delete…". A page has "Delete…" beside "Edit"; on a
+folder's own page it deletes the folder. Deleting is the one action that
+asks first: the confirmation names everything that goes and every page that
+refers to it, and when deleting is refused it says why and offers only
+Close. Pages and
 folders can be dragged onto a folder or a project; dropping onto another
 project first shows a confirmation explaining the scope change. Moves and
 renames wait while an editor holds unsaved text.
@@ -616,7 +696,8 @@ decision <title>`, and `Supersede decision <old title> with <new title>`, and
 for structure changes `Create project <title>`, `Create folder <title>`,
 `Rename <old> to <new>`, `Move <title> to <folder>` (`<folder> in <project>`
 across projects, the project's title for its top level), `Move folder <title>
-to <folder>`, and `Rename folder <old> to <new>`; a structure commit includes
+to <folder>`, `Rename folder <old> to <new>`, `Delete <title>`, and `Delete
+folder <title>`; a structure commit includes
 every path the change created, removed, or rewrote. Paths removed by a move
 that Git never tracked are left out. A
 create or edit that carries `agent` is prefixed with the agent's name, as in
@@ -780,7 +861,9 @@ serves seven tools: `search`, `read_page`, `list_projects`, `list_folder`,
 `write_note`, `propose_decision`, and `list_proposed_decisions`. None accepts,
 withdraws, or supersedes a decision; `write_note` refuses to edit a decision
 (or a source, synthesis, or discovery), and `propose_decision` always creates
-a `draft` decision, optionally declaring `supersedes`.
+a `draft` decision, optionally declaring `supersedes`. No tool deletes a
+page or folder either; deleting is a human action in the app or the command
+line.
 
 The server never opens a workspace. On every tool call it reads the desktop
 app's runtime file, `runtime.json` in the app's user-data folder
@@ -852,8 +935,12 @@ server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
   lifecycle-preserving replacement.
 - `kos decision accept ID` activates a draft decision with explicit acceptance
   provenance.
-- `kos decision withdraw ID --reason TEXT` archives a draft decision with
-  explicit withdrawal provenance, ending consideration without acceptance.
+- `kos decision withdraw ID [--reason TEXT]` archives a draft decision with
+  explicit withdrawal provenance, ending consideration without acceptance;
+  without a reason a neutral reference is recorded.
+- `kos delete ID` and `kos folder delete PROJECT PATH` delete a page or a
+  folder with its contents, with `--dry-run` to preview (see "Structure
+  editing").
 - `kos supersede OLD_ID NEW_ID` activates an accepted draft replacement and
   retires the prior decision as one coordinated mutation.
 - `kos project create`, `kos folder create`, `kos folder move`, `kos folder
