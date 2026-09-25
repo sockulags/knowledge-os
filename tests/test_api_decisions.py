@@ -29,6 +29,17 @@ PORT = 8843
 SCOPE = f"project:{FIXTURE_PROJECT_ID}"
 
 
+def _today_labels() -> set[str]:
+    """Today as the reader writes a date, in UTC and local time (they can differ around midnight)."""
+
+    import datetime
+
+    from knowledge_os.reader import language
+
+    days = {datetime.datetime.now(datetime.UTC).date(), datetime.date.today()}
+    return {language.format_date(day.isoformat()) for day in days}
+
+
 def _frontmatter(path: Path) -> dict:
     text = path.read_text(encoding="utf-8")
     return yaml.safe_load(text.split("---\n")[1])
@@ -105,7 +116,10 @@ class DecisionApiTests(unittest.TestCase):
             {key: actions[key] for key in ("accept", "withdraw", "supersede", "propose_replacement")},
             {"accept": True, "withdraw": True, "supersede": None, "propose_replacement": False},
         )
-        self.assertEqual(set(actions["dialogs"]), {"accept", "withdraw"})
+        self.assertEqual(set(actions["outcomes"]), {"accept", "withdraw"})
+        self.assertEqual(actions["outcomes"]["accept"]["status"]["pill"]["label"], "In force")
+        self.assertTrue(actions["outcomes"]["accept"]["status"]["value"].startswith("In force — accepted "))
+        self.assertEqual(actions["outcomes"]["withdraw"]["status"]["pill"]["label"], "Withdrawn")
         self.assertEqual(plain["project_id"], FIXTURE_PROJECT_ID)
 
         replacement = self.get("actions-replacement-draft")["editing"]["decision_actions"]
@@ -196,18 +210,29 @@ class DecisionApiTests(unittest.TestCase):
                       [{k: item[k] for k in ("kind", "reference")} for item in provenance])
         self.assert_workspace_valid()
 
-    def test_withdraw_requires_a_reason_and_a_draft(self) -> None:
-        created = self.create(_draft_decision("reasonless-decision"))
-        status, result = self.write(
-            "POST", "/api/records/reasonless-decision/withdraw", {"expected_sha256": created["content_sha256"]}
-        )
-        self.assertEqual(status, 400, result)
-        status, result = self.write(
-            "POST",
-            "/api/records/reasonless-decision/withdraw",
-            {"expected_sha256": created["content_sha256"], "reason": "   "},
-        )
-        self.assertEqual(status, 400, result)
+    def test_withdraw_needs_no_reason_but_a_draft(self) -> None:
+        for record_id, payload in (("reasonless-decision", {}), ("blank-reason-decision", {"reason": "   "})):
+            with self.subTest(record_id=record_id):
+                created = self.create(_draft_decision(record_id))
+                status, result = self.write(
+                    "POST",
+                    f"/api/records/{record_id}/withdraw",
+                    {"expected_sha256": created["content_sha256"], **payload},
+                )
+                self.assertEqual(status, 200, result)
+                self.assertEqual(result["status"], "archived")
+                entry = [
+                    item
+                    for item in _frontmatter(self.path(created["path"]))["provenance"]
+                    if item["kind"] == "decision-withdrawal"
+                ][0]
+                self.assertRegex(entry["reference"], r"^interface:\d{4}-\d{2}-\d{2}T[0-9:]+Z:withdraw$")
+                page = self.get(record_id)
+                self.assertIn(
+                    page["properties"]["source"]["value"][-1],
+                    {f"Withdrawn on {day}" for day in _today_labels()},
+                )
+        self.assert_workspace_valid()
 
         relative = f"projects/{FIXTURE_PROJECT_ID}/{FIXTURE_GOVERNING_IDS[0]}.md"
         status, result = self.write(

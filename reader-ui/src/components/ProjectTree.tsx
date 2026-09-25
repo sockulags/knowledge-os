@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { ChevronRight, FilePlus, Focus, Folder, FolderKanban, FolderPlus, MoreHorizontal, MoveRight, Pencil, X } from "lucide-react";
+import { ChevronRight, FilePlus, Focus, Folder, FolderKanban, FolderPlus, MoreHorizontal, MoveRight, Pencil, Trash2, X } from "lucide-react";
 import type { NavPayload, NavProject, RecordSummary, TreeNode } from "../api/types";
 import { iconFor } from "../lib/icons";
 import { findFolder, folderTitle, folderTrail, indentFor, isWithin, revealAfterFocus } from "../lib/treeLayout";
@@ -9,7 +9,7 @@ import { useStructure, type Place, type TreeItem } from "./Structure";
 // The project tree in the sidebar and on a project page. Pages and folders
 // can be dragged onto a folder or a project (or onto a page, meaning its
 // folder); every row also has a menu with "New page here", "New folder",
-// "Rename", and "Move to…", the keyboard way to do the same.
+// "Rename", "Move to…", and "Delete…", the keyboard way to do the same.
 //
 // Deep trees stay readable in three ways (see the reader design record):
 // the indent shrinks after the first few levels while a thin guide line
@@ -322,6 +322,7 @@ function PageRow({ record, projectId, folder, folderLabel }: { record: RecordSum
           entries={[
             { label: "Rename", icon: <Pencil size={14} />, onSelect: start },
             { label: "Move to…", icon: <MoveRight size={14} />, onSelect: () => structure.moveTo(item) },
+            { label: "Delete…", icon: <Trash2 size={14} />, onSelect: () => structure.remove(item) },
           ]}
         />
       )}
@@ -449,6 +450,7 @@ function FolderNode({ node, projectId, depth }: { node: TreeNode; projectId: str
               ...(focus.show !== null && focus.language !== null && focus.current !== node.path
                 ? [{ label: focus.language.tree_focus_folder, icon: <Focus size={14} />, onSelect: () => focus.show?.(node.path) }]
                 : []),
+              { label: "Delete…", icon: <Trash2 size={14} />, onSelect: () => structure.remove(item) },
             ]}
           />
         )}

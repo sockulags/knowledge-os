@@ -25,6 +25,8 @@ interface Session {
 }
 
 let session: Promise<Session> | null = null;
+/** The session once it has loaded, so a write can start without awaiting. */
+let loaded: Session | null = null;
 
 function loadSession(): Promise<Session> {
   if (session === null) {
@@ -32,7 +34,8 @@ function loadSession(): Promise<Session> {
       .then(async (response) => {
         if (!response.ok) throw new Error(`The core refused to hand out a write token (${response.status}).`);
         const body = (await response.json()) as { write_token: string; write_token_header: string };
-        return { token: body.write_token, header: body.write_token_header };
+        loaded = { token: body.write_token, header: body.write_token_header };
+        return loaded;
       })
       .catch((error: unknown) => {
         session = null; // try again on the next write
@@ -42,17 +45,40 @@ function loadSession(): Promise<Session> {
   return session;
 }
 
+/** Fetch the write token ahead of time, so a write sent while the page is
+ * being closed (see lib/pendingActions.ts) needs no request before its own. */
+export function prepareSession(): void {
+  void loadSession().catch(() => undefined);
+}
+
 /** Dispatched on `window` after every successful write. */
 export const WRITE_EVENT = "kos:write";
 
 export type Outcome<T> = { ok: true; data: T } | { ok: false; status: number; failure: WriteFailure };
 
-export async function send<T>(method: "POST" | "PATCH", path: string, body: unknown, retried = false): Promise<Outcome<T>> {
+export interface SendOptions {
+  /** Keep the request alive when the page unloads (flushing pending actions). */
+  keepalive?: boolean;
+}
+
+export async function send<T>(
+  method: "POST" | "PATCH",
+  path: string,
+  body: unknown,
+  retried = false,
+  options: SendOptions = {},
+): Promise<Outcome<T>> {
   let current: Session;
-  try {
-    current = await loadSession();
-  } catch {
-    return { ok: false, status: 0, failure: { error: "unavailable", detail: NETWORK_ERROR_FALLBACK } };
+  if (loaded !== null) {
+    // No await before fetch: a write started from a `pagehide` handler is
+    // handed to the browser before the page goes away.
+    current = loaded;
+  } else {
+    try {
+      current = await loadSession();
+    } catch {
+      return { ok: false, status: 0, failure: { error: "unavailable", detail: NETWORK_ERROR_FALLBACK } };
+    }
   }
   let response: Response;
   try {
@@ -60,6 +86,7 @@ export async function send<T>(method: "POST" | "PATCH", path: string, body: unkn
       method,
       headers: { "Content-Type": "application/json", [current.header]: current.token },
       body: JSON.stringify(body),
+      keepalive: options.keepalive === true,
     });
   } catch {
     return { ok: false, status: 0, failure: { error: "unavailable", detail: NETWORK_ERROR_FALLBACK } };
@@ -73,7 +100,8 @@ export async function send<T>(method: "POST" | "PATCH", path: string, body: unkn
   // A restarted core has a new token; fetch it once and retry.
   if (response.status === 403 && !retried && typeof payload.detail === "string" && payload.detail.includes("header")) {
     session = null;
-    return send<T>(method, path, body, true);
+    loaded = null;
+    return send<T>(method, path, body, true, options);
   }
   return { ok: false, status: response.status, failure: payload as WriteFailure };
 }
@@ -97,16 +125,25 @@ export interface EditRequest {
 export const write = {
   create: (request: CreateRequest) => send<WriteResult>("POST", "/api/records", request),
   edit: (id: string, request: EditRequest) => send<WriteResult>("PATCH", recordPath(id), request),
-  accept: (id: string, expectedSha256: string) =>
-    send<WriteResult>("POST", `${recordPath(id)}/accept`, { expected_sha256: expectedSha256 }),
-  withdraw: (id: string, expectedSha256: string, reason: string) =>
-    send<WriteResult>("POST", `${recordPath(id)}/withdraw`, { expected_sha256: expectedSha256, reason }),
-  supersede: (id: string, expectedSha256: string, oldId: string, oldExpectedSha256: string) =>
-    send<SupersedeResult>("POST", `${recordPath(id)}/supersede`, {
-      expected_sha256: expectedSha256,
-      old_id: oldId,
-      old_expected_sha256: oldExpectedSha256,
-    }),
+  accept: (id: string, expectedSha256: string, options?: SendOptions) =>
+    send<WriteResult>("POST", `${recordPath(id)}/accept`, { expected_sha256: expectedSha256 }, false, options),
+  /** `reason` is optional; without one the core records a neutral reference. */
+  withdraw: (id: string, expectedSha256: string, reason?: string, options?: SendOptions) =>
+    send<WriteResult>(
+      "POST",
+      `${recordPath(id)}/withdraw`,
+      reason && reason.trim() ? { expected_sha256: expectedSha256, reason: reason.trim() } : { expected_sha256: expectedSha256 },
+      false,
+      options,
+    ),
+  supersede: (id: string, expectedSha256: string, oldId: string, oldExpectedSha256: string, options?: SendOptions) =>
+    send<SupersedeResult>(
+      "POST",
+      `${recordPath(id)}/supersede`,
+      { expected_sha256: expectedSha256, old_id: oldId, old_expected_sha256: oldExpectedSha256 },
+      false,
+      options,
+    ),
   preview: (body: string, path?: string) => send<{ html: string }>("POST", "/api/preview", { body, path }),
 };
 
@@ -139,6 +176,11 @@ export const structure = {
     send<StructureResult>("POST", `${recordPath(id)}/rename`, { expected_sha256: expectedSha256, title }),
   moveFolder: (projectId: string, request: FolderMoveRequest) =>
     send<StructureResult>("POST", `${projectPath(projectId)}/folders/move`, request),
+  /** `expected` is the preview's, so nothing it did not show is deleted. */
+  deletePage: (id: string, expectedSha256: string, expected: Record<string, string>) =>
+    send<StructureResult>("POST", `${recordPath(id)}/delete`, { expected_sha256: expectedSha256, expected }),
+  deleteFolder: (projectId: string, path: string, expected: Record<string, string>) =>
+    send<StructureResult>("POST", `${projectPath(projectId)}/folders/delete`, { path, expected }),
 };
 
 /** Git sync (see "Git sync API" in docs/architecture.md). A failed sync

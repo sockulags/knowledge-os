@@ -281,7 +281,7 @@ async def withdraw_view(request: Request) -> Response:
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),
-            reason=_field(payload, "reason", str, required=True),
+            reason=_field(payload, "reason", str, required=False),
         )
     except WriteError as exc:
         return _write_error_response(exc)

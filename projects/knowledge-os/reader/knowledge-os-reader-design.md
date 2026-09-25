@@ -15,6 +15,8 @@ provenance:
   reference: github:sockulags/knowledge-os#57
 - kind: user-request
   reference: github:sockulags/knowledge-os#77
+- kind: user-request
+  reference: github:sockulags/knowledge-os#78
 related:
 - knowledge-os-reader
 ---
@@ -162,6 +164,35 @@ A separate "current page path" line at the top of the sidebar was not added.
 The highlighted row already sits under its open ancestors, and the trail
 shows the path whenever a folder is focused; a fourth element at the top of
 the sidebar would take room from the tree to repeat it.
+
+## One click, and a confirmation only for deleting
+
+Accept, Withdraw, and Accept as replacement run in one click, from a
+decision page and from the Decide inbox, with no dialog (issue #78). The
+new state shows at once: the Status row and the action box change, the
+inbox row leaves, and the sidebar count drops. A notice at the bottom of
+the window says what was done and offers Undo for six seconds, with a thin
+line counting down; pointing at or focusing the notice holds the countdown,
+so it never runs out while someone reads it. Withdrawing asks for no
+reason; the notice offers "Add a reason", an optional field that holds the
+countdown while it is open, and a withdrawal without one reads "Withdrawn
+on <date>".
+
+Undo works by waiting, not by reversing. The request is held in the reader
+until the six seconds pass, so an undone action never reaches the files or
+Git, and a completed one is exactly one commit. Leaving sends held requests
+at once instead of dropping them: another page, a reload, closing the tab,
+switching or closing the knowledge base, and quitting the app all write
+what was clicked. Until then the knowledge base itself, and so every agent,
+still has the decision as proposed.
+
+Deleting is the one action that asks first. A page and a folder can be
+deleted from the page itself ("Delete…" beside Edit) and from the tree's
+row menu. The confirmation names what goes (every page in a folder, and how
+many other files), the pages whose Related or Sources lose the reference,
+and the pages whose links will lead nowhere; when deleting is refused, as
+for a decision in force, it says why and offers only Close. The rules are
+in `docs/architecture.md` under "Deleting".
 
 ## Language
 

@@ -223,20 +223,13 @@ export interface EditableMetadata {
   sources: string[];
 }
 
-/** One line in a confirmation dialog: what a decision is now and what it becomes. */
-export interface DecisionChange {
-  subject: string | null;
-  from: string;
-  to: string;
-}
-
-/** A confirmation dialog's finished text, composed on the Python side. */
-export interface DecisionDialog {
-  title: string;
-  body: string;
-  confirm: string;
-  history: string;
-  changes: DecisionChange[];
+/** What a one-click decision action shows while its undo window is open:
+ * the notice with Undo, the sentence for the action box, and the Status row
+ * as it will read once the change is saved. Composed on the Python side. */
+export interface DecisionOutcome {
+  notice: string;
+  summary: string;
+  status: PropertyRow;
 }
 
 export interface DecisionActions {
@@ -247,7 +240,7 @@ export interface DecisionActions {
   propose_replacement: boolean;
   /** The sentence above the buttons, or null when no action applies. */
   summary: string | null;
-  dialogs: { accept?: DecisionDialog; withdraw?: DecisionDialog; supersede?: DecisionDialog };
+  outcomes: { accept?: DecisionOutcome; withdraw?: DecisionOutcome; supersede?: DecisionOutcome };
 }
 
 export interface DecisionLanguage {
@@ -261,6 +254,13 @@ export interface DecisionLanguage {
     how_it_works: string;
     reason_label: string;
     reason_placeholder: string;
+    add_reason: string;
+    save_reason: string;
+    undo: string;
+    dismiss: string;
+    undone: string;
+    saving: string;
+    failed: string;
     cancel: string;
     working: string;
     conflict: string;
@@ -295,6 +295,8 @@ export interface DecidePayload {
   intro: string;
   count: number;
   count_label: string | null;
+  /** The count sentence for any number; `other` holds a `{count}` placeholder. */
+  count_templates: { one: string; other: string };
   project: string | null;
   filter_label: string;
   all_projects_label: string;
@@ -316,6 +318,45 @@ export interface EditingBlock {
   content_sha256: string | null;
   body_change_needs_confirmation: boolean;
   decision_actions: DecisionActions | null;
+  /** What this page's Delete action removes: the page, or for a folder's own
+   * page the whole folder; null when it offers none (a project overview). */
+  delete: { kind: "page" } | { kind: "folder"; project_id: string; path: string } | null;
+}
+
+/** GET .../delete-preview: what a deletion removes and changes, why it may
+ * be refused, and the confirmation dialog's words. `expected` goes back with
+ * the delete request unchanged. */
+export interface DeletePreview {
+  kind: "page" | "folder";
+  id: string | null;
+  title: string;
+  project: string;
+  folder: string;
+  path: string;
+  deletable: boolean;
+  records: { id: string; title: string; path: string }[];
+  other_files: number;
+  cleaned: { id: string; title: string; path: string; fields: string[] }[];
+  linked: { id: string; title: string; path: string }[];
+  blockers: string[];
+  expected: Record<string, string>;
+  dialog: {
+    title: string;
+    intro: string;
+    other_files: string | null;
+    notes: string[];
+    cleaned_heading: string;
+    linked_heading: string;
+    nothing_refers: string;
+    blocked_heading: string;
+    history: string;
+    confirm: string;
+    cancel: string;
+    close: string;
+    working: string;
+    done: string;
+    failed: string;
+  };
 }
 
 export interface WriteResult {
@@ -349,6 +390,8 @@ export interface StructureResult {
   folder: string;
   scope_changed: boolean;
   changed: { id: string | null; old_path: string | null; path: string; content_sha256: string }[];
+  /** Every file a deletion removed. */
+  deleted: string[];
   index: { refreshed: boolean; count: number | null; error: string | null };
   commit: CommitInfo | null;
 }

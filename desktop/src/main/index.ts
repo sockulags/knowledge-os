@@ -11,6 +11,7 @@ import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
 import appIcon from '../../build/icon.ico?asset'
 import { CLONE_TEXT } from '../shared/cloneText'
 import { createCloneWindow, type CloneWindow } from './cloneWindow'
+import { flushReaderActions } from './flushReader'
 import { decideNavigation } from './navigation'
 import { createReferatPlugin, type ReferatPlugin } from './plugins/referat'
 import {
@@ -58,6 +59,8 @@ let settings: AppSettings = loadSettings(settingsFile)
 let state: ShellState = { kind: 'start', recent }
 /** Set by "Restart to update" until the window closes or the person keeps editing. */
 let restartPending = false
+/** Set once quitting starts, so a close held back to flush the reader resumes the quit. */
+let quitRequested = false
 /** Increments per open request so a slow, superseded start is discarded. */
 let openGeneration = 0
 /** The optional Referat plugin, created once the app is ready. */
@@ -188,6 +191,9 @@ async function ensurePython(): Promise<string | null> {
  * screen. Every other failure shows the error screen.
  */
 async function openWorkspace(root: string, reopened: RecentWorkspace | null = null): Promise<void> {
+  // Decision actions still waiting for Undo in the open reader are written
+  // before its core stops.
+  if (state.kind === 'ready') await flushReaderActions(mainWindow)
   const generation = ++openGeneration
   const previous = core
   core = null
@@ -239,6 +245,7 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
 }
 
 async function showStart(): Promise<void> {
+  if (state.kind === 'ready') await flushReaderActions(mainWindow)
   openGeneration++
   const previous = core
   core = null
@@ -446,6 +453,19 @@ function createWindow(): void {
   })
   mainWindow = window
   window.on('ready-to-show', () => window.show())
+  // Closing (or quitting) first lets the reader write the decision actions
+  // still waiting for Undo, then closes for real; the core is stopped after.
+  let flushedForClose = false
+  window.on('close', (event) => {
+    if (flushedForClose || state.kind !== 'ready') return
+    event.preventDefault()
+    flushedForClose = true
+    void flushReaderActions(window).finally(() => {
+      if (window.isDestroyed()) return
+      if (quitRequested) app.quit()
+      else window.close()
+    })
+  })
   // The window shows the start page or the reader; the core has no use
   // without it, so closing the window stops the core right away.
   window.on('closed', () => {
@@ -479,8 +499,13 @@ function createWindow(): void {
       detail: 'Leaving now discards them.'
     })
     if (choice === 0) event.preventDefault()
-    // Keeping the edits also cancels a pending "Restart to update".
-    else restartPending = false
+    else {
+      // Keeping the edits also cancels a pending "Restart to update" or quit,
+      // and the next close flushes the reader again.
+      restartPending = false
+      quitRequested = false
+      flushedForClose = false
+    }
   })
   window.webContents.on('will-navigate', guard)
   window.webContents.on('will-redirect', guard)
@@ -559,6 +584,9 @@ process.on('uncaughtException', (error) => {
   stopCoreSync()
   console.error(error)
   app.exit(1)
+})
+app.on('before-quit', () => {
+  quitRequested = true
 })
 app.on('will-quit', () => {
   cloneWindow?.cancelRunning()

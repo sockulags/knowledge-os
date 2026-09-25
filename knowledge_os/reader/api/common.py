@@ -21,6 +21,7 @@ because it is a presentation choice about which of two already-true facts
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import re
 from typing import TypedDict
@@ -447,45 +448,44 @@ def decision_language() -> dict[str, object]:
     }
 
 
-def _change(subject: str | None, before: str, after: str) -> dict[str, str | None]:
-    return {"subject": subject, "from": before, "to": after}
+def _outcome(library: Library, record: Record, action: str, status: str, **fields: str) -> dict[str, object]:
+    """What the interface shows while a one-click action waits out its undo
+    window: the notice with Undo, the sentence for the action box, and the
+    Status row as it will read once the change is saved today."""
 
-
-def _dialog(action: str, changes: list[dict[str, str | None]], **fields: str) -> dict[str, object]:
-    copy = strings.DECISION_DIALOGS[action]
+    now = datetime.datetime.now(datetime.UTC)
+    after = dataclasses.replace(
+        record,
+        status=status,
+        updated=now.date().isoformat(),
+        accepted_at=now.isoformat().replace("+00:00", "Z") if status == "active" else record.accepted_at,
+    )
+    sentence, _accent = language.status_sentence(library, after)
+    copy = strings.DECISION_OUTCOMES[action]
     return {
-        "title": copy["title"],
-        "body": copy["body"].format(**fields),
-        "confirm": copy["confirm"],
-        "history": copy["history"],
-        "changes": changes,
+        "notice": copy["notice"].format(title=record.title, **fields),
+        "summary": copy["summary"].format(**fields),
+        "status": {"label": strings.DOCUMENT_STATUS_HEADER, "value": sentence, "pill": pill_for(after)},
     }
 
 
 def decision_actions_json(library: Library, record: Record) -> dict[str, object] | None:
     """Which lifecycle actions a decision offers, the sentence above its
-    buttons, and the finished text of each confirmation dialog; ``None`` for
-    a record that is not a decision. ``supersede`` names the decision in
-    force a proposed replacement would retire, with its current hash."""
+    buttons, and for each available action what the interface shows while its
+    undo window is open (``outcomes``); ``None`` for a record that is not a
+    decision. ``supersede`` names the decision in force a proposed
+    replacement would retire, with its current hash. The actions run in one
+    click, so there are no confirmation dialogs."""
 
     actions = decision_actions(library, record)
     if actions is None:
         return None
-    labels = strings.DECISION_STATE_LABELS
-    project = language.scope_sentence(library, record)
     replaces = None
-    dialogs: dict[str, object] = {}
+    outcomes: dict[str, object] = {}
     if actions.accept:
-        dialogs["accept"] = _dialog(
-            "accept",
-            [_change(None, labels["draft"], strings.DECISION_DIALOG_ACCEPTED_TODAY)],
-            title=record.title,
-            project=project,
-        )
+        outcomes["accept"] = _outcome(library, record, "accept", "active")
     if actions.withdraw:
-        dialogs["withdraw"] = _dialog(
-            "withdraw", [_change(None, labels["draft"], labels["archived"])], title=record.title
-        )
+        outcomes["withdraw"] = _outcome(library, record, "withdraw", "archived")
     if actions.replaces is not None:
         target = actions.replaces
         try:
@@ -493,15 +493,7 @@ def decision_actions_json(library: Library, record: Record) -> dict[str, object]
         except OSError:
             target_sha = None
         replaces = {"id": target.id, "title": target.title, "status": target.status, "content_sha256": target_sha}
-        dialogs["supersede"] = _dialog(
-            "supersede",
-            [
-                _change(record.title, labels["draft"], strings.DECISION_DIALOG_ACCEPTED_TODAY),
-                _change(target.title, labels["active"], strings.DECISION_DIALOG_REPLACED_BY.format(title=record.title)),
-            ],
-            title=record.title,
-            old=target.title,
-        )
+        outcomes["supersede"] = _outcome(library, record, "supersede", "active", old=target.title)
 
     if record.status == "draft":
         if replaces is not None:
@@ -521,5 +513,5 @@ def decision_actions_json(library: Library, record: Record) -> dict[str, object]
         "supersede": replaces,
         "propose_replacement": actions.propose_replacement,
         "summary": summary,
-        "dialogs": dialogs,
+        "outcomes": outcomes,
     }

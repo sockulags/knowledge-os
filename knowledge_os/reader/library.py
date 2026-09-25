@@ -9,7 +9,8 @@ their output into plain data.
 Reads never write to the workspace. The only writes are ``create_record``,
 ``edit_record``, ``accept_record``, ``withdraw_record``, and
 ``supersede_record``, plus the structure changes ``create_project``,
-``create_folder``, ``rename_page``, ``move_page``, and ``move_folder``, at the
+``create_folder``, ``rename_page``, ``move_page``, ``move_folder``,
+``delete_page``, and ``delete_folder``, at the
 end of this module, which hand the request to the core's own ``capture``,
 ``update``, ``decision accept``, ``decision withdraw``, ``supersede``, and
 ``structure`` mutations (shared lock, staged validation,
@@ -71,13 +72,19 @@ from knowledge_os.mutations import (
 from knowledge_os.skills import Skill, load_skills
 from knowledge_os.structure import (
     ChangedFile,
+    DeleteBlocker,
+    DeletePlan,
     StructureIndexError,
     StructureResult,
     clean_folder,
     create_folder as core_create_folder,
     create_project as core_create_project,
+    delete_folder as core_delete_folder,
+    delete_record as core_delete_record,
     move_folder as core_move_folder,
     move_record as core_move_record,
+    plan_folder_deletion,
+    plan_page_deletion,
     rename_record as core_rename_record,
 )
 from knowledge_os.workspace import CorpusValidationError, Issue, Workspace, WorkspaceError, validate_workspace
@@ -138,6 +145,13 @@ __all__ = [
     "move_page",
     "rename_page",
     "move_folder",
+    # Deleting pages and folders (issue #78).
+    "DeleteBlocker",
+    "DeletePlan",
+    "page_deletion_plan",
+    "folder_deletion_plan",
+    "delete_page",
+    "delete_folder",
     # Agent writes (the MCP server, issue #59): the identity the write API
     # accepts and the parser the reader uses to name the agent.
     "AgentIdentity",
@@ -930,14 +944,23 @@ def accept_record(workspace: Workspace, record_id: str, *, expected_sha256: str)
     return _with_commit(workspace, result, "Accept decision")
 
 
-def withdraw_record(workspace: Workspace, record_id: str, *, expected_sha256: str, reason: str) -> WriteResult:
-    """``kos decision withdraw``; ``reason`` becomes the withdrawal provenance reference."""
+def withdraw_record(
+    workspace: Workspace, record_id: str, *, expected_sha256: str, reason: str | None = None
+) -> WriteResult:
+    """``kos decision withdraw``. ``reason`` is optional: when given it becomes
+    the withdrawal provenance reference, otherwise the neutral
+    ``interface:<timestamp>:withdraw`` is recorded."""
 
     _require_sha(expected_sha256, "expected_sha256")
-    if not reason.strip():
-        raise WriteError("bad_request", "reason must be a non-empty string")
+    text = (reason or "").strip() or None
     result = _decision_write(
-        lambda: withdraw_decision(workspace, record_id, expected_sha256=expected_sha256, reason=reason)
+        lambda: withdraw_decision(
+            workspace,
+            record_id,
+            expected_sha256=expected_sha256,
+            reason=text,
+            reference=interface_reference("withdraw"),
+        )
     )
     return _with_commit(workspace, result, "Withdraw decision")
 
@@ -1010,6 +1033,7 @@ class StructureWriteResult:
     index_count: int | None
     index_error: str | None
     commit: CommitOutcome | None = None
+    deleted: tuple[str, ...] = ()  # every file a deletion removed
 
 
 def _interface_provenance(action: str) -> list[dict[str, str]]:
@@ -1052,6 +1076,7 @@ def _structure_write(workspace: Workspace, call: Any, message: Any) -> Structure
         index_count=result.index_count if refreshed else None,
         index_error=error,
         commit=commit,
+        deleted=result.deleted,
     )
 
 
@@ -1205,6 +1230,55 @@ def move_folder(
             expected=expected,
         ),
         message,
+    )
+
+
+def page_deletion_plan(workspace: Workspace, record_id: str) -> DeletePlan:
+    """What deleting one page would remove and change (``kos delete --dry-run``)."""
+
+    try:
+        return plan_page_deletion(workspace, record_id)
+    except (MutationError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+
+
+def folder_deletion_plan(workspace: Workspace, project_id: str, folder: str) -> DeletePlan:
+    """What deleting one folder would remove and change (``kos folder delete --dry-run``)."""
+
+    try:
+        return plan_folder_deletion(workspace, project_id, folder)
+    except (MutationError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+
+
+def delete_page(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    expected: Mapping[str, str] | None = None,
+) -> StructureWriteResult:
+    """``kos delete``: one page, committed as ``Delete <title>`` together
+    with every page whose references to it were removed."""
+
+    _require_sha(expected_sha256, "expected_sha256")
+    return _structure_write(
+        workspace,
+        lambda: core_delete_record(workspace, record_id, expected_sha256=expected_sha256, expected=expected),
+        lambda result: f"Delete {result.title}",
+    )
+
+
+def delete_folder(
+    workspace: Workspace, project_id: str, folder: str, *, expected: Mapping[str, str] | None = None
+) -> StructureWriteResult:
+    """``kos folder delete``: a folder with everything in it, committed as
+    ``Delete folder <title>``."""
+
+    return _structure_write(
+        workspace,
+        lambda: core_delete_folder(workspace, project_id, folder, expected=expected),
+        lambda result: f"Delete folder {result.title}",
     )
 
 

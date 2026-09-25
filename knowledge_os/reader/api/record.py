@@ -99,6 +99,26 @@ def _folder_in_project(record: Record, project_id: str | None) -> str:
     return "/".join(record.path[len(prefix) :].split("/")[:-1])
 
 
+#: The record types the interface offers to delete (``structure.DELETABLE_TYPES``).
+_DELETABLE_TYPES = ("knowledge", "project", "memory")
+
+
+def _delete_target(record: Record, project_id: str | None) -> dict[str, str] | None:
+    """What the page's Delete action removes: the page, or for a folder's own
+    ``README.md`` page the whole folder; ``None`` for a project overview and
+    for types the interface does not delete. Whether it is allowed is the
+    deletion preview's answer, which says why when it is not."""
+
+    if record.type not in _DELETABLE_TYPES:
+        return None
+    if project_id is not None and record.path == f"projects/{project_id}/README.md":
+        return None
+    folder = _folder_in_project(record, project_id)
+    if project_id is not None and folder and record.path == f"projects/{project_id}/{folder}/README.md":
+        return {"kind": "folder", "project_id": project_id, "path": folder}
+    return {"kind": "page"}
+
+
 def _editing_json(library: Library, record: Record, source: EditableSource | None) -> dict[str, object]:
     """Machine data for the editor and the decision action buttons, kept
     apart from the reader's prose: the unrendered body and editable fields,
@@ -115,6 +135,7 @@ def _editing_json(library: Library, record: Record, source: EditableSource | Non
         "content_sha256": source.content_sha256 if source else None,
         "body_change_needs_confirmation": source.body_change_needs_confirmation if source else False,
         "decision_actions": decision_actions_json(library, record),
+        "delete": _delete_target(record, project_id),
     }
 
 

@@ -56,6 +56,25 @@ def build_api_routes() -> list[Route]:
         Route(
             "/api/records/{record_id}/rename", structure.rename_page_view, methods=["POST"], name="api-record-rename"
         ),
+        Route(
+            "/api/records/{record_id}/delete", structure.delete_page_view, methods=["POST"], name="api-record-delete"
+        ),
+        Route(
+            "/api/records/{record_id}/delete-preview",
+            structure.delete_page_preview_view,
+            name="api-record-delete-preview",
+        ),
+        Route(
+            "/api/projects/{project_id}/folders/delete",
+            structure.delete_folder_view,
+            methods=["POST"],
+            name="api-folder-delete",
+        ),
+        Route(
+            "/api/projects/{project_id}/folders/delete-preview",
+            structure.delete_folder_preview_view,
+            name="api-folder-delete-preview",
+        ),
         Route("/api/projects", structure.create_project_view, methods=["POST"], name="api-project-create"),
         Route(
             "/api/projects/{project_id}/folders",

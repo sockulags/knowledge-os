@@ -282,8 +282,22 @@ class ToolTests(IsolatedTestCase):
             self.assertFalse(tool.input_schema.get("additionalProperties", True))
         propose = next(tool for tool in TOOLS if tool.name == "propose_decision")
         self.assertNotIn("status", propose.input_schema["properties"])
-        unknown = call_tool("accept_decision", {"id": "x"}, CALLER)
-        self.assertTrue(unknown.is_error)
+        for name in ("accept_decision", "withdraw_decision", "supersede_decision", "delete_page", "delete_folder"):
+            with self.subTest(tool=name):
+                self.assertTrue(call_tool(name, {"id": "x"}, CALLER).is_error)
+
+    def test_no_tool_reaches_the_delete_or_lifecycle_routes(self) -> None:
+        """Deleting, accepting, withdrawing, and superseding stay human actions
+        (issue #78): the tools' source never names those API routes."""
+
+        import inspect
+
+        from knowledge_os.agent_access import local_api, tools
+
+        source = inspect.getsource(tools) + inspect.getsource(local_api)
+        for route in ("/delete", "/accept", "/withdraw", "/supersede"):
+            with self.subTest(route=route):
+                self.assertNotIn(route, source)
 
     def test_search_read_and_list(self) -> None:
         found = self.call("search", query="xylophone")
