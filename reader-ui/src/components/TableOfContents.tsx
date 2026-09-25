@@ -35,7 +35,7 @@ export function TableOfContents({ headings }: { headings: Heading[] }) {
   return (
     <nav
       aria-label="On this page"
-      className="hidden xl:block sticky top-20 max-h-[calc(100vh-6rem)] w-56 shrink-0 overflow-y-auto self-start pl-2 text-sm"
+      className="hidden xl:block sticky top-[calc(5rem_+_var(--frame-top))] max-h-[calc(100vh_-_6rem_-_var(--frame-top))] w-56 shrink-0 overflow-y-auto self-start pl-2 text-sm"
     >
       <p className="kos-eyebrow mb-2.5">On this page</p>
       <ul className="space-y-1 border-l border-(--color-border)">

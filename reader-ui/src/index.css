@@ -33,6 +33,11 @@
   color-scheme: light;
   /* The desktop sidebar's width; SidebarResizer.tsx changes it. */
   --sidebar-width: 256px;
+  /* Room at the top for the desktop app's title bar, which the app draws
+     over the page and announces in --kos-titlebar-height; 0 in a browser.
+     The body starts below it, and everything sticky or pinned to the top of
+     the viewport sits below it too. */
+  --frame-top: var(--kos-titlebar-height, 0px);
   --color-bg: #fbfaf7;
   --color-bg-sidebar: #f2f0ea;
   --color-bg-raised: #ffffff;
@@ -157,6 +162,7 @@ body {
 }
 
 body {
+  padding-top: var(--frame-top);
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.6;
@@ -601,7 +607,7 @@ body {
   font-family: var(--font-serif);
   font-weight: 600;
   letter-spacing: -0.005em;
-  scroll-margin-top: 5.5rem;
+  scroll-margin-top: calc(5.5rem + var(--frame-top));
 }
 .prose-kos :where(h4, h5, h6) {
   font-family: var(--font-sans);
