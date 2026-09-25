@@ -17,6 +17,8 @@ provenance:
   reference: github:sockulags/knowledge-os#77
 - kind: user-request
   reference: github:sockulags/knowledge-os#78
+- kind: user-request
+  reference: github:sockulags/knowledge-os#76
 related:
 - knowledge-os-reader
 ---
@@ -109,6 +111,24 @@ sources and the generated `.ico` live in `desktop/build/`; `npm run icon`
 regenerates them (see `desktop/README.md`). The small drawing is also the
 reader's favicon and the mark beside the workspace name.
 
+## Window frame
+
+The desktop app's windows carry the same identity from the frame inward
+(issue #76). A 36 px title bar on the sidebar ground, with a hairline border
+below, holds the small app mark, the menu (File, View, Referat, Help), and
+the page title followed by the knowledge base name in the muted text colour;
+the title fades to the faint colour while the window is inactive. Windows'
+own minimise, maximise, and close buttons stay at the right edge, drawn by
+the system in the bar's colours, because only they bring snap layouts and
+the system's own behaviour when maximised. Menus use `kos-menu` and
+`kos-menu-item`, with the shortcut right-aligned in the faint colour, a tick
+for options, and a chevron for submenus. Update news and similar messages
+are quiet `kos-overlay` cards under the bar's right end that never block the
+window; a ready update also leaves a small primary *Restart to update* button
+in the bar. A question the app must wait on, such as unsaved changes, is the
+shared dialog: serif heading, muted body, the safe choice focused, the
+destructive one in the danger colour. Native file and folder pickers stay
+native.
 ## Information architecture
 
 The project directory tree is the navigation, following the
