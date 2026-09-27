@@ -5,6 +5,7 @@
 // page can show a conflict, lint issues, or a refusal in place.
 
 import type {
+  ProposedWriteResult,
   ResolveResult,
   StructureResult,
   SupersedeResult,
@@ -123,8 +124,10 @@ export interface EditRequest {
 }
 
 export const write = {
-  create: (request: CreateRequest) => send<WriteResult>("POST", "/api/records", request),
-  edit: (id: string, request: EditRequest) => send<WriteResult>("PATCH", recordPath(id), request),
+  /** A 202 answer (`status: "proposed"`) means the review rules held the write back. */
+  create: (request: CreateRequest) => send<WriteResult | ProposedWriteResult>("POST", "/api/records", request),
+  edit: (id: string, request: EditRequest) =>
+    send<WriteResult | ProposedWriteResult>("PATCH", recordPath(id), request),
   accept: (id: string, expectedSha256: string, options?: SendOptions) =>
     send<WriteResult>("POST", `${recordPath(id)}/accept`, { expected_sha256: expectedSha256 }, false, options),
   /** `reason` is optional; without one the core records a neutral reference. */
@@ -178,6 +181,22 @@ export interface FolderMoveRequest {
   name?: string;
   title?: string;
   allow_scope_change?: boolean;
+}
+
+const changePath = (id: string) => `/api/changes/${encodeURIComponent(id)}`;
+
+/** Proposed changes the review rules held back (issue #86). `expected` is
+ * the proposal file's hash as shown, so a change edited since is refused. */
+export const changes = {
+  accept: (id: string, expected: string, options?: SendOptions) =>
+    send<WriteResult>("POST", `${changePath(id)}/accept`, { expected_sha256: expected }, false, options),
+  discard: (id: string, expected: string, options?: SendOptions) =>
+    send<{ discarded: string }>("POST", `${changePath(id)}/discard`, { expected_sha256: expected }, false, options),
+};
+
+/** A 202 write answer: held back for review, nothing written yet. */
+export function isProposed(data: unknown): data is ProposedWriteResult {
+  return typeof data === "object" && data !== null && (data as { status?: unknown }).status === "proposed";
 }
 
 /** Projects, folders, moves, and renames (see "Structure editing" in
