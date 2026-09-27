@@ -407,7 +407,7 @@ def _broken_records(
             continue
         message = issue.message
         try:
-            parse_document(issue.path)
+            parse_document(issue.path, check_filename=issue.path.name != "README.md")
         except MetadataError as exc:
             message = str(exc)
         except OSError:
@@ -746,7 +746,9 @@ def edit_record(
             current_sha256=actual,
         )
     try:
-        base = parse_document_text(current.path, raw.decode("utf-8"))
+        # ``validate_workspace`` already placed the record (a README.md page is
+        # not named after its ID), so only the content is parsed here.
+        base = parse_document_text(current.path, raw.decode("utf-8"), check_filename=False)
     except (MetadataError, UnicodeDecodeError) as exc:
         raise WriteError("validation", f"current record cannot be parsed: {exc}") from exc
 
@@ -838,7 +840,11 @@ def editable_source(record: Record) -> EditableSource:
     raw = record.abs_path.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     try:
-        document = parse_document_text(record.abs_path, raw.decode("utf-8"))
+        # The workspace scan already checked where the record lives, including
+        # the ``README.md`` exception for a project overview or a folder's own
+        # page, so the filename is not checked again: checking it here made
+        # every README page read as not editable.
+        document = parse_document_text(record.abs_path, raw.decode("utf-8"), check_filename=False)
     except (MetadataError, UnicodeDecodeError) as exc:
         raise LibraryError(f"record {record.id!r} cannot be parsed for editing: {exc}") from exc
     metadata = document.metadata
