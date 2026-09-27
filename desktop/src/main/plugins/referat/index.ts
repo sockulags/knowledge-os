@@ -75,7 +75,8 @@ function resultView(result: ImportResult): ImportResultView {
       kind: record.kind,
       id: record.id,
       title: record.title,
-      commit: commitLabel(record.commit)
+      commit: commitLabel(record.commit),
+      waiting: record.proposal !== null
     })),
     failed: result.failed,
     notAttempted: result.notAttempted,

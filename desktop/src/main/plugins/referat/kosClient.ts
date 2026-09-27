@@ -93,6 +93,26 @@ export class KosClient implements KosApi {
     return template?.body ?? null
   }
 
+  async noteNeedsReview(projectId: string, folder: string): Promise<boolean> {
+    const query = new URLSearchParams({
+      writer: 'referat',
+      project: projectId,
+      folder,
+      writes: 'create'
+    })
+    const { status, body } = await this.getJson<{ review?: boolean; detail?: string }>(
+      `/api/review/check?${query.toString()}`
+    )
+    // A core without review rules has no such route: notes are written directly.
+    if (status === 404) return false
+    if (status !== 200 || body === null) {
+      throw new Error(
+        body?.detail ?? `The knowledge base answered ${status} when asked about review.`
+      )
+    }
+    return body.review === true
+  }
+
   private async writeToken(): Promise<string> {
     if (this.token !== null) return this.token
     const { status, body } = await this.getJson<{ write_token?: string }>('/api/session')
@@ -131,6 +151,16 @@ export class KosClient implements KosApi {
     if (response.status === 201 && body !== null && typeof body['id'] === 'string') {
       const commit = (body['commit'] as CommitInfo | undefined) ?? null
       return { ok: true, id: body['id'], commit }
+    }
+    // Held back by the review rules: it waits in Decide, nothing written yet.
+    const proposal = body?.['proposal'] as { id?: unknown; record_id?: unknown } | undefined
+    if (
+      response.status === 202 &&
+      typeof proposal?.id === 'string' &&
+      typeof proposal.record_id === 'string'
+    ) {
+      const commit = (body?.['commit'] as CommitInfo | undefined) ?? null
+      return { ok: true, id: proposal.record_id, commit, proposal: proposal.id }
     }
     const issues = Array.isArray(body?.['issues'])
       ? (body['issues'] as { path?: string; message?: string }[])

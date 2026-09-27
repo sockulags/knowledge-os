@@ -185,3 +185,35 @@ describe('findExistingImport', () => {
     expect(found).toEqual([])
   })
 })
+
+describe('executePlan with review rules', () => {
+  it('creates the decisions first and sends the note, naming them, to review', async () => {
+    const api = new FakeKos()
+    const review: KosApi = {
+      recordIds: () => api.recordIds(),
+      search: (query) => api.search(query),
+      record: (id) => api.record(id),
+      noteNeedsReview: async () => true,
+      createRecord: async (payload) => {
+        if (payload.metadata['record_kind'] === 'decision') return api.createRecord(payload)
+        api.posts.push(payload)
+        return { ok: true, id: payload.metadata['id'] as string, commit: null, proposal: 'p-1' }
+      }
+    }
+    const result = await executePlan(review, { ...plan([0, 2]), projectId: 'demo' })
+
+    expect(api.posts.map((post) => post.metadata['record_kind'] ?? 'note')).toEqual([
+      'decision',
+      'decision',
+      'note'
+    ])
+    const decisionIds = result.created
+      .filter((record) => record.kind === 'decision')
+      .map((record) => record.id)
+    expect(api.posts[2].metadata['related']).toEqual(decisionIds)
+    expect(api.posts[0].metadata['related']).toBeUndefined()
+    expect(result.created[0]).toMatchObject({ kind: 'note', proposal: 'p-1' })
+    expect(result.noteId).toBe(result.created[0].id)
+    expect(result.failed).toEqual([])
+  })
+})

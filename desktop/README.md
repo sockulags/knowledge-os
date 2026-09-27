@@ -547,7 +547,10 @@ default. Importing creates:
   template's headings the meeting has nothing for are left out, and other
   sections follow. Without a usable template the order above is kept.
 - One draft decision per ticked item under the decisions heading, linked to
-  the note with `related`. Decisions are drafts because of the approval
+  the note with `related`. When the knowledge base's review rules send
+  Referat notes to review (see "Review before writes land" in the
+  [main README](../README.md)), the decisions are created first and the note,
+  which then waits in Decide, lists them under `related` instead. Decisions are drafts because of the approval
   policy; they govern nothing until someone accepts them.
 
 The minutes are Markdown written by a language model, so sections are found
