@@ -3,7 +3,17 @@
 // core for the open workspace. The window's frame, menu, notices, and dialogs
 // are the shell's own (see windowChrome.ts).
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  net,
+  session,
+  shell
+} from 'electron'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
@@ -18,6 +28,7 @@ import {
   unsavedChangesDialog,
   updateNotice
 } from './chromeState'
+import { AgentService, electronLaunchHost, kosMcpCommand } from './agents/service'
 import { createCloneWindow, type CloneWindow } from './cloneWindow'
 import { flushReaderActions } from './flushReader'
 import {
@@ -92,6 +103,27 @@ let chrome: MainWindowChrome | null = null
 let closeConfirmed = false
 /** The core URL of the last reader the window was sent to, for the chrome's IPC. */
 let readerUrl: string | null = null
+/** The in-app agent (issue #90): at most one session, in the open knowledge base. */
+const adaptersRoot = join(app.getPath('userData'), 'agents')
+const agents = new AgentService(
+  electronLaunchHost(process.execPath, process.env, adaptersRoot),
+  {
+    root: adaptersRoot,
+    // Electron's fetch uses the system proxy settings.
+    fetchBytes: async (url) => {
+      const response = await net.fetch(url)
+      if (!response.ok) throw new Error(`the registry answered ${response.status}`)
+      return new Uint8Array(await response.arrayBuffer())
+    }
+  },
+  { name: 'knowledge-os-desktop', version: app.getVersion() },
+  (event) => {
+    const window = mainWindow
+    if (window !== null && !window.isDestroyed() && state.kind === 'ready') {
+      window.webContents.send(IPC.agentEvent, event)
+    }
+  }
+)
 
 /**
  * Whether the reader holds unsaved edits: its editor cancels `beforeunload`
@@ -268,6 +300,8 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
     return
   }
   if (state.kind === 'ready') await flushReaderActions(mainWindow)
+  // An agent session belongs to the knowledge base it was started in.
+  agents.close()
   const generation = ++openGeneration
   const previous = core
   core = null
@@ -619,7 +653,39 @@ function isReaderPage(event: IpcMainEvent): boolean {
   return decideNavigation(url, [state.url]) === 'allow'
 }
 
+/** Like `handle`, for the in-app agent: only the reader UI of an open knowledge base. */
+function handleForReader(channel: string, action: (...args: unknown[]) => Promise<unknown>): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    const url = event.senderFrame?.url ?? ''
+    if (state.kind !== 'ready' || decideNavigation(url, [state.url]) !== 'allow') {
+      throw new Error('not allowed from this page')
+    }
+    return action(...args)
+  })
+}
+
+function registerAgentIpc(): void {
+  handleForReader(IPC.agentList, () => agents.list())
+  handleForReader(IPC.agentInstall, (providerId) => agents.installAdapter(String(providerId)))
+  handleForReader(IPC.agentStart, async (providerId) => {
+    if (state.kind !== 'ready' || pythonExecutable === null)
+      throw new Error('No knowledge base is open.')
+    return agents.start(String(providerId), {
+      root: state.root,
+      kosMcp: kosMcpCommand(pythonExecutable, pythonEnv, runtimeFile)
+    })
+  })
+  handleForReader(IPC.agentPrompt, (text) => agents.prompt(String(text)))
+  handleForReader(IPC.agentCancel, () => agents.cancel())
+  handleForReader(IPC.agentPermission, async (requestId, optionId) =>
+    agents.respondPermission(String(requestId), typeof optionId === 'string' ? optionId : null)
+  )
+  handleForReader(IPC.agentRestart, () => agents.restart())
+  handleForReader(IPC.agentClose, async () => agents.close())
+}
+
 function registerIpc(): void {
+  registerAgentIpc()
   // The reader keeps its sidebar width here: it runs on a new port each
   // launch, so its own browser storage would not survive a restart.
   ipcMain.on(IPC.getSidebarWidth, (event) => {
@@ -672,6 +738,7 @@ app.on('before-quit', () => {
   quitRequested = true
 })
 app.on('will-quit', () => {
+  agents.close()
   cloneWindow?.cancelRunning()
   stopCoreSync()
 })
