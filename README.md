@@ -91,6 +91,33 @@ be attached; Markdown files cannot. A folder cannot be named `assets`. See
 A folder's own page (its `README.md`) and a project's overview are edited
 like any other page.
 
+## Review before writes land
+
+Notes are written directly by default and decisions are always drafts. To
+look at some writes first, add rules to `knowledge-os.toml`:
+
+```toml
+[[review.rule]]
+folder = "drafts"      # everything in a drafts/ folder is direct
+action = "direct"
+
+[[review.rule]]
+writer = "agent"       # notes agents write in project acme need review
+project = "acme"
+
+[[review.rule]]
+writer = "referat"     # Referat imports go to review
+```
+
+A rule may name `writer` (`agent`, `agent:claude-code`, `referat`, `person`,
+`any`), `project` (or `general`), `folder`, `writes` (`create`, `edit`,
+`any`), and `action` (`review` or `direct`); the first match decides. A held
+back write is stored in `proposals/` and waits in **Decide** next to proposed
+decisions, where Accept writes it and Discard drops it, each in one click with
+Undo. An edit whose page changed in the meantime can only be discarded.
+Agents are told in the tool result that their write waits for review. See
+"Configurable review" in [`docs/architecture.md`](docs/architecture.md).
+
 ## Sync a knowledge base with Git
 
 The knowledge base folder must be its own Git repository with an upstream
@@ -154,7 +181,7 @@ nothing is written.
 | `read_page` | One page by `id`: Markdown content, state, project, folder, links, provenance, and `content_sha256`. |
 | `list_projects` | Project ids, titles, and top-level folders. |
 | `list_folder` | A project folder's overview, pages, and subfolders (`project`, optional `folder`). |
-| `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. |
+| `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. A write the review rules hold back answers `waiting_for_review` and writes nothing yet. |
 | `propose_decision` | Create a decision as a draft (`title`, `content`, optional `project`, `folder`, `supersedes`, `related`). |
 | `list_proposed_decisions` | The Decide inbox: drafts waiting for a person, with who proposed them. |
 

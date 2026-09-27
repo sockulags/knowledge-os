@@ -73,11 +73,12 @@ a metadata-bearing `README.md` root record; ordinary files retain `<id>.md`.
 Folders created through `kos folder create` or the interface always get such a
 root record (see "Structure editing").
 
-Two kinds of files in a workspace are deliberately not records. Page
+Three kinds of files in a workspace are deliberately not records. Page
 templates live in `templates/<name>.md` at the workspace root (see "Page
-templates"), and images and other files attached to pages live in an
-`assets/` folder next to the pages that link to them (see "Attachments").
-Neither is indexed or linted; the workspace scan reads only Markdown below
+templates"), images and other files attached to pages live in an `assets/`
+folder next to the pages that link to them (see "Attachments"), and writes
+held back for review live in `proposals/<id>.md` (see "Configurable
+review"). None is indexed or linted; the workspace scan reads only Markdown below
 the managed roots, and an attachment can never be Markdown.
 
 ## Record metadata
@@ -526,6 +527,80 @@ decisions follow capture's rules and the approval policy, and each one is
 auto-committed like any other interface write. The plugin finds an earlier
 import of the same meeting by this reference.
 
+### Configurable review
+
+The accepted approval policy writes notes directly and creates decisions as
+drafts. A knowledge base may send some note writes to review instead, with
+`[[review.rule]]` tables in `knowledge-os.toml` (`knowledge_os/review.py`):
+
+```toml
+[[review.rule]]
+folder = "drafts"      # everything in a drafts/ folder is direct
+action = "direct"
+
+[[review.rule]]
+writer = "agent"       # notes agents write in project acme need review
+project = "acme"
+```
+
+A rule may name `writer` (`agent`, `agent:<client>` for one MCP client such
+as `agent:claude-code`, `referat`, `person`, or `any`, the default),
+`project` (a project id, or `general` for knowledge and memory pages),
+`folder` (a folder inside the project and every folder below it; `""` is the
+top level only), `writes` (`create`, `edit`, or `any`, the default), and
+`action` (`review`, the default, or `direct`). The first matching rule
+decides; no match is direct. A write is an agent's when it carries `agent`,
+Referat's when a create carries `referat-meeting` provenance, and otherwise a
+person's. Rules govern note creates and edits through the local API (the app,
+`kos mcp`, and the Referat import); decisions are never held back, and CLI
+commands write directly. A rule file that cannot be read refuses every write
+it could govern (`422 validation`) instead of letting it through.
+
+A held-back write is validated by applying it to a disposable staged copy of
+the workspace with the direct write's rules, so every refusal is the same as
+before, and is then stored as `proposals/<id>.md`: a frontmatter block with
+`proposal`, `action` (`create` or `edit`), `record`, `title`, `project_path`
+(create) or `base_sha256` (edit: the page's revision the change was made
+against), `proposed_by` (a provenance-shaped entry: the agent, or
+`interface-authored`), `proposed_at`, and `rule` (the sentence naming the
+rule), followed by the page's complete proposed Markdown. It is committed as
+`Propose <title>` or `Propose edit to <title>`, prefixed with the agent's name.
+`POST /api/records` and `PATCH /api/records/{id}` then answer `202` with
+`{"status": "proposed", "proposal": {"id", "action", "record_id", "title",
+"rule", "message"}, "commit"}`, and nothing else is written.
+
+- `GET /api/changes` lists proposed changes, oldest first: `{"heading",
+  "intro", "count", "items", "broken", "policy_error", "labels",
+  "notice_labels"}`. Each item is `{"id", "action", "kind_label", "title",
+  "record": {"id", "exists", "title"}, "excerpt", "project", "proposed_by",
+  "proposed_at", "proposed_display", "proposed_exact", "rule", "effect",
+  "stale", "content_sha256", "actions": {"accept", "discard"}, "outcomes"}`;
+  `stale` is an edit whose page no longer has `base_sha256`, which can only
+  be discarded. `GET /api/nav`'s `decide.count` includes them.
+- `GET /api/changes/{id}` adds `body_html` for a new page, or for an edit
+  `metadata_changes` (`title`, `tags`, `related`, `sources`) and `blocks`, a
+  paragraph diff of the page now (left) against the proposal (right).
+- `POST /api/changes/{id}/accept` and `/discard` take `{"expected_sha256":
+  <content_sha256>}` (a proposal file changed since is `409`). Accepting
+  applies the change with capture's or `kos update`'s rules (an edit whose
+  page changed answers `409 conflict`), removes the proposal, and commits both
+  as `Accept <title>` or `Accept edit to <title>`; discarding commits
+  `Discard proposed <title>`. Accepting is not crash-atomic: if the process
+  stops after the page is written, the proposal remains and accepting it
+  again is refused; discard it.
+- `GET /api/review/check?writer=&project=&folder=&writes=` answers
+  `{"review", "rule"}` without writing.
+
+Decide shows proposed changes above proposed decisions, each with Accept (not
+for a stale edit) and Discard in one click with the same Undo notice as
+decision actions, and `/c/<id>` shows one change in full. When an editor's
+save or a new page is held back, the app opens that page. The MCP tool
+`write_note` answers such a write with `"action": "waiting_for_review"`,
+`"written": false`, the proposal id, and a `next_step` saying a person
+decides in the app. The Referat import asks `review/check` first: when the
+meeting note would be held back, it creates the draft decisions first and
+the note, waiting in Decide, lists them under `related`.
+
 ### Page templates
 
 *New page* starts from a template. `knowledge_os/templates.py` defines four
@@ -761,7 +836,8 @@ warns when generated index files are still tracked.
 accept, withdraw, supersede) the adapter commits exactly the paths that write
 touched (`git add --all -- PATHS` then `git commit --only -- PATHS`), so
 unrelated modified, untracked, or staged changes stay as they were. Messages
-are `Create <title>`, `Edit <title>`, `Attach <file name>`, `Accept decision
+are `Create <title>`, `Edit <title>`, `Attach <file name>`, `Propose
+<title>`, `Accept <title>`, `Discard proposed <title>`, `Accept decision
 <title>`, `Withdraw decision <title>`, and `Supersede decision <old title> with <new title>`, and
 for structure changes `Create project <title>`, `Create folder <title>`,
 `Rename <old> to <new>`, `Move <title> to <folder>` (`<folder> in <project>`
