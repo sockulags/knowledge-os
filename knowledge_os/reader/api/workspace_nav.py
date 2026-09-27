@@ -11,7 +11,7 @@ from starlette.responses import Response
 
 from .. import language, states, strings
 from ..app import get_library, json_response
-from ..library import Library
+from ..library import Library, proposed_changes
 from ..repodocs import list_repo_documents
 from .decisions import proposed_decisions
 from .common import pill_for, project_title, project_tree_json, record_index_entry
@@ -144,7 +144,10 @@ async def nav_view(request: Request) -> Response:
             "record_index": record_index,
             # The sidebar's Decide entry and its count of proposed decisions;
             # the shell reloads nav after every decision action.
-            "decide": {"label": strings.DECIDE_NAV_LABEL, "count": len(proposed_decisions(library))},
+            "decide": {
+                "label": strings.DECIDE_NAV_LABEL,
+                "count": len(proposed_decisions(library)) + len(proposed_changes(workspace)[0]),
+            },
             # Shell-wide copy with no page of its own to be delivered from:
             # the quick-find placeholder, and the not-found/load-error
             # fallbacks every record-backed page (Document, Compare,

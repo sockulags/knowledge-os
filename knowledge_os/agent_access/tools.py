@@ -414,6 +414,29 @@ def _write_result(action: str, body: Mapping[str, Any], **extra: Any) -> ToolRes
     return ToolResult(data)
 
 
+def _waiting_result(body: Mapping[str, Any]) -> ToolResult:
+    """A write the knowledge base's review rules held back (``202``)."""
+
+    proposal = body.get("proposal") or {}
+    return ToolResult(
+        {
+            "ok": True,
+            "action": "waiting_for_review",
+            "written": False,
+            "id": proposal.get("record_id"),
+            "proposal": proposal.get("id"),
+            "rule": proposal.get("rule"),
+            "message": proposal.get("message"),
+            "commit": _commit_json(body.get("commit")),
+            "next_step": (
+                "Nothing more to do: the change waits in the Knowledge OS app's Decide inbox, where a person "
+                "accepts or discards it. Until then the page is unchanged (or does not exist yet), so do not "
+                "write it again."
+            ),
+        }
+    )
+
+
 def _write_note(api: LocalApi, arguments: dict[str, Any], caller: Caller) -> ToolResult:
     content = arguments.get("content")
     if not isinstance(content, str) or not content.strip():
@@ -455,8 +478,10 @@ def _write_note(api: LocalApi, arguments: dict[str, Any], caller: Caller) -> Too
         payload: dict[str, Any] = {"expected_sha256": expected, "body": content, "agent": caller.agent_json()}
         if changes:
             payload["metadata"] = changes
-        body = _expect(api.patch(f"/api/records/{quote(record_id)}", payload), 200)
-        return _write_result("updated", body)
+        status, body = api.patch(f"/api/records/{quote(record_id)}", payload)
+        if status == 202:
+            return _waiting_result(body)
+        return _write_result("updated", _expect((status, body), 200))
 
     if title is None:
         raise ToolError("bad_request", "title is required when creating a page.", _API_NEXT_STEP["bad_request"])
@@ -475,8 +500,10 @@ def _write_note(api: LocalApi, arguments: dict[str, Any], caller: Caller) -> Too
     payload = {"metadata": metadata, "body": content, "agent": caller.agent_json()}
     if folder is not None:
         payload["project_path"] = f"{folder}/{record_id}.md"
-    body = _expect(api.post("/api/records", payload), 201)
-    return _write_result("created", body)
+    status, body = api.post("/api/records", payload)
+    if status == 202:
+        return _waiting_result(body)
+    return _write_result("created", _expect((status, body), 201))
 
 
 def _propose_decision(api: LocalApi, arguments: dict[str, Any], caller: Caller) -> ToolResult:
@@ -608,7 +635,9 @@ TOOLS: tuple[ToolSpec, ...] = (
         title="Write a note",
         description=(
             "Create a note or documentation page, or edit one. Notes are saved directly and committed to the "
-            "knowledge base's Git history under your agent's name. To create, give title and content (plus "
+            "knowledge base's Git history under your agent's name, unless the knowledge base's review rules "
+            "send the write to review: then the result's action is 'waiting_for_review', nothing is written "
+            "yet, and a person accepts or discards the change in the app. To create, give title and content (plus "
             "project and folder to place it; without a project it is general knowledge). To edit, give the "
             "page's id, the complete new content, and expected_sha256 = the content_sha256 from read_page; a "
             "stale hash is refused as a conflict and nothing is written. Decisions cannot be written or edited "
