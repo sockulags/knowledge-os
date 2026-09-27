@@ -1185,3 +1185,36 @@ TEMPLATES_LANGUAGE: dict[str, str] = {
     "replace_confirm": "Use template",
     "replace_cancel": "Keep my text",
 }
+
+# ---------------------------------------------------------------------------
+# Configurable review (issue #86): proposed changes in Decide.
+# ---------------------------------------------------------------------------
+
+REVIEW_WAITING_CREATE = "“{title}” was not written yet: the review rules send it to Decide, where a person accepts or discards it."
+REVIEW_WAITING_EDIT = "The edit to “{title}” was not applied yet: the review rules send it to Decide, where a person accepts or discards it."
+CHANGES_HEADING = "Proposed changes"
+CHANGES_INTRO = "Notes the review rules held back. Accepting writes them; discarding drops them."
+CHANGES_NEW_PAGE = "New page"
+CHANGES_EDIT = "Edit"
+CHANGES_EFFECT_CREATE = "Accepting creates the page in {place}."
+CHANGES_EFFECT_EDIT = "Accepting replaces the current text of “{title}”."
+CHANGES_STALE = "“{title}” changed after this edit was proposed, so it can only be discarded."
+CHANGES_POLICY_ERROR = "The review rules in knowledge-os.toml cannot be used: {error}. Until they are fixed, writes they would govern are refused."
+CHANGES_BROKEN = "{path} cannot be read: {error}"
+
+#: Words for the proposed-change actions and their Undo notices.
+CHANGE_LABELS: dict[str, str] = {
+    "accept": "Accept",
+    "discard": "Discard",
+    "show": "Show the change",
+    "accepted_create": "Created “{title}”.",
+    "accepted_edit": "Applied the edit to “{title}”.",
+    "discarded": "Discarded the proposed change to “{title}”.",
+    "stale": "The page changed after this edit was proposed. Discard it; it can be proposed again.",
+    "rule": "Held back by",
+    "metadata_heading": "Changed fields",
+    "body_heading": "Text",
+    "no_body_change": "The text is unchanged.",
+    "current": "Now",
+    "proposed": "Proposed",
+}

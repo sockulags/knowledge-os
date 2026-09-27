@@ -15,6 +15,7 @@ from __future__ import annotations
 from starlette.routing import Route
 
 from . import (
+    changes,
     decisions,
     docs,
     everything,
@@ -105,4 +106,9 @@ def build_api_routes() -> list[Route]:
         Route("/api/search", search.view, name="api-search"),
         Route("/api/everything", everything.view, name="api-everything"),
         Route("/api/templates", templates.view, name="api-templates"),
+        Route("/api/changes", changes.list_view, name="api-changes"),
+        Route("/api/changes/{change_id}", changes.detail_view, name="api-change"),
+        Route("/api/changes/{change_id}/accept", changes.accept_view, methods=["POST"], name="api-change-accept"),
+        Route("/api/changes/{change_id}/discard", changes.discard_view, methods=["POST"], name="api-change-discard"),
+        Route("/api/review/check", changes.check_view, name="api-review-check"),
     ]

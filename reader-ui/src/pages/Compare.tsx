@@ -10,7 +10,7 @@ import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { Comparison, DiffBlock } from "../api/types";
 
-const BLOCK_CLASSES: Record<DiffBlock["kind"], string> = {
+export const BLOCK_CLASSES: Record<DiffBlock["kind"], string> = {
   equal: "",
   added: "bg-(--color-accent-green-bg) rounded-(--radius-control) px-2 -mx-2 shadow-[inset_2px_0_0_var(--color-accent-green-text)]",
   removed: "bg-(--color-accent-red-bg) rounded-(--radius-control) px-2 -mx-2 shadow-[inset_2px_0_0_var(--color-accent-red-text)]",

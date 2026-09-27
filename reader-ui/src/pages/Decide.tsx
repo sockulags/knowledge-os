@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { ArrowRight, Bot, CircleHelp, Eye, FolderKanban, Inbox, MessagesSquare, User, Users } from "lucide-react";
+import {
+  ArrowRight,
+  Bot,
+  CircleHelp,
+  Eye,
+  FilePen,
+  FilePlus,
+  FolderKanban,
+  Inbox,
+  MessagesSquare,
+  User,
+  Users,
+} from "lucide-react";
 import { api, ApiUnreachableError } from "../api/client";
-import type { DecidePayload, ProposedDecision } from "../api/types";
+import type { ChangesPayload, DecidePayload, ProposedChange, ProposedDecision } from "../api/types";
+import { ChangeActions, changeKey } from "../components/ChangeActions";
 import { PageSkeleton } from "../components/Skeleton";
-import { LoadError } from "../components/Callout";
+import { Callout, LoadError } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { DecisionGuideToggle } from "../components/DecisionGuide";
 import { EmptyState } from "../components/EmptyState";
@@ -81,6 +94,55 @@ function ProposalRow({ row, language }: { row: ProposedDecision; language: Decid
   );
 }
 
+function ChangeRow({ row, payload }: { row: ProposedChange; payload: ChangesPayload }) {
+  const SourceIcon = SOURCE_ICONS[row.proposed_by.source] ?? CircleHelp;
+  const KindIcon = row.action === "create" ? FilePlus : FilePen;
+  return (
+    <li className="kos-card px-5 py-4" data-testid="change-row">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-(--color-text-faint)">
+        <span className="flex items-center gap-1 font-medium text-(--color-text-muted)">
+          <KindIcon size={12} />
+          {row.kind_label}
+        </span>
+        <span className="flex items-center gap-1">
+          <FolderKanban size={12} />
+          {row.project.title}
+        </span>
+        <span className="flex items-center gap-1" title={row.proposed_exact ?? undefined}>
+          <SourceIcon size={12} />
+          {row.proposed_by.label}
+          {row.proposed_display && <> · {row.proposed_display}</>}
+        </span>
+      </div>
+      <Link
+        to={`/c/${row.id}`}
+        className="mt-1.5 block rounded-sm font-serif text-[18px] font-semibold leading-snug hover:underline hover:decoration-1 hover:underline-offset-[3px]"
+      >
+        {row.title}
+      </Link>
+      {row.excerpt && <p className="mt-1 line-clamp-2 text-sm text-(--color-text-muted)">{row.excerpt}</p>}
+      <p className="mt-2.5 flex items-start gap-1.5 text-sm text-(--color-text)">
+        <ArrowRight size={14} className="mt-[3px] shrink-0 text-(--color-accent-text)" />
+        <span>
+          {row.effect}{" "}
+          <Link
+            to={`/c/${row.id}`}
+            className="font-medium text-(--color-accent-text) underline decoration-1 underline-offset-[3px]"
+          >
+            {payload.labels.show}
+          </Link>
+        </span>
+      </p>
+      <p className="mt-1 text-xs text-(--color-text-faint)">
+        {payload.labels.rule} {row.rule}
+      </p>
+      <div className="mt-4 border-t border-(--color-border) pt-3.5">
+        <ChangeActions change={row} labels={payload.labels} noticeLabels={payload.notice_labels} />
+      </div>
+    </li>
+  );
+}
+
 /** The decision inbox: every proposed decision, newest first, filterable by
  * project. Acting on a row removes it at once (one click, no dialog); the
  * notice offers Undo, which brings the row back. The list reloads in the
@@ -91,6 +153,7 @@ export function Decide() {
   const [params, setParams] = useSearchParams();
   const project = params.get("project");
   const [data, setData] = useState<DecidePayload | null>(null);
+  const [changesData, setChangesData] = useState<ChangesPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const latest = useRef(0);
   // When the list request that `data` answers started.
@@ -100,11 +163,11 @@ export function Decide() {
   const load = useCallback(() => {
     const request = ++latest.current;
     const started = Date.now();
-    api
-      .proposedDecisions(project)
-      .then((payload) => {
+    Promise.all([api.proposedDecisions(project), api.changes()])
+      .then(([payload, changePayload]) => {
         if (request === latest.current) {
           setData(payload);
+          setChangesData(changePayload);
           setLoadedAt(started);
           setError(null);
         }
@@ -130,6 +193,9 @@ export function Decide() {
     entries.filter((entry) => showsOutcome(entry, loadedAt)).map((entry) => entry.meta.recordId),
   );
   const items = data.items.filter((item) => !acted.has(item.id));
+  const changeRows = (changesData?.items ?? []).filter(
+    (item) => !acted.has(changeKey(item.id)) && (project === null || item.project.id === project),
+  );
   const count = Math.max(data.count - acted.size, 0);
   const countLabel =
     count === 0
@@ -145,7 +211,7 @@ export function Decide() {
       {countLabel && <p className="mt-1.5 text-sm text-(--color-text-faint)">{countLabel}</p>}
 
       <div className="mt-5">
-        <DecisionGuideToggle language={data.language} defaultOpen={data.count === 0} />
+        <DecisionGuideToggle language={data.language} defaultOpen={data.count === 0 && (changesData?.count ?? 0) === 0} />
       </div>
 
       {data.projects.length > 1 && (
@@ -167,7 +233,33 @@ export function Decide() {
         </nav>
       )}
 
-      {items.length === 0 ? (
+      {changesData?.policy_error && (
+        <div className="mt-6">
+          <Callout tone="danger">{changesData.policy_error}</Callout>
+        </div>
+      )}
+      {changesData !== null && changesData.broken.length > 0 && (
+        <div className="mt-6">
+          <Callout tone="danger">
+            {changesData.broken.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </Callout>
+        </div>
+      )}
+      {changesData !== null && changeRows.length > 0 && (
+        <section className="mt-8" aria-label={changesData.heading}>
+          <h2 className="kos-heading">{changesData.heading}</h2>
+          <p className="mt-1 text-sm text-(--color-text-muted)">{changesData.intro}</p>
+          <ul className="mt-4 space-y-3">
+            {changeRows.map((row) => (
+              <ChangeRow key={row.id} row={row} payload={changesData} />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {items.length === 0 && changeRows.length > 0 ? null : items.length === 0 ? (
         <div className="mt-8">
           <EmptyState title={data.empty.title} body={data.empty.body} icon={<Inbox size={28} strokeWidth={1.5} />} action={<></>} />
         </div>

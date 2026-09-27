@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../api/client";
-import type { EditableMetadata, RecordPayload, WriteFailure } from "../api/types";
-import { interfaceReference, write } from "../api/write";
+import type { EditableMetadata, RecordPayload, WriteFailure, WriteResult } from "../api/types";
+import { interfaceReference, isProposed, write } from "../api/write";
 import { useApi } from "../hooks/useApi";
 import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { useShell } from "../components/Shell";
@@ -120,7 +120,8 @@ function Editor({
   const bodyChanged = draft.body !== saved.body;
   const dirty = bodyChanged || Object.keys(changes).length > 0;
   const needsConfirmation = editing.body_change_needs_confirmation && bodyChanged;
-  const { blocker } = useUnsavedChanges(dirty);
+  const { blocker, allowNextNavigation } = useUnsavedChanges(dirty);
+  const navigate = useNavigate();
 
   const save = useCallback(async () => {
     if (!dirty || status.kind === "saving" || (needsConfirmation && !nonMaterial)) return;
@@ -131,21 +132,41 @@ function Editor({
       ...(bodyChanged ? { body: draft.body } : {}),
       ...(needsConfirmation ? { confirm_non_material: true, change_reference: interfaceReference("edit") } : {}),
     });
-    if (outcome.ok) {
+    if (outcome.ok && isProposed(outcome.data)) {
+      // The review rules held the edit back: the page is unchanged, and the
+      // proposed change waits in Decide.
+      allowNextNavigation();
+      refreshNav();
+      navigate(`/c/${outcome.data.proposal.id}`);
+    } else if (outcome.ok) {
+      const written = outcome.data as WriteResult;
       // The returned hash is the revision now on disk: the next save sends it.
-      setSha(outcome.data.content_sha256);
+      setSha(written.content_sha256);
       const next = { ...draft, title: draft.title.trim() };
       setSaved(next);
       setDraft(next);
       setNonMaterial(false);
-      setStatus({ kind: "saved", at: new Date(), indexError: outcome.data.index.error });
+      setStatus({ kind: "saved", at: new Date(), indexError: written.index.error });
       if ("title" in changes) refreshNav();
     } else if (outcome.failure.error === "conflict") {
       setStatus({ kind: "conflict" });
     } else {
       setStatus({ kind: "failed", failure: outcome.failure });
     }
-  }, [dirty, status.kind, needsConfirmation, nonMaterial, record.id, sha, changes, bodyChanged, draft, refreshNav]);
+  }, [
+    dirty,
+    status.kind,
+    needsConfirmation,
+    nonMaterial,
+    record.id,
+    sha,
+    changes,
+    bodyChanged,
+    draft,
+    refreshNav,
+    allowNextNavigation,
+    navigate,
+  ]);
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {

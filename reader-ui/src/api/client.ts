@@ -3,6 +3,8 @@
 // there is no base URL to configure and no CORS handling needed.
 
 import type {
+  ChangeDetail,
+  ChangesPayload,
   ComparePayload,
   DecidePayload,
   DeletePreview,
@@ -75,6 +77,8 @@ export const api = {
   syncConflicts: () => request<ConflictsPayload>("/api/sync/conflicts"),
   syncSetup: () => request<SyncSetup>("/api/sync/setup"),
   templates: () => request<TemplatesPayload>("/api/templates"),
+  changes: () => request<ChangesPayload>("/api/changes"),
+  change: (id: string) => request<ChangeDetail>(`/api/changes/${encodeURIComponent(id)}`),
   pageDeletion: (id: string) => request<DeletePreview>(`/api/records/${encodeURIComponent(id)}/delete-preview`),
   folderDeletion: (projectId: string, path: string) =>
     request<DeletePreview>(

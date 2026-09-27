@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { api } from "../api/client";
 import type { PageTemplate, TemplatesPayload, WriteFailure } from "../api/types";
-import { interfaceReference, write } from "../api/write";
+import { interfaceReference, isProposed, write } from "../api/write";
 import { useApi } from "../hooks/useApi";
 import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { useShell } from "../components/Shell";
@@ -187,7 +187,8 @@ function NewRecordForm({
     if (outcome.ok) {
       allowNextNavigation();
       refreshNav();
-      navigate(`/r/${outcome.data.id}`);
+      // Held back by the review rules: show the proposed change instead.
+      navigate(isProposed(outcome.data) ? `/c/${outcome.data.proposal.id}` : `/r/${outcome.data.id}`);
     } else {
       setSaving(false);
       setFailure(outcome.failure);

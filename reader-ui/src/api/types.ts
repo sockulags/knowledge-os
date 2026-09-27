@@ -655,3 +655,72 @@ export interface TemplatesPayload {
     string
   >;
 }
+
+/** One write the review rules held back (GET /api/changes). */
+export interface ProposedChange {
+  id: string;
+  action: "create" | "edit";
+  kind_label: string;
+  title: string;
+  record: { id: string; exists: boolean; title: string | null };
+  excerpt: string;
+  project: { id: string; title: string };
+  proposed_by: { source: string; label: string; kind: string | null };
+  proposed_at: string;
+  proposed_display: string | null;
+  proposed_exact: string | null;
+  rule: string;
+  effect: string;
+  /** An edit made against a revision the page no longer has: discard only. */
+  stale: boolean;
+  /** The proposal file's hash, sent back with accept and discard. */
+  content_sha256: string;
+  actions: { accept: boolean; discard: boolean };
+  outcomes: { accept: string; discard: string };
+}
+
+export type ChangeLabels = Record<
+  | "accept"
+  | "discard"
+  | "show"
+  | "accepted_create"
+  | "accepted_edit"
+  | "discarded"
+  | "stale"
+  | "rule"
+  | "metadata_heading"
+  | "body_heading"
+  | "no_body_change"
+  | "current"
+  | "proposed",
+  string
+>;
+
+export interface ChangesPayload {
+  heading: string;
+  intro: string;
+  count: number;
+  items: ProposedChange[];
+  broken: string[];
+  policy_error: string | null;
+  labels: ChangeLabels;
+  notice_labels: DecisionLanguage["labels"];
+}
+
+export interface ChangeDetail extends ProposedChange {
+  /** A new page, rendered. */
+  body_html: string | null;
+  /** An edit: fields that change, and the text as a paragraph diff (current left, proposed right). */
+  metadata_changes: { field: string; before: unknown; after: unknown }[];
+  blocks: DiffBlock[];
+  summary: string | null;
+  labels: ChangeLabels;
+  notice_labels: DecisionLanguage["labels"];
+}
+
+/** A write the review rules held back (202 from create or edit). */
+export interface ProposedWriteResult {
+  status: "proposed";
+  proposal: { id: string; action: "create" | "edit"; record_id: string; title: string; rule: string; message: string };
+  commit: CommitInfo | null;
+}

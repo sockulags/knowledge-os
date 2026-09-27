@@ -12,6 +12,7 @@ Start with `SYSTEM.md`, `README.md`, and the generated files under `indexes/`. U
 - `skills/` contains operational guidance for agents.
 - `templates/` contains page templates for the app's *New page*; they are not records.
 - An `assets/` folder next to pages holds the images and files those pages link to; they are not records.
+- `proposals/` holds writes the review rules in `knowledge-os.toml` held back; they are not records and not knowledge until a person accepts them.
 - `indexes/` contains rebuildable catalog artifacts, not a second source of truth.
 - `tooling/` is for small local support material.
 

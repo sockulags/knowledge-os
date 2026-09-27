@@ -29,6 +29,7 @@ edited while the server is running is visible on the next request
 from __future__ import annotations
 
 import hashlib
+import posixpath
 import re
 import sqlite3
 from dataclasses import dataclass, replace
@@ -75,6 +76,21 @@ from knowledge_os.mutations import (
     supersede_decision,
     update_record_text,
     withdraw_decision,
+)
+from knowledge_os.review import (
+    BrokenProposal,
+    Proposal,
+    ProposalNotFoundError,
+    ReviewError,
+    ReviewRule,
+    Writer,
+    accept_proposal,
+    discard_proposal,
+    list_proposals,
+    load_policy,
+    load_proposal,
+    needs_review,
+    propose,
 )
 from knowledge_os.skills import Skill, load_skills
 from knowledge_os.templates import Template, fill as fill_template, list_templates
@@ -163,6 +179,17 @@ __all__ = [
     # Page templates and attachments (issue #85).
     "Template",
     "page_templates",
+    # Configurable review (issue #86).
+    "Proposal",
+    "BrokenProposal",
+    "ProposedWrite",
+    "ReviewRule",
+    "review_policy",
+    "review_check",
+    "proposed_changes",
+    "proposed_change",
+    "accept_change",
+    "discard_change",
     "AttachResult",
     "attach_file",
     "attachment_file",
@@ -673,7 +700,7 @@ def create_record(
     body: str,
     project_path: str | None = None,
     agent: AgentIdentity | None = None,
-) -> WriteResult:
+) -> WriteResult | ProposedWrite:
     """Create one knowledge, project, or memory record with ``kos capture``'s
     rules: create-only, draft or active (decisions draft only), and for a
     project record an optional ``project_path`` relative to
@@ -691,6 +718,15 @@ def create_record(
         given = candidate.get("provenance")
         candidate["provenance"] = [agent.provenance_entry(), *(given if isinstance(given, list) else [])]
     text = render_document(candidate, body).decode("utf-8")
+    if candidate.get("record_kind") != "decision":
+        scope = str(candidate.get("scope", ""))
+        project = scope.removeprefix("project:") if scope.startswith("project:") else None
+        folder = posixpath.dirname(project_path.replace("\\", "/").strip("/")) if project_path and project else ""
+        rule = _review_rule(workspace, _writer_of(candidate, agent), project, folder, "create")
+        if rule is not None:
+            provenance = candidate.get("provenance")
+            first = provenance[0] if isinstance(provenance, list) and provenance and isinstance(provenance[0], dict) else {}
+            return _proposed(workspace, "create", text, first, rule, agent, project_path=project_path)
     try:
         result = capture_record_text(
             workspace,
@@ -717,7 +753,7 @@ def edit_record(
     confirm_non_material: bool = False,
     change_reference: str | None = None,
     agent: AgentIdentity | None = None,
-) -> WriteResult:
+) -> WriteResult | ProposedWrite:
     """Edit one record's body and metadata with ``kos update``'s rules.
 
     ``changes`` replaces top-level metadata fields (``None`` removes one) on
@@ -786,6 +822,16 @@ def edit_record(
         ):
             metadata["provenance"] = [*provenance, agent.provenance_entry()]
     text = render_document(metadata, base.body if body is None else body).decode("utf-8")
+    if base.metadata.get("record_kind") != "decision":
+        relative = workspace.relative(current.path)
+        scope = str(base.metadata["scope"])
+        project = scope.removeprefix("project:") if scope.startswith("project:") else None
+        prefix = f"projects/{project}/"
+        folder = posixpath.dirname(relative[len(prefix) :]) if project and relative.startswith(prefix) else ""
+        rule = _review_rule(workspace, _writer_of(metadata, agent, edit=True), project, folder, "edit")
+        if rule is not None:
+            proposer = agent.provenance_entry() if agent is not None else _interface_provenance("edit")[0]
+            return _proposed(workspace, "edit", text, proposer, rule, agent, base_sha256=expected_sha256)
 
     try:
         result = update_record_text(
@@ -1488,3 +1534,153 @@ def file_resolver(workspace: Workspace) -> Callable[[str], str | None]:
         return FILES_ROUTE + quote(target) if attachment_file(workspace, target) is not None else None
 
     return resolve
+
+
+# ---------------------------------------------------------------------------
+# Configurable review: proposed changes (issue #86)
+# ---------------------------------------------------------------------------
+
+#: The provenance kind the Referat plugin's imports carry.
+_REFERAT_KIND = "referat-meeting"
+
+
+@dataclass(frozen=True)
+class ProposedWrite:
+    """A write the review rules held back: it is stored as a proposed change
+    that waits in Decide, and nothing else was written."""
+
+    proposal_id: str
+    action: str  # "create" or "edit"
+    record_id: str
+    title: str
+    rule: str
+    commit: CommitOutcome | None = None
+
+
+def _writer_of(metadata: Mapping[str, Any], agent: AgentIdentity | None, *, edit: bool = False) -> Writer:
+    if agent is not None:
+        return Writer("agent", agent.client)
+    if not edit:
+        provenance = metadata.get("provenance")
+        if isinstance(provenance, list) and any(
+            isinstance(entry, dict) and entry.get("kind") == _REFERAT_KIND for entry in provenance
+        ):
+            return Writer("referat")
+    return Writer("person")
+
+
+def review_policy(workspace: Workspace) -> tuple[ReviewRule, ...]:
+    """The review rules; a policy that cannot be read refuses every governed
+    write rather than letting it through unreviewed."""
+
+    try:
+        return load_policy(workspace)
+    except ReviewError as exc:
+        raise WriteError("validation", f"the review rules cannot be used, so nothing was written: {exc}") from exc
+
+
+def _review_rule(
+    workspace: Workspace, writer: Writer, project: str | None, folder: str, write: str
+) -> ReviewRule | None:
+    return needs_review(review_policy(workspace), writer=writer, project=project, folder=folder, write=write)
+
+
+def review_check(workspace: Workspace, *, writer: str, project: str | None, folder: str, write: str) -> ReviewRule | None:
+    """Whether a write would go to review, without writing: for a caller such
+    as the Referat import that orders its writes around the answer."""
+
+    kind, _, client = writer.partition(":")
+    return _review_rule(workspace, Writer(kind, client or None), project, folder, write)
+
+
+def _proposal_message(verb: str, proposal: Proposal) -> str:
+    what = proposal.title if proposal.action == "create" else f"edit to {proposal.title}"
+    return f"{verb} {what}"
+
+
+def _proposed(
+    workspace: Workspace,
+    action: str,
+    text: str,
+    proposer: Mapping[str, Any],
+    rule: ReviewRule,
+    agent: AgentIdentity | None,
+    *,
+    project_path: str | None = None,
+    base_sha256: str | None = None,
+) -> ProposedWrite:
+    try:
+        proposal = propose(
+            workspace,
+            action=action,
+            text=text,
+            proposed_by=proposer,
+            rule=rule.describe(),
+            project_path=project_path,
+            base_sha256=base_sha256,
+        )
+    except ReviewError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    except (CaptureError, MutationError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+    message = _proposal_message("Propose", proposal)
+    if agent is not None:
+        message = f"{agent.display_name}: {message}"
+    commit = gitsync.auto_commit(workspace, [proposal.path], message)
+    return ProposedWrite(proposal.id, proposal.action, proposal.record_id, proposal.title, proposal.rule, commit)
+
+
+def proposed_changes(workspace: Workspace) -> tuple[list[Proposal], list[BrokenProposal]]:
+    return list_proposals(workspace)
+
+
+def proposed_change(workspace: Workspace, proposal_id: str) -> Proposal:
+    try:
+        return load_proposal(workspace, proposal_id)
+    except ProposalNotFoundError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+    except ReviewError as exc:
+        raise WriteError("validation", str(exc)) from exc
+
+
+def accept_change(workspace: Workspace, proposal_id: str, *, expected_sha256: str | None = None) -> WriteResult:
+    """Apply one proposed change and commit the page with the removed proposal."""
+
+    proposal = proposed_change(workspace, proposal_id)
+    try:
+        result = accept_proposal(workspace, proposal_id, expected_sha256=expected_sha256)
+    except MutationIndexError as exc:
+        written = exc.result
+        outcome = WriteResult(written.id, written.status, written.path, written.sha256, False, None, str(exc))
+    except ProposalNotFoundError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+    except StaleRevisionError as exc:
+        if proposal.action == "edit" and exc.expected == proposal.base_sha256:
+            raise WriteError(
+                "conflict",
+                f"“{proposal.title}” changed after this edit was proposed, so it was not applied. "
+                "Discard the proposed edit; it can be proposed again against the current page.",
+                current_sha256=exc.actual,
+            ) from exc
+        raise _write_error(exc) from exc
+    except ReviewError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    except (CaptureError, MutationError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+    else:
+        outcome = WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
+    commit = gitsync.auto_commit(workspace, [outcome.path, proposal.path], _proposal_message("Accept", proposal))
+    return replace(outcome, commit=commit)
+
+
+def discard_change(workspace: Workspace, proposal_id: str, *, expected_sha256: str | None = None) -> ProposedWrite:
+    try:
+        proposal = discard_proposal(workspace, proposal_id, expected_sha256=expected_sha256)
+    except ProposalNotFoundError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+    except StaleRevisionError as exc:
+        raise _write_error(exc) from exc
+    except (ReviewError, WorkspaceError) as exc:
+        raise WriteError("validation", str(exc)) from exc
+    commit = gitsync.auto_commit(workspace, [proposal.path], _proposal_message("Discard proposed", proposal))
+    return ProposedWrite(proposal.id, proposal.action, proposal.record_id, proposal.title, proposal.rule, commit)
