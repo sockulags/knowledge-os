@@ -99,12 +99,18 @@ const connection = new AgentSideConnection(
             toolCallId: 'call-1',
             title: 'search',
             kind: 'search',
-            status: 'in_progress'
+            status: 'in_progress',
+            rawInput: { query: 'retry' }
           }
         })
         await client.sessionUpdate({
           sessionId: params.sessionId,
-          update: { sessionUpdate: 'tool_call_update', toolCallId: 'call-1', status: 'completed' }
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'call-1',
+            status: 'completed',
+            rawOutput: '{"results":[]}'
+          }
         })
         return { stopReason: 'end_turn' }
       }

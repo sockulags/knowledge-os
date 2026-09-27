@@ -446,6 +446,13 @@ function setZoomLevel(level: (current: number) => number): void {
   chrome?.refreshZoom()
 }
 
+/** A menu command the reader UI carries out (New Page, Agent). */
+function sendToReader(command: string): void {
+  const window = mainWindow
+  if (window === null || window.isDestroyed() || state.kind !== 'ready') return
+  window.webContents.send(IPC.readerCommand, command)
+}
+
 /** Runs a command from the in-app menu, its keyboard shortcut, or the native menu on macOS. */
 function runCommand(command: string): void {
   const window = mainWindow
@@ -456,6 +463,10 @@ function runCommand(command: string): void {
     return
   }
   switch (command) {
+    case COMMAND.newPage:
+      return sendToReader('new-page')
+    case COMMAND.agent:
+      return sendToReader('toggle-agent')
     case COMMAND.open:
       return void chooseAndOpen()
     case COMMAND.create:

@@ -19,7 +19,9 @@ export const IPC = {
   agentPermission: 'agent:permission',
   agentRestart: 'agent:restart',
   agentClose: 'agent:close',
-  agentEvent: 'agent:event'
+  agentEvent: 'agent:event',
+  /** A menu command for the reader UI: 'new-page' or 'toggle-agent'. */
+  readerCommand: 'reader:command'
 } as const
 
 export interface RecentWorkspace {
@@ -92,4 +94,6 @@ export interface DesktopApi {
     close: () => Promise<void>
     onEvent: (callback: (event: unknown) => void) => () => void
   }
+  /** Menu commands meant for the reader UI (New Page, Agent). */
+  onReaderCommand: (callback: (command: string) => void) => () => void
 }

@@ -198,6 +198,13 @@ my-repo", and the commit reads `Claude Code: Create <title>`. This is a guardrai
 agent with shell access can still run `kos` or edit files; provenance and Git history make its
 writes visible.
 
+**Inside the app.** The desktop app has its own agent panel (Ctrl+J, or the robot button in the
+reader): it runs the Claude Code or Codex you installed over the Agent Client Protocol with
+`kos mcp` as its only tools, so it has exactly these limits. *Ask* answers with links to the pages
+it read; *Draft* writes notes and proposes decisions, shown as written or proposed by the agent "in
+Knowledge OS app". File → New Page (Ctrl+N) can start a page from one line with the agent. See
+"In-app agents (ACP)" in [`desktop/README.md`](desktop/README.md).
+
 **Setup.** Install the desktop app (it puts `kos` on PATH with the MCP server built in) or, in a
 checkout, `pip install -e ".[reader,mcp]"`. Then:
 

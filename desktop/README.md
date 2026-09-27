@@ -291,7 +291,36 @@ process exposes it to the reader UI only, as `window.kosDesktop.agent`
 (`list`, which says whether each adapter is installed, `installAdapter`, with
 `install` progress events, `start`, which refuses with `adapter-missing` until
 the adapter is installed, `prompt`, `cancel`, `respondPermission`, `restart`,
-`close`, `onEvent`); the panel that uses it is #83.
+`close`, `onEvent`).
+
+**The agent panel** (#83) is part of the reader UI
+(`reader-ui/src/components/AgentPanel.tsx`, state in `lib/agentStore.ts`, the
+prompts in `lib/agentPrompt.ts`). It opens from the robot button in the
+reader's header or View → Agent (Ctrl+J), and is offered only in the desktop
+app, where `window.kosDesktop.agent` exists. The first time, it lists the
+providers and offers to install the chosen one's adapter. A request is about
+the open knowledge base and the page or project in view ("About: Retry
+policy"), and goes in one of two modes:
+
+- **Ask** answers from pages the agent searched and read, and writes nothing;
+  the answer links the pages, and "Pages used" lists every page it read.
+- **Draft** writes a note or proposes a decision with `write_note` and
+  `propose_decision`; "Written" links what it wrote, which shows as written or
+  proposed by the agent in Knowledge OS app, and a write held back by the
+  review rules waits in Decide.
+
+The mode only steers the words of the prompt; what the agent can do is fixed
+by `kos mcp`. Every tool call asks for permission in the panel. Sign-in
+trouble shows the command to run and *Try again*; a crashed agent offers
+*Restart*; *New conversation* ends the session. Nothing of the conversation is
+saved.
+
+File → New Page (Ctrl+N) opens a new page in the current project (the first
+project when none is in view). In the app it has *Start with the agent*: one
+line, and the agent drafts the title and body from the knowledge base without
+writing anything, for the person to edit and save. New Knowledge Base moved
+to Ctrl+Shift+N. The reader receives these menu commands over
+`reader:command` (`new-page`, `toggle-agent`).
 
 **Adding a provider.** Write its adapter lock with
 `scripts/lock-adapter.mjs`, add a module under `src/main/agents/providers/`

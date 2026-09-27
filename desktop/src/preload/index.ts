@@ -11,6 +11,13 @@ import { IPC, type DesktopApi, type ShellState } from '../shared/types'
 import { mountWindowChrome } from '../chrome/windowChrome'
 
 const api: DesktopApi = {
+  onReaderCommand: (callback) => {
+    const listener = (_event: IpcRendererEvent, command: string): void => callback(command)
+    ipcRenderer.on(IPC.readerCommand, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC.readerCommand, listener)
+    }
+  },
   getSidebarWidth: () => ipcRenderer.sendSync(IPC.getSidebarWidth),
   setSidebarWidth: (width) => ipcRenderer.send(IPC.setSidebarWidth, width),
   getState: () => ipcRenderer.invoke(IPC.getState),

@@ -1,0 +1,114 @@
+"""The JSON API: one Starlette ``Route`` per endpoint, assembled here.
+
+Every endpoint module in this package is a non-adapter module (no
+``knowledge_os.*`` import — see ``tests/test_reader_readonly.py``'s
+``OneAdapterRuleTests``, which now walks this package instead of the old
+``views/``), built the same way the original HTML views were: pure
+functions over ``library.Library`` and its dataclasses, reshaped into JSON
+through ``api/common.py`` and translated to sentences through
+``language.py``/``strings.py``, never re-deriving trust, lifecycle, or
+grouping rules of their own.
+"""
+
+from __future__ import annotations
+
+from starlette.routing import Route
+
+from . import (
+    changes,
+    decisions,
+    docs,
+    everything,
+    files,
+    home,
+    project,
+    record,
+    search,
+    skill,
+    structure,
+    sync,
+    templates,
+    workspace_nav,
+    write,
+)
+
+
+def build_api_routes() -> list[Route]:
+    return [
+        Route("/api/session", write.session_view, name="api-session"),
+        Route("/api/sync/status", sync.status_view, name="api-sync-status"),
+        Route("/api/sync", sync.sync_view, methods=["POST"], name="api-sync"),
+        Route("/api/sync/conflicts", sync.conflicts_view, name="api-sync-conflicts"),
+        Route("/api/sync/resolve", sync.resolve_view, methods=["POST"], name="api-sync-resolve"),
+        Route("/api/sync/abort", sync.abort_view, methods=["POST"], name="api-sync-abort"),
+        Route("/api/sync/setup", sync.setup_view, name="api-sync-setup"),
+        Route("/api/sync/setup/init", sync.setup_init_view, methods=["POST"], name="api-sync-setup-init"),
+        Route(
+            "/api/sync/setup/identity", sync.setup_identity_view, methods=["POST"], name="api-sync-setup-identity"
+        ),
+        Route("/api/sync/setup/check", sync.setup_check_view, methods=["POST"], name="api-sync-setup-check"),
+        Route("/api/sync/setup/connect", sync.setup_connect_view, methods=["POST"], name="api-sync-setup-connect"),
+        Route("/api/records", write.create_view, methods=["POST"], name="api-record-create"),
+        Route("/api/records/{record_id}", write.edit_view, methods=["PATCH"], name="api-record-edit"),
+        Route("/api/records/{record_id}/accept", write.accept_view, methods=["POST"], name="api-record-accept"),
+        Route("/api/records/{record_id}/withdraw", write.withdraw_view, methods=["POST"], name="api-record-withdraw"),
+        Route(
+            "/api/records/{record_id}/supersede", write.supersede_view, methods=["POST"], name="api-record-supersede"
+        ),
+        Route("/api/records/{record_id}/move", structure.move_page_view, methods=["POST"], name="api-record-move"),
+        Route(
+            "/api/records/{record_id}/rename", structure.rename_page_view, methods=["POST"], name="api-record-rename"
+        ),
+        Route(
+            "/api/records/{record_id}/delete", structure.delete_page_view, methods=["POST"], name="api-record-delete"
+        ),
+        Route(
+            "/api/records/{record_id}/delete-preview",
+            structure.delete_page_preview_view,
+            name="api-record-delete-preview",
+        ),
+        Route(
+            "/api/projects/{project_id}/folders/delete",
+            structure.delete_folder_view,
+            methods=["POST"],
+            name="api-folder-delete",
+        ),
+        Route(
+            "/api/projects/{project_id}/folders/delete-preview",
+            structure.delete_folder_preview_view,
+            name="api-folder-delete-preview",
+        ),
+        Route("/api/projects", structure.create_project_view, methods=["POST"], name="api-project-create"),
+        Route(
+            "/api/projects/{project_id}/folders",
+            structure.create_folder_view,
+            methods=["POST"],
+            name="api-folder-create",
+        ),
+        Route(
+            "/api/projects/{project_id}/folders/move",
+            structure.move_folder_view,
+            methods=["POST"],
+            name="api-folder-move",
+        ),
+        Route("/api/preview", write.preview_view, methods=["POST"], name="api-preview"),
+        Route("/api/attachments", files.attach_view, methods=["POST"], name="api-attachments"),
+        Route("/api/files/{path:path}", files.file_view, name="api-files"),
+        Route("/api/workspace", workspace_nav.workspace_view, name="api-workspace"),
+        Route("/api/nav", workspace_nav.nav_view, name="api-nav"),
+        Route("/api/home", home.view, name="api-home"),
+        Route("/api/decisions/proposed", decisions.proposed_view, name="api-decisions-proposed"),
+        Route("/api/projects/{project_id}", project.view, name="api-project"),
+        Route("/api/records/{record_id}", record.view, name="api-record"),
+        Route("/api/records/{record_id}/compare", record.compare_view, name="api-record-compare"),
+        Route("/api/skills/{skill_name}", skill.view, name="api-skill"),
+        Route("/api/docs/{path:path}", docs.view, name="api-docs"),
+        Route("/api/search", search.view, name="api-search"),
+        Route("/api/everything", everything.view, name="api-everything"),
+        Route("/api/templates", templates.view, name="api-templates"),
+        Route("/api/changes", changes.list_view, name="api-changes"),
+        Route("/api/changes/{change_id}", changes.detail_view, name="api-change"),
+        Route("/api/changes/{change_id}/accept", changes.accept_view, methods=["POST"], name="api-change-accept"),
+        Route("/api/changes/{change_id}/discard", changes.discard_view, methods=["POST"], name="api-change-discard"),
+        Route("/api/review/check", changes.check_view, name="api-review-check"),
+    ]

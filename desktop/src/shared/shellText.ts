@@ -14,6 +14,8 @@ export const SHELL_TEXT = {
     file: 'File',
     open: 'Open Knowledge Base…',
     create: 'New Knowledge Base…',
+    newPage: 'New Page',
+    agent: 'Agent',
     openRecent: 'Open Recent',
     noRecent: 'No recent knowledge bases',
     reopenOnStart: 'Reopen the Last Knowledge Base on Start',
