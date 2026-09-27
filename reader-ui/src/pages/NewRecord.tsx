@@ -103,6 +103,9 @@ function NewRecordForm({
   const [body, setBody] = useState("");
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<WriteFailure | null>(null);
+  // Attached files are stored next to the page, so once one is linked the
+  // folder cannot change without breaking the link.
+  const [folderLocked, setFolderLocked] = useState(false);
   const templates = useApi(() => api.templates(), []);
   const [template, setTemplate] = useState<PageTemplate | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<PageTemplate | null>(null);
@@ -249,8 +252,20 @@ function NewRecordForm({
               }}
             />
           </Field>
-          <Field label="Folder" hint={`Inside ${projectTitle}. Leave empty for the top level.`}>
-            <input className={`${inputClass} font-mono`} value={folder} onChange={(event) => setFolder(event.target.value)} />
+          <Field
+            label="Folder"
+            hint={
+              folderLocked
+                ? "Files are attached in this folder, so the page is created here."
+                : `Inside ${projectTitle}. Leave empty for the top level.`
+            }
+          >
+            <input
+              className={`${inputClass} font-mono`}
+              value={folder}
+              readOnly={folderLocked}
+              onChange={(event) => setFolder(event.target.value)}
+            />
           </Field>
           <Field label="Tags" hint="Comma separated">
             <input className={inputClass} value={tags} onChange={(event) => setTags(event.target.value)} />
@@ -259,7 +274,16 @@ function NewRecordForm({
             <input className={inputClass} value={related} onChange={(event) => setRelated(event.target.value)} />
           </Field>
         </div>
-        <MarkdownEditor value={body} onChange={setBody} />
+        <MarkdownEditor
+          value={body}
+          onChange={(next) => {
+            // A link into this folder's assets/ ties the page to the folder.
+            if (!folderLocked && /\]\(assets\//.test(next)) setFolderLocked(true);
+            setBody(next);
+          }}
+          path={`projects/${projectId}/${cleanFolder(folder) ? `${cleanFolder(folder)}/` : ""}${effectiveId || "new-page"}.md`}
+          attachTo={{ project: projectId, folder: cleanFolder(folder) }}
+        />
       </div>
 
       <UnsavedChangesDialog blocker={blocker} />

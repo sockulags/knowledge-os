@@ -336,6 +336,9 @@ export interface DeletePreview {
   deletable: boolean;
   records: { id: string; title: string; path: string }[];
   other_files: number;
+  /** A page's attached files deleted with it, and those kept because other pages use them. */
+  attachments: string[];
+  kept_attachments: string[];
   cleaned: { id: string; title: string; path: string; fields: string[] }[];
   linked: { id: string; title: string; path: string }[];
   blockers: string[];

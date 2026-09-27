@@ -15,7 +15,7 @@ from starlette.responses import Response
 from .. import markdown, strings
 from ..app import get_library, json_response, not_found
 from ..grouping import ProjectGroups, group_project_records, related_general_records
-from ..library import Library, Record, content_sha256, path_index
+from ..library import Library, Record, content_sha256, file_resolver, path_index
 from .common import (
     breadcrumb_for_record,
     project_tree_json,
@@ -88,7 +88,12 @@ async def view(request: Request) -> Response:
     # The page heading already shows the title; a new project's overview body
     # starts with that same heading, so drop it as the record page does.
     overview_body = strip_leading_h1(overview.body)
-    body_html = markdown.render(overview_body, source_path=overview.path, resolve_link=path_index(library).get)
+    body_html = markdown.render(
+        overview_body,
+        source_path=overview.path,
+        resolve_link=path_index(library).get,
+        resolve_file=file_resolver(request.app.state.workspace),
+    )
     headings = [h for h in markdown.headings(overview_body) if h[0] <= 3]
 
     return json_response(

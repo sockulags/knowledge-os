@@ -48,6 +48,7 @@ from ..library import (
     accept_record,
     create_record,
     edit_record,
+    file_resolver,
     path_index,
     supersede_record,
     withdraw_record,
@@ -327,5 +328,10 @@ async def preview_view(request: Request) -> Response:
     except WriteError as exc:
         return _write_error_response(exc)
     resolve = path_index(get_library(request)).get if source_path else None
-    html = markdown.render(strip_leading_h1(body), source_path=source_path, resolve_link=resolve)
+    html = markdown.render(
+        strip_leading_h1(body),
+        source_path=source_path,
+        resolve_link=resolve,
+        resolve_file=file_resolver(request.app.state.workspace),
+    )
     return json_response({"html": html})

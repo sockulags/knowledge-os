@@ -540,7 +540,12 @@ default. Importing creates:
   meeting reference, then the minutes' sections under Summary, Decisions,
   Action items, and Open questions. Sections with other headings are kept
   under their own heading; the transcript is added only when ticked. Voice
-  embeddings are never read.
+  embeddings are never read. The knowledge base's `meeting-notes` template
+  (see "Write pages" in the [main README](../README.md)) sets the order and
+  wording of those sections: a section whose name matches one of the
+  template's `## ` headings, ignoring case, takes that heading's place, the
+  template's headings the meeting has nothing for are left out, and other
+  sections follow. Without a usable template the order above is kept.
 - One draft decision per ticked item under the decisions heading, linked to
   the note with `related`. Decisions are drafts because of the approval
   policy; they govern nothing until someone accepts them.
