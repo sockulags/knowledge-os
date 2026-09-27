@@ -103,7 +103,8 @@ export function meetingPreview(
   meeting: Meeting,
   summaryId: string | null,
   existing: ExistingRecord[],
-  takenIds: ReadonlySet<string>
+  takenIds: ReadonlySet<string>,
+  template: string | null = null
 ): MeetingPreview {
   const summary =
     (summaryId !== null ? findSummary(meeting, summaryId) : null) ??
@@ -116,7 +117,8 @@ export function meetingPreview(
     folder: '',
     includeTranscript: false,
     decisions: candidates.map((candidate) => candidate.index),
-    now: new Date()
+    now: new Date(),
+    template
   })
   return {
     id: meeting.id,

@@ -1164,3 +1164,20 @@ DELETE_BLOCKERS: dict[str, str] = {
     "promoted": "“{title}” was started from the observation “{other}”, which points at it.",
     "raw_reference": "The raw material “{other}” refers to “{title}”, and raw material is never changed.",
 }
+
+# ---------------------------------------------------------------------------
+# Page templates (issue #85)
+# ---------------------------------------------------------------------------
+
+#: The template picker on New page. ``{folder}`` is the templates folder.
+TEMPLATES_LANGUAGE: dict[str, str] = {
+    "label": "Start from",
+    "hint": "Templates are Markdown files in the knowledge base's {folder}/ folder; add your own there.",
+    "built_in": "Built in",
+    "own": "From {path}",
+    "unusable": "Cannot be used: {error}",
+    "replace_title": "Replace what you have written?",
+    "replace_body": "Starting from “{title}” replaces the text in the editor with the template's text.",
+    "replace_confirm": "Use template",
+    "replace_cancel": "Keep my text",
+}

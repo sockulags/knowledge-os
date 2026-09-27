@@ -25,6 +25,7 @@ from . import (
     skill,
     structure,
     sync,
+    templates,
     workspace_nav,
     write,
 )
@@ -100,4 +101,5 @@ def build_api_routes() -> list[Route]:
         Route("/api/docs/{path:path}", docs.view, name="api-docs"),
         Route("/api/search", search.view, name="api-search"),
         Route("/api/everything", everything.view, name="api-everything"),
+        Route("/api/templates", templates.view, name="api-templates"),
     ]

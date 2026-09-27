@@ -70,6 +70,7 @@ from knowledge_os.mutations import (
     withdraw_decision,
 )
 from knowledge_os.skills import Skill, load_skills
+from knowledge_os.templates import Template, fill as fill_template, list_templates
 from knowledge_os.structure import (
     ChangedFile,
     DeleteBlocker,
@@ -152,6 +153,9 @@ __all__ = [
     "folder_deletion_plan",
     "delete_page",
     "delete_folder",
+    # Page templates and attachments (issue #85).
+    "Template",
+    "page_templates",
     # Agent writes (the MCP server, issue #59): the identity the write API
     # accepts and the parser the reader uses to name the agent.
     "AgentIdentity",
@@ -1365,3 +1369,17 @@ def sync_connect_remote(workspace: Workspace, url: str | None) -> ConnectOutcome
             "conflict", outcome.sync.detail or "the pull stopped on conflicts", conflicts=outcome.sync.conflicts
         )
     return outcome
+
+
+# ---------------------------------------------------------------------------
+# Page templates (issue #85)
+# ---------------------------------------------------------------------------
+
+
+def page_templates(workspace: Workspace, today: str | None = None) -> list[tuple[Template, str]]:
+    """Every template *New page* offers, each with its starting text for a
+    page created ``today`` (ISO, default this computer's date): ``{{date}}``
+    filled in. A template file that cannot be used carries its ``error``."""
+
+    day = today or date.today().isoformat()
+    return [(template, fill_template(template.body, day)) for template in list_templates(workspace)]

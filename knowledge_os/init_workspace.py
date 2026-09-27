@@ -17,14 +17,15 @@ from pathlib import Path
 
 from .index import rebuild_indexes
 from .model import ID_PATTERN
+from .templates import TEMPLATES_DIR, built_in_files
 from .workspace import MANAGED_DIRS, Workspace, exclusive_write
 
 MARKER = "knowledge-os.toml"
 
 #: Every directory a fresh workspace gets: the six managed record roots plus
 #: the conventional roots that ``docs/architecture.md`` and ``AGENTS.md``
-#: describe (``inbox/``, ``indexes/``, ``skills/``, ``tooling/``).
-LAYOUT_DIRS: tuple[str, ...] = (*MANAGED_DIRS, "inbox", "indexes", "skills", "tooling")
+#: describe (``inbox/``, ``indexes/``, ``skills/``, ``templates/``, ``tooling/``).
+LAYOUT_DIRS: tuple[str, ...] = (*MANAGED_DIRS, "inbox", "indexes", "skills", TEMPLATES_DIR, "tooling")
 
 #: Root-level ``README.md`` files are documentation, not records
 #: (``docs/architecture.md``, "Workspace and filesystem"). The texts match this
@@ -94,6 +95,17 @@ README_CONTENT: dict[str, str] = {
         "records and all discovery statuses for audit; context applies the separate\n"
         "trust and scope policy. Deleting both generated files leaves the Markdown\n"
         "corpus valid and `kos index` rebuilds them.\n"
+    ),
+    "templates": (
+        "# Templates\n\n"
+        "Page templates for *New page* live here as ordinary Markdown, one\n"
+        "`<name>.md` file each, with a lowercase kebab-case name. An optional\n"
+        "frontmatter block sets `title` and `description` (what the picker shows) and\n"
+        "`kind: note` or `kind: decision` (a decision template starts a proposal).\n"
+        "The body is the new page's starting text; `{{date}}` becomes the day the\n"
+        "page is created. A file named like a built-in template (`meeting-notes`,\n"
+        "`how-to`, `decision`) replaces it. Templates are not records: they are not\n"
+        "indexed or linted.\n"
     ),
     "tooling": (
         "# Tooling\n\n"
@@ -166,6 +178,8 @@ def init_workspace(path: Path, *, name: str | None = None) -> Path:
             readme = README_CONTENT.get(directory)
             if readme is not None:
                 exclusive_write(target / directory / "README.md", readme.encode("utf-8"))
+        for name, text in built_in_files().items():
+            exclusive_write(target / TEMPLATES_DIR / name, text.encode("utf-8"))
         exclusive_write(target / ".gitignore", GITIGNORE_CONTENT.encode("utf-8"))
         # The marker is written last: a failure before this point leaves no
         # half-made folder that other commands would mistake for a workspace.
