@@ -6,8 +6,7 @@
 // needs no agent installed and no network.
 
 import { spawn } from 'child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
-import { createRequire } from 'module'
+import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -19,14 +18,14 @@ import {
   type LaunchHost,
   type ProviderStatus
 } from '../contract'
+import { checkLock, installFolderName } from '../installer'
 
 const MOCK_AGENT = join(dirname(fileURLToPath(import.meta.url)), 'mockAgent.mjs')
-const requireFromHere = createRequire(import.meta.url)
 
+/** A host whose adapters are "installed" at a fixed place; the suite runs the mock agent instead. */
 export const testHost: LaunchHost = {
   node: { command: process.execPath, env: { MOCK_MARKER: 'host-node-env' } },
-  resolvePackageFile: (packageName, file) =>
-    join(dirname(requireFromHere.resolve(`${packageName}/package.json`)), file),
+  adapterEntry: (adapter) => join('/adapters', installFolderName(adapter), adapter.entry),
   env: process.env
 }
 
@@ -122,27 +121,20 @@ export function describeConformance(provider: AgentProvider): void {
         .join('')
     }
 
-    it('launches its adapter from the shipped package with Node', () => {
+    it('launches its installed adapter with Node', () => {
       const spec = provider.launchSpec(READY, testHost)
       expect(spec.command).toBe(process.execPath)
-      const entry = testHost.resolvePackageFile(
-        provider.adapter.packageName,
-        provider.adapter.entry
-      )
-      expect(spec.args).toEqual([entry])
-      expect(existsSync(entry)).toBe(true)
+      expect(spec.args).toEqual([testHost.adapterEntry(provider.adapter)])
       expect(spec.env['MOCK_MARKER']).toBe('host-node-env')
-      const pkg = JSON.parse(
-        readFileSync(
-          join(
-            dirname(requireFromHere.resolve(`${provider.adapter.packageName}/package.json`)),
-            'package.json'
-          ),
-          'utf8'
-        )
-      ) as { version: string }
-      // The installed adapter is exactly the version the provider was tested with.
-      expect(pkg.version).toBe(provider.adapter.version)
+    })
+
+    it('locks its adapter to exact, hashed npm packages without platform binaries', () => {
+      const lock = provider.adapter
+      expect(() => checkLock(lock)).not.toThrow()
+      const paths = lock.packages.map((item) => item.path)
+      expect(new Set(paths).size).toBe(paths.length)
+      // The agents' own binaries are optional platform packages the adapter never needs.
+      expect(paths.filter((path) => /-(linux|darwin|win32)-(x64|arm64)/.test(path))).toEqual([])
     })
 
     it('starts a session with kos mcp as the only MCP server and no file or terminal access', async () => {

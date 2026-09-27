@@ -15,6 +15,7 @@
 // providers are unit-testable outside Electron.
 
 import type { AuthMethod, SessionNotification } from '@agentclientprotocol/sdk'
+import type { AdapterLock } from './installer'
 
 /** Whether the agent can be used on this computer, and why not. */
 export interface ProviderStatus {
@@ -39,8 +40,11 @@ export interface LaunchHost {
    * with ELECTRON_RUN_AS_NODE=1, so no separate Node or npx is needed.
    */
   node: { command: string; env: Record<string, string> }
-  /** The absolute path of a file inside an installed package, e.g. an adapter's entry. */
-  resolvePackageFile(packageName: string, file: string): string
+  /**
+   * The installed adapter's entry file. Adapters are installed on demand
+   * (installer.ts); a provider is only launched once its adapter is.
+   */
+  adapterEntry(adapter: AdapterLock): string
   /** The environment the app runs in; a provider copies only what it needs to. */
   env: NodeJS.ProcessEnv
 }
@@ -88,8 +92,11 @@ export interface AgentProvider {
    * writes appear ("Written by Claude Code in …"); see agent_identity.py.
    */
   readonly mcpClientName: string
-  /** The ACP adapter shipped with the app, pinned to the version tested. */
-  readonly adapter: { packageName: string; version: string; entry: string }
+  /**
+   * The ACP adapter, installed on demand from this lock: the exact version
+   * tested and every package it needs, each with its integrity hash.
+   */
+  readonly adapter: AdapterLock
   readonly capabilities: ProviderCapabilities
   /** Find the agent on this computer. Never throws; a problem is a status. */
   detect(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Promise<ProviderStatus>

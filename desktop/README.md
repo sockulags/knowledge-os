@@ -230,8 +230,8 @@ it is. A provider says:
 
 - who it is (`id`, `displayName`, and `mcpClientName`, the name its writes
   appear under: "Written by Claude Code in Knowledge OS app");
-- where its adapter is (`adapter`: the npm package, the exact version shipped,
-  and its entry file);
+- its adapter (`adapter`: a lock of the exact version tested and every npm
+  package it needs, with integrity hashes, installed on demand);
 - how to find the agent on this computer (`detect()`, which never throws: a
   missing agent is `not-installed` with a sentence saying how to install it);
 - how to start the adapter (`launchSpec()`);
@@ -242,16 +242,32 @@ it is. A provider says:
 
 | Provider | Adapter (pinned) | Runs | Limits |
 | --- | --- | --- | --- |
-| Claude Code | `@agentclientprotocol/claude-agent-acp` 0.81.2 | your `claude` (`CLAUDE_CODE_EXECUTABLE`) | no built-in tools (`tools: []`), none of your MCP servers, hooks, or settings (`strictMcpConfig`, `settingSources: []`), and no permission-skipping mode |
-| Codex | `@agentclientprotocol/codex-acp` 1.13.1 | your `codex` (`CODEX_PATH`) | starts in `read-only` mode: editing files and network access need your permission; it can still read files in the knowledge base folder, and MCP servers in your own `~/.codex/config.toml` also load |
+| Claude Code | `@agentclientprotocol/claude-agent-acp` 0.81.2 (104 packages) | your `claude` (`CLAUDE_CODE_EXECUTABLE`) | no built-in tools (`tools: []`), none of your MCP servers, hooks, or settings (`strictMcpConfig`, `settingSources: []`), and no permission-skipping mode (`allowDangerouslySkipPermissions: false`) |
+| Codex | `@agentclientprotocol/codex-acp` 1.13.1 (19 packages) | your `codex` (`CODEX_PATH`) | starts in `read-only` mode: editing files and network access need your permission; it can still read files in the knowledge base folder, and MCP servers in your own `~/.codex/config.toml` also load |
 
-The adapters ship with the app and run with Electron's own binary as Node
-(`ELECTRON_RUN_AS_NODE=1`), straight from `app.asar`; no Node, npm, or network
-is needed to start one. The agents' own platform binaries, which the adapter
-packages would otherwise bring (hundreds of MB each), are left out of the
-build (`electron-builder.yml`): the adapters run the `claude` or `codex` you
-installed and signed in to. On Windows a native `claude.exe` is preferred over
-an npm `claude.cmd` shim.
+**Adapters are installed on demand**, not shipped: the Claude adapter depends
+on Anthropic's proprietary Claude Agent SDK, which you fetch yourself this
+way, as `npx` would. Each provider's adapter is a lock in
+`src/main/agents/adapters/*.lock.json`, written by
+`node scripts/lock-adapter.mjs <package>@<version> <entry>`: every package in
+its dependency tree at the exact version tested, with its tarball URL on
+`registry.npmjs.org` and its `sha512` integrity hash. Optional dependencies,
+which include the agents' own platform binaries of hundreds of MB, are left
+out: the adapters run the `claude` or `codex` you installed and signed in to.
+On Windows a native `claude.exe` is preferred over an npm `claude.cmd` shim.
+
+`installer.ts` installs a lock into `agents\<adapter>@<version>` in the
+app's user-data folder: it accepts only https tarballs from the npm registry,
+downloads through Electron's `net.fetch` (so the system proxy applies), checks
+every tarball against its hash before writing it, extracts it without running
+any install script and refusing any path outside the package, writes
+everything to a staging folder, and renames that into place with a marker
+last, so a folder that exists is a whole install. A failed or interrupted
+install leaves nothing behind; earlier versions are removed after an update.
+No Node or npm is needed on the computer: the adapter then runs with
+Electron's own binary as Node (`ELECTRON_RUN_AS_NODE=1`). A new adapter
+version reaches you with an app release, after it passed the conformance
+suite.
 
 **The shared client** (`acpSession.ts`, `AcpAgentSession`) owns everything
 else, the same for every provider: starting and stopping the adapter,
@@ -272,16 +288,18 @@ provenance, and they follow the knowledge base's review rules.
 `AgentService` (`service.ts`) holds at most one session, in the open knowledge
 base, and closes it when the knowledge base closes or the app quits. The main
 process exposes it to the reader UI only, as `window.kosDesktop.agent`
-(`list`, `start`, `prompt`, `cancel`, `respondPermission`, `restart`, `close`,
-`onEvent`); the panel that uses it is #83.
+(`list`, which says whether each adapter is installed, `installAdapter`, with
+`install` progress events, `start`, which refuses with `adapter-missing` until
+the adapter is installed, `prompt`, `cancel`, `respondPermission`, `restart`,
+`close`, `onEvent`); the panel that uses it is #83.
 
-**Adding a provider.** Add a module under `src/main/agents/providers/`, add
-the adapter to `dependencies` with an exact version, list the provider in
-`providers/index.ts`, and exclude any large platform binary the adapter
-package brings in `electron-builder.yml`. It is done when it passes the
-conformance suite (`testing/conformance.ts`), which every provider runs in
-`npm test` against a scripted mock ACP agent (`testing/mockAgent.mjs`):
-launching from the shipped package, a session with `kos mcp` as the only MCP
+**Adding a provider.** Write its adapter lock with
+`scripts/lock-adapter.mjs`, add a module under `src/main/agents/providers/`
+that imports it, and list the provider in `providers/index.ts`. It is done
+when it passes the conformance suite (`testing/conformance.ts`), which every
+provider runs in `npm test` against a scripted mock ACP agent
+(`testing/mockAgent.mjs`): launching the installed adapter with Node, a lock of
+hashed npm packages without platform binaries, a session with `kos mcp` as the only MCP
 server and no file or terminal access, streamed text, tool calls, permission
 questions reaching the person, cancel, sign-in reported as a state, and a
 crash followed by a restart. Its own detection and session options get a small
@@ -299,8 +317,10 @@ $env:KOS_RUNTIME_FILE = "$env:APPDATA\knowledge-os-desktop\runtime.json"
 npx vitest run src/main/agents/e2e.test.ts
 ```
 
-It asks the agent to write one note through `kos mcp` and checks that the note
-carries the agent's provenance; it uses the agent's model.
+It installs the adapter from the npm registry into a temporary folder the way
+the app does, asks the agent to write one note through `kos mcp`, and checks
+that the note carries the agent's provenance; it needs the network and uses
+the agent's model.
 
 ## Updates
 

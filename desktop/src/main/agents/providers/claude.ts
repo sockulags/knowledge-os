@@ -1,20 +1,20 @@
 // Claude Code through @agentclientprotocol/claude-agent-acp, which wraps the
 // Claude Agent SDK and reuses the Claude Code login already on this computer.
 //
-// The adapter would otherwise run the Claude binary bundled with the SDK (a
-// platform package of about 200 MB); the app does not ship it and points the
-// adapter at the person's own `claude` instead (CLAUDE_CODE_EXECUTABLE). On
-// Windows the native `claude.exe` is preferred over an npm `claude.cmd` shim.
+// The adapter is installed on demand from its lock (the app does not ship
+// Anthropic's proprietary SDK), without the SDK's optional platform binary of
+// about 200 MB: the adapter runs the person's own `claude` instead
+// (CLAUDE_CODE_EXECUTABLE). On Windows the native `claude.exe` is preferred
+// over an npm `claude.cmd` shim.
 
 import type { AuthMethod } from '@agentclientprotocol/sdk'
 import type { AgentProvider, AuthHelp, LaunchHost, LaunchSpec, ProviderStatus } from '../contract'
 import { findOnPath, probeVersion } from '../detect'
+import type { AdapterLock } from '../installer'
+import claudeLock from '../adapters/claude-agent-acp.lock.json'
 
-export const CLAUDE_ADAPTER = {
-  packageName: '@agentclientprotocol/claude-agent-acp',
-  version: '0.81.2',
-  entry: 'dist/index.js'
-}
+/** Installed on demand; regenerate with scripts/lock-adapter.mjs. */
+export const CLAUDE_ADAPTER: AdapterLock = claudeLock
 
 export const claudeProvider: AgentProvider = {
   id: 'claude',
@@ -47,7 +47,7 @@ export const claudeProvider: AgentProvider = {
   launchSpec(status: ProviderStatus, host: LaunchHost): LaunchSpec {
     return {
       command: host.node.command,
-      args: [host.resolvePackageFile(CLAUDE_ADAPTER.packageName, CLAUDE_ADAPTER.entry)],
+      args: [host.adapterEntry(CLAUDE_ADAPTER)],
       env: {
         ...host.node.env,
         ...(status.executable ? { CLAUDE_CODE_EXECUTABLE: status.executable } : {})

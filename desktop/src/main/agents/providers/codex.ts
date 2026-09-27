@@ -1,9 +1,9 @@
 // Codex through @agentclientprotocol/codex-acp, which runs `codex app-server`
 // and reuses the Codex login (ChatGPT or API key) already on this computer.
 //
-// The adapter's npm dependency on @openai/codex carries a platform binary of
-// several hundred MB; the app does not ship it and points the adapter at the
-// person's own `codex` instead (CODEX_PATH).
+// The adapter is installed on demand from its lock, without the platform
+// binary of several hundred MB that its @openai/codex dependency would bring:
+// the adapter runs the person's own `codex` instead (CODEX_PATH).
 //
 // Codex has no switch that removes its built-in tools. The session starts in
 // codex-acp's `read-only` mode, so editing files or reaching the network needs
@@ -13,12 +13,11 @@
 
 import type { AgentProvider, AuthHelp, LaunchHost, LaunchSpec, ProviderStatus } from '../contract'
 import { findOnPath, probeVersion } from '../detect'
+import type { AdapterLock } from '../installer'
+import codexLock from '../adapters/codex-acp.lock.json'
 
-export const CODEX_ADAPTER = {
-  packageName: '@agentclientprotocol/codex-acp',
-  version: '1.13.1',
-  entry: 'dist/index.js'
-}
+/** Installed on demand; regenerate with scripts/lock-adapter.mjs. */
+export const CODEX_ADAPTER: AdapterLock = codexLock
 
 export const codexProvider: AgentProvider = {
   id: 'codex',
@@ -46,7 +45,7 @@ export const codexProvider: AgentProvider = {
   launchSpec(status: ProviderStatus, host: LaunchHost): LaunchSpec {
     return {
       command: host.node.command,
-      args: [host.resolvePackageFile(CODEX_ADAPTER.packageName, CODEX_ADAPTER.entry)],
+      args: [host.adapterEntry(CODEX_ADAPTER)],
       env: {
         ...host.node.env,
         ...(status.executable ? { CODEX_PATH: status.executable } : {}),

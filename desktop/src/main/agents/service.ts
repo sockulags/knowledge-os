@@ -3,10 +3,9 @@
 // The panel that shows it is issue #83; this is what it will talk to over
 // IPC. No 'electron' import, so it is unit-testable.
 
-import { createRequire } from 'module'
-import { dirname, join } from 'path'
 import { AcpAgentSession, AgentSessionError, type AgentEvent } from './acpSession'
 import { IN_APP_PLACE, type AgentProvider, type KosMcpServer, type LaunchHost } from './contract'
+import { installAdapter, installedEntry, type FetchBytes } from './installer'
 import { PROVIDERS } from './providers'
 
 /** A provider as the panel lists it. */
@@ -17,6 +16,8 @@ export interface ProviderInfo {
   version: string | null
   message: string
   adapterVersion: string
+  /** Whether its adapter is installed; `installAdapter` fetches it. */
+  adapterInstalled: boolean
 }
 
 /** The open knowledge base, as a session needs it. */
@@ -28,15 +29,23 @@ export interface AgentContext {
 
 /**
  * How the app runs an adapter: Electron's own binary as Node
- * (ELECTRON_RUN_AS_NODE), reading the adapter straight from the app's asar
- * archive, which Electron-as-Node supports; no separate Node or npx.
+ * (ELECTRON_RUN_AS_NODE), so no separate Node or npx, from the adapter
+ * installed on demand under `adaptersRoot` (see installer.ts).
  */
-export function electronLaunchHost(execPath: string, env: NodeJS.ProcessEnv): LaunchHost {
-  const requireHere = createRequire(__filename)
+export function electronLaunchHost(
+  execPath: string,
+  env: NodeJS.ProcessEnv,
+  adaptersRoot: string
+): LaunchHost {
   return {
     node: { command: execPath, env: { ELECTRON_RUN_AS_NODE: '1' } },
-    resolvePackageFile: (packageName, file) =>
-      join(dirname(requireHere.resolve(`${packageName}/package.json`)), file),
+    adapterEntry: (adapter) => {
+      const entry = installedEntry(adapter, adaptersRoot)
+      if (entry === null) {
+        throw new AgentSessionError('adapter-missing', `${adapter.packageName} is not installed.`)
+      }
+      return entry
+    },
     env
   }
 }
@@ -65,6 +74,8 @@ export class AgentService {
 
   constructor(
     private readonly host: LaunchHost,
+    /** Where adapters are installed, and how their packages are downloaded. */
+    private readonly adapters: { root: string; fetchBytes: FetchBytes },
     private readonly clientInfo: { name: string; version: string },
     private readonly emit: (event: AgentEvent) => void,
     private readonly providers: readonly AgentProvider[] = PROVIDERS,
@@ -82,19 +93,42 @@ export class AgentService {
           state: status.state,
           version: status.version,
           message: status.message,
-          adapterVersion: provider.adapter.version
+          adapterVersion: provider.adapter.version,
+          adapterInstalled: installedEntry(provider.adapter, this.adapters.root) !== null
         }
       })
     )
   }
 
+  /**
+   * Fetch a provider's adapter at the exact version tested, checking every
+   * package's hash; progress arrives as `install` events. A running session
+   * of that provider is closed first, since an update replaces its files.
+   */
+  async installAdapter(providerId: string): Promise<void> {
+    const provider = this.find(providerId)
+    if (this.providerId === providerId) this.close()
+    await installAdapter(
+      provider.adapter,
+      this.adapters.root,
+      this.adapters.fetchBytes,
+      ({ done, total }) => this.emit({ type: 'install', providerId, done, total })
+    )
+  }
+
   /** Open a session with one provider in the open knowledge base, closing any other. */
   async start(providerId: string, context: AgentContext): Promise<{ state: string }> {
-    const provider = this.providers.find((candidate) => candidate.id === providerId)
-    if (provider === undefined)
-      throw new AgentSessionError('not-ready', `No agent called ${providerId}.`)
-    this.close()
+    const provider = this.find(providerId)
+    // The agent itself first: installing its adapter does not help without it.
     const status = await provider.detect(this.host.env, this.platform)
+    if (status.state !== 'ready') throw new AgentSessionError('not-ready', status.message)
+    if (installedEntry(provider.adapter, this.adapters.root) === null) {
+      throw new AgentSessionError(
+        'adapter-missing',
+        `${provider.displayName} needs its adapter (${provider.adapter.packageName} ${provider.adapter.version}) installed first.`
+      )
+    }
+    this.close()
     this.session = await AcpAgentSession.start({
       provider,
       status,
@@ -135,6 +169,13 @@ export class AgentService {
     this.session?.close()
     this.session = null
     this.providerId = null
+  }
+
+  private find(providerId: string): AgentProvider {
+    const provider = this.providers.find((candidate) => candidate.id === providerId)
+    if (provider === undefined)
+      throw new AgentSessionError('not-ready', `No agent called ${providerId}.`)
+    return provider
   }
 
   private require(): AcpAgentSession {

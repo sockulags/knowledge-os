@@ -12,6 +12,7 @@ export const IPC = {
   setSidebarWidth: 'reader:set-sidebar-width',
   // The in-app agent (issue #90); only the reader UI may use these.
   agentList: 'agent:list',
+  agentInstall: 'agent:install',
   agentStart: 'agent:start',
   agentPrompt: 'agent:prompt',
   agentCancel: 'agent:cancel',
@@ -81,6 +82,8 @@ export interface DesktopApi {
    */
   agent: {
     list: () => Promise<unknown[]>
+    /** Install a provider's adapter on demand; progress arrives as `install` events. */
+    installAdapter: (providerId: string) => Promise<void>
     start: (providerId: string) => Promise<{ state: string }>
     prompt: (text: string) => Promise<string>
     cancel: () => Promise<void>

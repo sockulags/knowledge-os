@@ -29,6 +29,7 @@ const api: DesktopApi = {
   retry: () => ipcRenderer.invoke(IPC.retry),
   agent: {
     list: () => ipcRenderer.invoke(IPC.agentList),
+    installAdapter: (providerId) => ipcRenderer.invoke(IPC.agentInstall, providerId),
     start: (providerId) => ipcRenderer.invoke(IPC.agentStart, providerId),
     prompt: (text) => ipcRenderer.invoke(IPC.agentPrompt, text),
     cancel: () => ipcRenderer.invoke(IPC.agentCancel),

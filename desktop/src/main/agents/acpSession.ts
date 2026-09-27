@@ -57,6 +57,8 @@ export type AgentEvent =
       options: { id: string; name: string; kind: string }[]
     }
   | { type: 'turn-end'; stopReason: StopReason }
+  /** Installing a provider's adapter: `done` of `total` packages. */
+  | { type: 'install'; providerId: string; done: number; total: number }
 
 export interface SessionOptions {
   provider: AgentProvider
@@ -75,7 +77,8 @@ export interface SessionOptions {
 
 export class AgentSessionError extends Error {
   constructor(
-    readonly kind: 'not-ready' | 'auth-required' | 'crashed' | 'protocol' | 'closed',
+    readonly kind:
+      'not-ready' | 'adapter-missing' | 'auth-required' | 'crashed' | 'protocol' | 'closed',
     message: string,
     readonly auth: AuthHelp | null = null
   ) {

@@ -5,13 +5,15 @@
 //   KOS_E2E_CORE=<python or kos-core.exe>   runs `-m knowledge_os mcp`
 //   KOS_RUNTIME_FILE=<runtime.json> the running core the MCP server talks to
 //
-// It starts the provider's real adapter under Electron-as-Node exactly as the
-// app does, asks the agent to write one note through `kos mcp`, and checks
-// that the note exists with the agent's provenance. The agent must be
-// installed and signed in; this uses its model.
+// It installs the provider's adapter from the npm registry into a temporary
+// folder exactly as the app does on demand, starts it under Electron-as-Node,
+// asks the agent to write one note through `kos mcp`, and checks that the note
+// exists with the agent's provenance. The agent must be installed and signed
+// in; this needs the network and uses the agent's model.
 
-import { existsSync, readdirSync, readFileSync } from 'fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs'
 import { createRequire } from 'module'
+import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import type { AgentEvent } from './acpSession'
@@ -27,8 +29,15 @@ describe.skipIf(!providerId)('in-app agent end to end', () => {
   it('writes a note through kos mcp only, with the agent’s provenance', async () => {
     const electronBinary = createRequire(import.meta.url)('electron') as unknown as string
     const events: AgentEvent[] = []
+    const adaptersRoot = mkdtempSync(join(tmpdir(), 'kos-e2e-adapters-'))
+    const fetchBytes = async (url: string): Promise<Uint8Array> => {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`the registry answered ${response.status}`)
+      return new Uint8Array(await response.arrayBuffer())
+    }
     const service = new AgentService(
-      electronLaunchHost(electronBinary, process.env),
+      electronLaunchHost(electronBinary, process.env, adaptersRoot),
+      { root: adaptersRoot, fetchBytes },
       { name: 'knowledge-os-desktop', version: 'e2e' },
       (event) => {
         events.push(event)
@@ -40,6 +49,7 @@ describe.skipIf(!providerId)('in-app agent end to end', () => {
         }
       }
     )
+    await service.installAdapter(providerId!)
     const listed = await service.list()
     expect(listed.find((provider) => provider.id === providerId)?.state).toBe('ready')
     await service.start(providerId!, {
@@ -52,6 +62,7 @@ describe.skipIf(!providerId)('in-app agent end to end', () => {
         `with the content "Written by the in-app agent test." Do not use any other tool. Then reply "done".`
     )
     service.close()
+    rmSync(adaptersRoot, { recursive: true, force: true })
     expect(stop).toBe('end_turn')
 
     const files = readdirSync(join(root, 'projects', 'demo'), { recursive: true })

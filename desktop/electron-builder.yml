@@ -10,12 +10,6 @@ files:
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{vitest.config.ts,eslint.config.mjs,.eslintcache,.prettierignore,.prettierrc.yaml,README.md}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-  # The in-app agent's ACP adapters ship; the agents' own platform binaries
-  # (hundreds of MB each) do not: the adapters run the person's installed
-  # claude and codex instead (see src/main/agents/providers).
-  - '!node_modules/@anthropic-ai/claude-agent-sdk-*/**'
-  - '!node_modules/@openai/codex-*/**'
-  - '!src/main/agents/testing/**'
 # The frozen core (npm run build:core) ships next to app.asar as
 # resources/core/kos-core.exe; the shell finds it through process.resourcesPath.
 extraResources:

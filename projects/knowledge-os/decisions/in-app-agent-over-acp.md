@@ -13,6 +13,9 @@ provenance:
 - kind: decision-acceptance
   reference: conversation:2026-09-27:in-app-agent-over-acp-accepted
   captured: '2026-09-27T20:31:48.756881Z'
+- kind: editorial-update
+  reference: conversation:2026-09-27:adapters-installed-on-demand
+  captured: '2026-09-27T20:53:20.380262Z'
 related:
 - agent-access
 ---
@@ -35,7 +38,10 @@ The first provider is Claude Code through `@agentclientprotocol/claude-agent-acp
 which reuses the Claude Code login already on the computer. Codex through
 `@agentclientprotocol/codex-acp` is the second and proves the contract. An API
 key kept in the operating system's credential store may become a later
-provider. Adapter versions are pinned and shipped with the app.
+provider. Adapter versions are pinned to the version tested and installed
+on demand, each npm package checked against its integrity hash, rather
+than shipped with the app: the Claude adapter depends on Anthropic's
+proprietary Claude Agent SDK, which the person fetches themselves.
 
 ## Why
 

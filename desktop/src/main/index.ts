@@ -3,7 +3,17 @@
 // core for the open workspace. The window's frame, menu, notices, and dialogs
 // are the shell's own (see windowChrome.ts).
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  net,
+  session,
+  shell
+} from 'electron'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
@@ -94,8 +104,18 @@ let closeConfirmed = false
 /** The core URL of the last reader the window was sent to, for the chrome's IPC. */
 let readerUrl: string | null = null
 /** The in-app agent (issue #90): at most one session, in the open knowledge base. */
+const adaptersRoot = join(app.getPath('userData'), 'agents')
 const agents = new AgentService(
-  electronLaunchHost(process.execPath, process.env),
+  electronLaunchHost(process.execPath, process.env, adaptersRoot),
+  {
+    root: adaptersRoot,
+    // Electron's fetch uses the system proxy settings.
+    fetchBytes: async (url) => {
+      const response = await net.fetch(url)
+      if (!response.ok) throw new Error(`the registry answered ${response.status}`)
+      return new Uint8Array(await response.arrayBuffer())
+    }
+  },
   { name: 'knowledge-os-desktop', version: app.getVersion() },
   (event) => {
     const window = mainWindow
@@ -646,6 +666,7 @@ function handleForReader(channel: string, action: (...args: unknown[]) => Promis
 
 function registerAgentIpc(): void {
   handleForReader(IPC.agentList, () => agents.list())
+  handleForReader(IPC.agentInstall, (providerId) => agents.installAdapter(String(providerId)))
   handleForReader(IPC.agentStart, async (providerId) => {
     if (state.kind !== 'ready' || pythonExecutable === null)
       throw new Error('No knowledge base is open.')
