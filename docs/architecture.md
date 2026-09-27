@@ -73,6 +73,13 @@ a metadata-bearing `README.md` root record; ordinary files retain `<id>.md`.
 Folders created through `kos folder create` or the interface always get such a
 root record (see "Structure editing").
 
+Two kinds of files in a workspace are deliberately not records. Page
+templates live in `templates/<name>.md` at the workspace root (see "Page
+templates"), and images and other files attached to pages live in an
+`assets/` folder next to the pages that link to them (see "Attachments").
+Neither is indexed or linted; the workspace scan reads only Markdown below
+the managed roots, and an attachment can never be Markdown.
+
 ## Record metadata
 
 All managed records require `id`, `title`, `type`, `status`, `scope`, `created`,
@@ -432,7 +439,9 @@ body. It writes nothing but requires the same guard and token.
 
 `GET /api/records/{id}` carries an `editing` object for the editor, apart
 from the reader's prose fields: `editable` (the record is a type the routes
-edit), `raw_body` and `metadata` (`title`, `tags`, `related`, `sources`)
+edit; a project overview and a folder's own `README.md` page are editable
+like any other page, since the filename rule's `README.md` exception is
+already checked by the workspace scan), `raw_body` and `metadata` (`title`, `tags`, `related`, `sources`)
 read from the same bytes as `content_sha256`, `path`, `project_id`,
 `folder` (the record's folder below its project directory),
 `body_change_needs_confirmation` (an accepted decision's body changes only
@@ -516,6 +525,64 @@ records only through `POST /api/records`, so the imported note and its draft
 decisions follow capture's rules and the approval policy, and each one is
 auto-committed like any other interface write. The plugin finds an earlier
 import of the same meeting by this reference.
+
+### Page templates
+
+*New page* starts from a template. `knowledge_os/templates.py` defines four
+built-in templates, `blank`, `meeting-notes`, `how-to`, and `decision`
+(Context / Decision / Consequences), and reads `templates/<name>.md` files in
+the workspace, where `<name>` is lowercase kebab-case. A file may start with
+frontmatter holding only `title`, `description`, and `kind` (`note` or
+`decision`; a decision template creates a draft decision); the rest is the
+page's starting text, where `{{date}}` becomes the creation day. A file with
+a built-in template's name replaces it; any other file adds a template after
+the built-in ones. `kos init` writes the three non-blank templates and a
+`README.md` into `templates/`. Templates are not records and are never
+linted, so a broken template cannot block a write: `GET /api/templates`
+answers `{"templates": [{"name", "title", "description", "kind", "body",
+"source": "built-in" | "workspace", "path", "error"}], "folder", "language"}`
+with `{{date}}` filled in and, for a file that cannot be used, the reason in
+`error`. The desktop app's Referat import orders a meeting note's sections by
+the `meeting-notes` template's `## ` headings.
+
+### Attachments
+
+An attachment is an image or other file in an `assets/` folder next to the
+page that links to it, `<page folder>/assets/<name>`, below `projects/`,
+`knowledge/`, or `memory/` (`knowledge_os/attachments.py`). It is linked
+with a relative path, `![diagram](assets/diagram.png)`, so it resolves the
+same way in any Markdown viewer and in Git hosting.
+
+- `POST /api/attachments` stores one file with the write API's guard. Body:
+  `{"filename", "data_base64", "record_id"}` for an existing page, or
+  `{"filename", "data_base64", "project", "folder"}` for a page not written
+  yet. The name is cleaned to lowercase kebab-case with its extension; an
+  identical file already in that `assets/` folder is reused (`created:
+  false`), and another file with the name gets a numeric suffix, so nothing
+  is overwritten. Markdown files and files over 25 MB are refused (`422`).
+  It answers `201` with `{"path", "link", "url", "name", "markdown",
+  "image", "created", "content_sha256", "commit"}`; `link` is relative to
+  the page's folder and `markdown` is what the editor inserts. A stored file
+  is committed as `Attach <name>`.
+- `GET /api/files/{path}` serves a file inside a page root's `assets/`
+  folder and answers `404` for any other path. Images are served inline and
+  every other type as a download; every response carries
+  `X-Content-Type-Options: nosniff` and a `sandbox` Content Security Policy,
+  so a file opened on its own, such as an SVG, cannot run script with the
+  reader's origin.
+
+The reader rewrites a relative image or link whose target is such a file to
+its `/api/files/` URL when it renders a page, an overview, or the editor
+preview.
+
+A page's attachments are the files in its own folder's `assets/` that its
+body links to. Moving a page moves those that no other page links to into
+the destination folder's `assets/` (a numeric suffix when a different file
+has the name; an identical file there is reused and the original removed),
+and deleting a page deletes them; a file another page also links to stays,
+and the moved page's link is rewritten to keep reaching it. An emptied
+`assets/` folder is removed. Moving or deleting a folder takes its `assets/`
+with everything else. `assets` is not accepted as a folder name.
 
 ## Structure editing
 
@@ -653,7 +720,10 @@ links will lead nowhere, and `dialog` the confirmation's finished words from
 `strings.py`. `POST /api/records/{id}/delete` with `{"expected_sha256",
 "expected"}` and `POST /api/projects/{project_id}/folders/delete` with
 `{"path", "expected"}` delete, answering the structure response plus
-`deleted: [path]`. With `expected` (the preview's), any file the deletion
+`deleted: [path]`. A page's preview also lists `attachments`, the files only
+it links to that are deleted with it, and `kept_attachments`, those other
+pages also use (see "Attachments"); the dialog's notes name both. With
+`expected` (the preview's), any file the deletion
 would remove or rewrite that the preview did not show, such as a page added
 to the folder since, answers `409 conflict` and nothing is deleted.
 Refusals answer `422`. The commit is `Delete <title>` or `Delete folder
@@ -687,12 +757,12 @@ into an unrelated project. `kos init` ignores `indexes/catalog.md` and the
 SQLite files; `indexes/` is never committed by the interface, and the status
 warns when generated index files are still tracked.
 
-**Auto-commit.** After each successful interface write (create, edit, accept,
-withdraw, supersede) the adapter commits exactly the paths that write touched
-(`git add --all -- PATHS` then `git commit --only -- PATHS`), so unrelated
-modified, untracked, or staged changes stay as they were. Messages are
-`Create <title>`, `Edit <title>`, `Accept decision <title>`, `Withdraw
-decision <title>`, and `Supersede decision <old title> with <new title>`, and
+**Auto-commit.** After each successful interface write (create, edit, attach,
+accept, withdraw, supersede) the adapter commits exactly the paths that write
+touched (`git add --all -- PATHS` then `git commit --only -- PATHS`), so
+unrelated modified, untracked, or staged changes stay as they were. Messages
+are `Create <title>`, `Edit <title>`, `Attach <file name>`, `Accept decision
+<title>`, `Withdraw decision <title>`, and `Supersede decision <old title> with <new title>`, and
 for structure changes `Create project <title>`, `Create folder <title>`,
 `Rename <old> to <new>`, `Move <title> to <folder>` (`<folder> in <project>`
 across projects, the project's title for its top level), `Move folder <title>

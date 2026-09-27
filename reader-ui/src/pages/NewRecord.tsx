@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { api } from "../api/client";
-import type { WriteFailure } from "../api/types";
+import type { PageTemplate, TemplatesPayload, WriteFailure } from "../api/types";
 import { interfaceReference, write } from "../api/write";
 import { useApi } from "../hooks/useApi";
 import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
@@ -14,6 +14,7 @@ import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { WriteFailureCallout } from "../components/WriteFailureCallout";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
   Field,
   PrimaryButton,
@@ -43,7 +44,8 @@ function cleanFolder(folder: string): string {
 }
 
 /** Create a page in a project: an ordinary note (written directly, in force)
- * or a decision (always a proposal until someone accepts it). Opened with
+ * or a decision (always a proposal until someone accepts it), started from a
+ * template (`?template=<name>` picks one). Opened with
  * `?kind=decision&supersedes=<id>` it proposes a replacement for that
  * decision. */
 export function NewRecord() {
@@ -66,7 +68,8 @@ export function NewRecord() {
       projectTitle={data.title}
       breadcrumb={[...data.breadcrumb, { label: data.title, href: `/p/${data.id}` }]}
       initialFolder={params.get("folder") ?? ""}
-      isDecision={params.get("kind") === "decision"}
+      askedForDecision={params.get("kind") === "decision"}
+      initialTemplate={params.get("template")}
       supersedes={params.get("supersedes")}
     />
   );
@@ -77,14 +80,16 @@ function NewRecordForm({
   projectTitle,
   breadcrumb,
   initialFolder,
-  isDecision,
+  askedForDecision,
+  initialTemplate,
   supersedes,
 }: {
   projectId: string;
   projectTitle: string;
   breadcrumb: { label: string; href: string }[];
   initialFolder: string;
-  isDecision: boolean;
+  askedForDecision: boolean;
+  initialTemplate: string | null;
   supersedes: string | null;
 }) {
   const navigate = useNavigate();
@@ -98,10 +103,52 @@ function NewRecordForm({
   const [body, setBody] = useState("");
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<WriteFailure | null>(null);
+  // Attached files are stored next to the page, so once one is linked the
+  // folder cannot change without breaking the link.
+  const [folderLocked, setFolderLocked] = useState(false);
+  const templates = useApi(() => api.templates(), []);
+  const [template, setTemplate] = useState<PageTemplate | null>(null);
+  const [pendingTemplate, setPendingTemplate] = useState<PageTemplate | null>(null);
+
+  // A replacement is always a decision; otherwise the template decides, and
+  // until templates load, `?kind=decision` does.
+  const isDecision = supersedes !== null || (template ? template.kind === "decision" : askedForDecision);
+  const templateText = template?.body ?? "";
+
+  // Start from the requested template, the decision template for
+  // `?kind=decision`, or the blank page, once the list has loaded.
+  useEffect(() => {
+    if (!templates.data || template) return;
+    const usable = usableTemplates(templates.data, supersedes !== null);
+    const wanted = initialTemplate ?? (askedForDecision || supersedes ? "decision" : "blank");
+    const chosen =
+      usable.find((item) => item.name === wanted) ??
+      (askedForDecision || supersedes ? usable.find((item) => item.kind === "decision") : undefined) ??
+      usable[0];
+    if (!chosen) return;
+    setTemplate(chosen);
+    setBody((current) => (current.trim() === "" ? chosen.body : current));
+  }, [templates.data, template, initialTemplate, askedForDecision, supersedes]);
+
+  function chooseTemplate(next: PageTemplate) {
+    if (next.name === template?.name) return;
+    // Replacing text the person wrote needs a yes; the untouched text of the
+    // previous template does not.
+    if (body.trim() !== "" && body !== templateText) {
+      setPendingTemplate(next);
+      return;
+    }
+    setTemplate(next);
+    setBody(next.body);
+  }
 
   const replaced = useApi(() => (supersedes ? api.record(supersedes) : Promise.resolve(null)), [supersedes]);
   const effectiveId = idEdited ? id : slugify(title);
-  const dirty = title.trim() !== "" || body.trim() !== "" || tags.trim() !== "" || related.trim() !== "";
+  const dirty =
+    title.trim() !== "" ||
+    (body.trim() !== "" && body !== templateText) ||
+    tags.trim() !== "" ||
+    related.trim() !== "";
   const { blocker, allowNextNavigation } = useUnsavedChanges(dirty && !saving);
   const canSave = title.trim() !== "" && effectiveId !== "" && body.trim() !== "" && !saving;
 
@@ -177,6 +224,14 @@ function NewRecordForm({
       {failure && <WriteFailureCallout failure={failure} />}
 
       <div className="space-y-4">
+        {templates.data && (
+          <TemplatePicker
+            payload={templates.data}
+            chosen={template}
+            decisionsOnly={supersedes !== null}
+            onChoose={chooseTemplate}
+          />
+        )}
         <Field label="Title">
           <input
             className={`${inputClass} font-serif text-[18px] font-semibold`}
@@ -197,8 +252,20 @@ function NewRecordForm({
               }}
             />
           </Field>
-          <Field label="Folder" hint={`Inside ${projectTitle}. Leave empty for the top level.`}>
-            <input className={`${inputClass} font-mono`} value={folder} onChange={(event) => setFolder(event.target.value)} />
+          <Field
+            label="Folder"
+            hint={
+              folderLocked
+                ? "Files are attached in this folder, so the page is created here."
+                : `Inside ${projectTitle}. Leave empty for the top level.`
+            }
+          >
+            <input
+              className={`${inputClass} font-mono`}
+              value={folder}
+              readOnly={folderLocked}
+              onChange={(event) => setFolder(event.target.value)}
+            />
           </Field>
           <Field label="Tags" hint="Comma separated">
             <input className={inputClass} value={tags} onChange={(event) => setTags(event.target.value)} />
@@ -207,10 +274,90 @@ function NewRecordForm({
             <input className={inputClass} value={related} onChange={(event) => setRelated(event.target.value)} />
           </Field>
         </div>
-        <MarkdownEditor value={body} onChange={setBody} />
+        <MarkdownEditor
+          value={body}
+          onChange={(next) => {
+            // A link into this folder's assets/ ties the page to the folder.
+            if (!folderLocked && /\]\(assets\//.test(next)) setFolderLocked(true);
+            setBody(next);
+          }}
+          path={`projects/${projectId}/${cleanFolder(folder) ? `${cleanFolder(folder)}/` : ""}${effectiveId || "new-page"}.md`}
+          attachTo={{ project: projectId, folder: cleanFolder(folder) }}
+        />
       </div>
 
       <UnsavedChangesDialog blocker={blocker} />
+      {pendingTemplate && templates.data && (
+        <ConfirmDialog
+          title={templates.data.language.replace_title}
+          confirmLabel={templates.data.language.replace_confirm}
+          cancelLabel={templates.data.language.replace_cancel}
+          onConfirm={() => {
+            setTemplate(pendingTemplate);
+            setBody(pendingTemplate.body);
+            setPendingTemplate(null);
+          }}
+          onCancel={() => setPendingTemplate(null)}
+        >
+          {templates.data.language.replace_body.replace("{title}", pendingTemplate.title)}
+        </ConfirmDialog>
+      )}
     </div>
+  );
+}
+
+/** The templates a page can start from: every one that can be used, and only
+ * decision templates for a proposed replacement. */
+function usableTemplates(payload: TemplatesPayload, decisionsOnly: boolean): PageTemplate[] {
+  return payload.templates.filter((item) => item.error === null && (!decisionsOnly || item.kind === "decision"));
+}
+
+function TemplatePicker({
+  payload,
+  chosen,
+  decisionsOnly,
+  onChoose,
+}: {
+  payload: TemplatesPayload;
+  chosen: PageTemplate | null;
+  decisionsOnly: boolean;
+  onChoose: (template: PageTemplate) => void;
+}) {
+  const { language } = payload;
+  const shown = payload.templates.filter((item) => !decisionsOnly || item.kind === "decision");
+  if (shown.length < 2) return null;
+  return (
+    <fieldset>
+      <legend className="mb-1.5 block text-[13px] font-medium text-(--color-text-muted)">{language.label}</legend>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4" role="radiogroup" aria-label={language.label}>
+        {shown.map((item) => {
+          const selected = chosen?.name === item.name;
+          const unusable = item.error !== null;
+          const origin = item.path ? language.own.replace("{path}", item.path) : language.built_in;
+          return (
+            <button
+              key={item.name}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={unusable}
+              title={unusable ? language.unusable.replace("{error}", item.error ?? "") : origin}
+              onClick={() => onChoose(item)}
+              className={`flex flex-col items-start justify-start rounded-md border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55 ${
+                selected
+                  ? "border-(--color-accent) bg-(--color-accent-ink-bg)"
+                  : "border-(--color-border) hover:border-(--color-border-strong)"
+              }`}
+            >
+              <span className="block text-sm font-medium text-(--color-text)">{item.title}</span>
+              <span className="mt-0.5 block text-xs leading-snug text-(--color-text-faint)">
+                {unusable ? language.unusable.replace("{error}", item.error ?? "") : item.description}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-1.5 text-xs text-(--color-text-faint)">{language.hint}</p>
+    </fieldset>
   );
 }

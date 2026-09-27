@@ -228,7 +228,12 @@ function Editor({
           </Callout>
         )}
 
-        <MarkdownEditor value={draft.body} onChange={update("body")} path={editing.path} />
+        <MarkdownEditor
+          value={draft.body}
+          onChange={update("body")}
+          path={editing.path}
+          attachTo={{ record_id: record.id }}
+        />
       </div>
 
       <UnsavedChangesDialog blocker={blocker} />

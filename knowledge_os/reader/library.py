@@ -34,7 +34,8 @@ import sqlite3
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
+from urllib.parse import quote
 
 from knowledge_os.capture import (
     CAPTURE_DIRECTORIES,
@@ -44,6 +45,12 @@ from knowledge_os.capture import (
     capture_record_text,
 )
 from knowledge_os import gitsetup, gitsync
+from knowledge_os.attachments import (
+    MAX_ATTACHMENT_BYTES,
+    AttachmentError,
+    add_attachment,
+    is_attachment_path,
+)
 from knowledge_os.agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity, parse_agent_reference
 from knowledge_os.context_policy import trust_label
 from knowledge_os.gitsetup import ConnectOutcome, InitOutcome, RemoteCheck, SetupStatus
@@ -70,6 +77,7 @@ from knowledge_os.mutations import (
     withdraw_decision,
 )
 from knowledge_os.skills import Skill, load_skills
+from knowledge_os.templates import Template, fill as fill_template, list_templates
 from knowledge_os.structure import (
     ChangedFile,
     DeleteBlocker,
@@ -152,6 +160,14 @@ __all__ = [
     "folder_deletion_plan",
     "delete_page",
     "delete_folder",
+    # Page templates and attachments (issue #85).
+    "Template",
+    "page_templates",
+    "AttachResult",
+    "attach_file",
+    "attachment_file",
+    "file_resolver",
+    "MAX_ATTACHMENT_BYTES",
     # Agent writes (the MCP server, issue #59): the identity the write API
     # accepts and the parser the reader uses to name the agent.
     "AgentIdentity",
@@ -407,7 +423,7 @@ def _broken_records(
             continue
         message = issue.message
         try:
-            parse_document(issue.path)
+            parse_document(issue.path, check_filename=issue.path.name != "README.md")
         except MetadataError as exc:
             message = str(exc)
         except OSError:
@@ -746,7 +762,9 @@ def edit_record(
             current_sha256=actual,
         )
     try:
-        base = parse_document_text(current.path, raw.decode("utf-8"))
+        # ``validate_workspace`` already placed the record (a README.md page is
+        # not named after its ID), so only the content is parsed here.
+        base = parse_document_text(current.path, raw.decode("utf-8"), check_filename=False)
     except (MetadataError, UnicodeDecodeError) as exc:
         raise WriteError("validation", f"current record cannot be parsed: {exc}") from exc
 
@@ -838,7 +856,11 @@ def editable_source(record: Record) -> EditableSource:
     raw = record.abs_path.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     try:
-        document = parse_document_text(record.abs_path, raw.decode("utf-8"))
+        # The workspace scan already checked where the record lives, including
+        # the ``README.md`` exception for a project overview or a folder's own
+        # page, so the filename is not checked again: checking it here made
+        # every README page read as not editable.
+        document = parse_document_text(record.abs_path, raw.decode("utf-8"), check_filename=False)
     except (MetadataError, UnicodeDecodeError) as exc:
         raise LibraryError(f"record {record.id!r} cannot be parsed for editing: {exc}") from exc
     metadata = document.metadata
@@ -1359,3 +1381,110 @@ def sync_connect_remote(workspace: Workspace, url: str | None) -> ConnectOutcome
             "conflict", outcome.sync.detail or "the pull stopped on conflicts", conflicts=outcome.sync.conflicts
         )
     return outcome
+
+
+# ---------------------------------------------------------------------------
+# Page templates (issue #85)
+# ---------------------------------------------------------------------------
+
+
+def page_templates(workspace: Workspace, today: str | None = None) -> list[tuple[Template, str]]:
+    """Every template *New page* offers, each with its starting text for a
+    page created ``today`` (ISO, default this computer's date): ``{{date}}``
+    filled in. A template file that cannot be used carries its ``error``."""
+
+    day = today or date.today().isoformat()
+    return [(template, fill_template(template.body, day)) for template in list_templates(workspace)]
+
+
+# ---------------------------------------------------------------------------
+# Images and files attached to pages (issue #85)
+# ---------------------------------------------------------------------------
+
+#: Where the reader serves an attachment; the rest of the URL is its
+#: workspace-relative path.
+FILES_ROUTE = "/api/files/"
+
+
+@dataclass(frozen=True)
+class AttachResult:
+    path: str  # workspace-relative
+    link: str  # relative to the page's folder, for the Markdown link
+    url: str  # where the reader serves it
+    name: str
+    content_sha256: str
+    created: bool  # False when an identical file was already attached there
+    commit: CommitOutcome | None
+
+
+def attach_file(
+    workspace: Workspace,
+    *,
+    filename: str,
+    data: bytes,
+    record_id: str | None = None,
+    project_id: str | None = None,
+    folder: str = "",
+) -> AttachResult:
+    """Store one file in the ``assets/`` folder next to a page and commit it.
+
+    The page is ``record_id`` (an existing page), or for a page not written
+    yet, ``folder`` inside ``project_id`` (``""`` is the project's top level).
+    """
+
+    if record_id is not None:
+        documents, _issues = validate_workspace(workspace)
+        current = next((document for document in documents if document.metadata["id"] == record_id), None)
+        if current is None:
+            raise WriteError("not_found", f"record not found: {record_id}")
+        if current.metadata["type"] not in CAPTURE_DIRECTORIES:
+            raise WriteError("validation", f"files can be attached only to pages the interface edits, not to {record_id!r}")
+        directory = workspace.relative(current.path).rsplit("/", 1)[0]
+    elif project_id is not None:
+        cleaned = "/".join(part for part in folder.replace("\\", "/").split("/") if part)
+        directory = f"projects/{project_id}/{cleaned}" if cleaned else f"projects/{project_id}"
+        if not (workspace.root / f"projects/{project_id}/README.md").is_file():
+            raise WriteError("not_found", f"project not found: {project_id}")
+    else:
+        raise WriteError("bad_request", "name the page (record_id) or the project and folder the file belongs to")
+    try:
+        attachment = add_attachment(workspace, directory, filename, data)
+    except AttachmentError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    except WorkspaceError as exc:
+        raise _write_error(exc) from exc
+    name = attachment.path.rsplit("/", 1)[-1]
+    commit = gitsync.auto_commit(workspace, [attachment.path], f"Attach {name}") if attachment.created else None
+    return AttachResult(
+        path=attachment.path,
+        link=attachment.link,
+        url=FILES_ROUTE + quote(attachment.path),
+        name=name,
+        content_sha256=attachment.sha256,
+        created=attachment.created,
+        commit=commit,
+    )
+
+
+def attachment_file(workspace: Workspace, rel_path: str) -> Path | None:
+    """The file behind ``GET /api/files/<rel_path>``: an attachment inside a
+    page root's ``assets/`` folder, or ``None`` for anything else."""
+
+    if not is_attachment_path(rel_path):
+        return None
+    path = workspace.root / rel_path
+    try:
+        workspace.assert_safe_path(path)
+    except WorkspaceError:
+        return None
+    return path if path.is_file() else None
+
+
+def file_resolver(workspace: Workspace) -> Callable[[str], str | None]:
+    """For Markdown rendering: the URL of the attachment at a resolved,
+    workspace-relative link target, or ``None`` when there is none."""
+
+    def resolve(target: str) -> str | None:
+        return FILES_ROUTE + quote(target) if attachment_file(workspace, target) is not None else None
+
+    return resolve

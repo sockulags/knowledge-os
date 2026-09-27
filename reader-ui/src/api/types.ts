@@ -336,6 +336,9 @@ export interface DeletePreview {
   deletable: boolean;
   records: { id: string; title: string; path: string }[];
   other_files: number;
+  /** A page's attached files deleted with it, and those kept because other pages use them. */
+  attachments: string[];
+  kept_attachments: string[];
   cleaned: { id: string; title: string; path: string; fields: string[] }[];
   linked: { id: string; title: string; path: string }[];
   blockers: string[];
@@ -619,4 +622,36 @@ export interface EverythingPayload {
 
 export interface ApiError {
   detail: string;
+}
+
+/** One template on New page (GET /api/templates). */
+export interface PageTemplate {
+  name: string;
+  title: string;
+  description: string;
+  /** "decision" starts a proposed decision. */
+  kind: "note" | "decision";
+  /** The starting text, with {{date}} already filled in. */
+  body: string;
+  source: "built-in" | "workspace";
+  path: string | null;
+  /** Why a template file cannot be used; null when it can. */
+  error: string | null;
+}
+
+export interface TemplatesPayload {
+  templates: PageTemplate[];
+  folder: string;
+  language: Record<
+    | "label"
+    | "hint"
+    | "built_in"
+    | "own"
+    | "unusable"
+    | "replace_title"
+    | "replace_body"
+    | "replace_confirm"
+    | "replace_cancel",
+    string
+  >;
 }

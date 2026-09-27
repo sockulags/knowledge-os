@@ -78,6 +78,21 @@ export class KosClient implements KosApi {
     }
   }
 
+  /**
+   * The text of the knowledge base's `meeting-notes` template, or null when
+   * there is none that can be used (or the core predates templates).
+   */
+  async meetingNotesTemplate(): Promise<string | null> {
+    const { status, body } = await this.getJson<{
+      templates?: { name: string; body: string; error: string | null }[]
+    }>('/api/templates')
+    if (status !== 200 || body === null) return null
+    const template = body.templates?.find(
+      (item) => item.name === 'meeting-notes' && item.error === null
+    )
+    return template?.body ?? null
+  }
+
   private async writeToken(): Promise<string> {
     if (this.token !== null) return this.token
     const { status, body } = await this.getJson<{ write_token?: string }>('/api/session')

@@ -17,6 +17,7 @@ import type {
   ConflictsPayload,
   SyncSetup,
   SyncStatus,
+  TemplatesPayload,
   WorkspacePayload,
 } from "./types";
 
@@ -73,6 +74,7 @@ export const api = {
   syncStatus: () => request<SyncStatus>("/api/sync/status"),
   syncConflicts: () => request<ConflictsPayload>("/api/sync/conflicts"),
   syncSetup: () => request<SyncSetup>("/api/sync/setup"),
+  templates: () => request<TemplatesPayload>("/api/templates"),
   pageDeletion: (id: string) => request<DeletePreview>(`/api/records/${encodeURIComponent(id)}/delete-preview`),
   folderDeletion: (projectId: string, path: string) =>
     request<DeletePreview>(

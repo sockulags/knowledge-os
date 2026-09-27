@@ -145,7 +145,29 @@ export const write = {
       options,
     ),
   preview: (body: string, path?: string) => send<{ html: string }>("POST", "/api/preview", { body, path }),
+  /** Store one file in the `assets/` folder next to a page (see `AttachTarget`). */
+  attach: (target: AttachTarget, filename: string, dataBase64: string) =>
+    send<AttachResult>("POST", "/api/attachments", { ...target, filename, data_base64: dataBase64 }),
 };
+
+/** Which page a file is attached to: an existing page, or the project folder
+ * a page not written yet will be created in. */
+export type AttachTarget = { record_id: string } | { project: string; folder: string };
+
+export interface AttachResult {
+  path: string;
+  /** Relative to the page's folder, e.g. `assets/diagram.png`. */
+  link: string;
+  url: string;
+  name: string;
+  /** What the editor inserts: an image or a link. */
+  markdown: string;
+  image: boolean;
+  /** False when an identical file was already attached there. */
+  created: boolean;
+  content_sha256: string;
+  commit: WriteResult["commit"];
+}
 
 const projectPath = (id: string) => `/api/projects/${encodeURIComponent(id)}`;
 

@@ -66,6 +66,31 @@ changes scope and needs `--allow-scope-change`. In the app, use "New project"
 in the sidebar, each row's menu, or drag pages and folders in the project tree.
 See "Structure editing" in [`docs/architecture.md`](docs/architecture.md).
 
+## Write pages: templates, images, and files
+
+*New page* starts from a template: blank, meeting notes, how-to, or decision
+(Context / Decision / Consequences, which creates a proposed decision).
+Templates are ordinary Markdown files in the knowledge base's `templates/`
+folder, which `kos init` fills with the built-in ones; edit them, or add
+`templates/<name>.md` with optional `title`, `description`, and `kind: note`
+or `kind: decision` frontmatter. `{{date}}` becomes the day the page is
+created. A file named like a built-in template replaces it, and a knowledge
+base without `templates/` gets the built-in templates. A template that cannot
+be read is shown with the reason instead of being offered.
+
+In the editor, paste or drop an image or a file into the text, or use
+*Attach file*. It is stored in an `assets/` folder next to the page (for
+example `projects/acme/notes/assets/diagram.png`), linked with a relative
+path such as `![diagram](assets/diagram.png)`, shown in the preview and on
+the page, and committed like any other change. Moving a page moves the files
+only it links to; deleting a page deletes them, and the confirmation says so.
+A file another page also links to stays where it is. Files up to 25 MB can
+be attached; Markdown files cannot. A folder cannot be named `assets`. See
+"Attachments" in [`docs/architecture.md`](docs/architecture.md).
+
+A folder's own page (its `README.md`) and a project's overview are edited
+like any other page.
+
 ## Sync a knowledge base with Git
 
 The knowledge base folder must be its own Git repository with an upstream

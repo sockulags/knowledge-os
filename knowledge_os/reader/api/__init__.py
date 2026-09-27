@@ -18,6 +18,7 @@ from . import (
     decisions,
     docs,
     everything,
+    files,
     home,
     project,
     record,
@@ -25,6 +26,7 @@ from . import (
     skill,
     structure,
     sync,
+    templates,
     workspace_nav,
     write,
 )
@@ -89,6 +91,8 @@ def build_api_routes() -> list[Route]:
             name="api-folder-move",
         ),
         Route("/api/preview", write.preview_view, methods=["POST"], name="api-preview"),
+        Route("/api/attachments", files.attach_view, methods=["POST"], name="api-attachments"),
+        Route("/api/files/{path:path}", files.file_view, name="api-files"),
         Route("/api/workspace", workspace_nav.workspace_view, name="api-workspace"),
         Route("/api/nav", workspace_nav.nav_view, name="api-nav"),
         Route("/api/home", home.view, name="api-home"),
@@ -100,4 +104,5 @@ def build_api_routes() -> list[Route]:
         Route("/api/docs/{path:path}", docs.view, name="api-docs"),
         Route("/api/search", search.view, name="api-search"),
         Route("/api/everything", everything.view, name="api-everything"),
+        Route("/api/templates", templates.view, name="api-templates"),
     ]
