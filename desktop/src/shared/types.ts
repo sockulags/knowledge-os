@@ -9,7 +9,16 @@ export const IPC = {
   showStart: 'workspace:show-start',
   retry: 'workspace:retry',
   getSidebarWidth: 'reader:get-sidebar-width',
-  setSidebarWidth: 'reader:set-sidebar-width'
+  setSidebarWidth: 'reader:set-sidebar-width',
+  // The in-app agent (issue #90); only the reader UI may use these.
+  agentList: 'agent:list',
+  agentStart: 'agent:start',
+  agentPrompt: 'agent:prompt',
+  agentCancel: 'agent:cancel',
+  agentPermission: 'agent:permission',
+  agentRestart: 'agent:restart',
+  agentClose: 'agent:close',
+  agentEvent: 'agent:event'
 } as const
 
 export interface RecentWorkspace {
@@ -66,4 +75,18 @@ export interface DesktopApi {
   showStart: () => Promise<void>
   /** Retries the failed action shown on the error screen, re-checking Python first. */
   retry: () => Promise<void>
+  /**
+   * The in-app agent (issue #90). Only the reader UI gets answers; a call from
+   * any other page is refused. Events are the shared ACP client's AgentEvent.
+   */
+  agent: {
+    list: () => Promise<unknown[]>
+    start: (providerId: string) => Promise<{ state: string }>
+    prompt: (text: string) => Promise<string>
+    cancel: () => Promise<void>
+    respondPermission: (requestId: string, optionId: string | null) => Promise<boolean>
+    restart: () => Promise<void>
+    close: () => Promise<void>
+    onEvent: (callback: (event: unknown) => void) => () => void
+  }
 }

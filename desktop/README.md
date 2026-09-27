@@ -216,6 +216,92 @@ report that the app is not open. On macOS and Linux the file is created with
 mode `0600`. Run `icacls "%APPDATA%\knowledge-os-desktop\runtime.json"` to see
 its access list.
 
+## In-app agents (ACP)
+
+The agent inside the app (issue #83) talks to a coding agent over the
+[Agent Client Protocol](https://agentclientprotocol.com) (ACP): JSON-RPC over
+the agent process's stdin and stdout, through `@agentclientprotocol/sdk` in the
+main process (`src/main/agents/`). The accepted decision is
+`projects/knowledge-os/decisions/in-app-agent-over-acp.md`.
+
+**Providers.** Each agent is a provider implementing `AgentProvider`
+(`src/main/agents/contract.ts`); nothing outside its module knows which agent
+it is. A provider says:
+
+- who it is (`id`, `displayName`, and `mcpClientName`, the name its writes
+  appear under: "Written by Claude Code in Knowledge OS app");
+- where its adapter is (`adapter`: the npm package, the exact version shipped,
+  and its entry file);
+- how to find the agent on this computer (`detect()`, which never throws: a
+  missing agent is `not-installed` with a sentence saying how to install it);
+- how to start the adapter (`launchSpec()`);
+- how to limit a session to the MCP servers it is given (`sessionMeta()`);
+- how to explain sign-in (`authHelp()`);
+- small per-adapter corrections (`dialect`), and what it supports
+  (`capabilities`).
+
+| Provider | Adapter (pinned) | Runs | Limits |
+| --- | --- | --- | --- |
+| Claude Code | `@agentclientprotocol/claude-agent-acp` 0.81.2 | your `claude` (`CLAUDE_CODE_EXECUTABLE`) | no built-in tools (`tools: []`), none of your MCP servers, hooks, or settings (`strictMcpConfig`, `settingSources: []`), and no permission-skipping mode |
+| Codex | `@agentclientprotocol/codex-acp` 1.13.1 | your `codex` (`CODEX_PATH`) | starts in `read-only` mode: editing files and network access need your permission; it can still read files in the knowledge base folder, and MCP servers in your own `~/.codex/config.toml` also load |
+
+The adapters ship with the app and run with Electron's own binary as Node
+(`ELECTRON_RUN_AS_NODE=1`), straight from `app.asar`; no Node, npm, or network
+is needed to start one. The agents' own platform binaries, which the adapter
+packages would otherwise bring (hundreds of MB each), are left out of the
+build (`electron-builder.yml`): the adapters run the `claude` or `codex` you
+installed and signed in to. On Windows a native `claude.exe` is preferred over
+an npm `claude.cmd` shim.
+
+**The shared client** (`acpSession.ts`, `AcpAgentSession`) owns everything
+else, the same for every provider: starting and stopping the adapter,
+`initialize` without any file-system or terminal capability, `session/new`
+with `kos mcp --place "Knowledge OS app"` as the only MCP server,
+`session/prompt`, `session/cancel`, `session/load` after a restart when the
+provider supports it, and turning `session/update` into plain `AgentEvent`s
+(message and thought text, tool calls, plans, the end of a turn). Every
+`session/request_permission` becomes a `permission` event that waits for the
+person's answer; nothing is approved automatically. When the agent needs
+sign-in the session is `auth-required` with the provider's help (for example
+"Run `claude /login` in a terminal"); a process that stops is `crashed`, and
+`restart()` starts it again. Because the only tools are those of `kos mcp`,
+the in-app agent has exactly the limits of any external agent: it cannot
+accept, withdraw, supersede, or delete, its writes carry `agent-authored`
+provenance, and they follow the knowledge base's review rules.
+
+`AgentService` (`service.ts`) holds at most one session, in the open knowledge
+base, and closes it when the knowledge base closes or the app quits. The main
+process exposes it to the reader UI only, as `window.kosDesktop.agent`
+(`list`, `start`, `prompt`, `cancel`, `respondPermission`, `restart`, `close`,
+`onEvent`); the panel that uses it is #83.
+
+**Adding a provider.** Add a module under `src/main/agents/providers/`, add
+the adapter to `dependencies` with an exact version, list the provider in
+`providers/index.ts`, and exclude any large platform binary the adapter
+package brings in `electron-builder.yml`. It is done when it passes the
+conformance suite (`testing/conformance.ts`), which every provider runs in
+`npm test` against a scripted mock ACP agent (`testing/mockAgent.mjs`):
+launching from the shipped package, a session with `kos mcp` as the only MCP
+server and no file or terminal access, streamed text, tool calls, permission
+questions reaching the person, cancel, sign-in reported as a state, and a
+crash followed by a restart. Its own detection and session options get a small
+test next to it (`providers.test.ts`).
+
+**Trying a real agent.** `src/main/agents/e2e.test.ts` runs a real provider
+end to end and is skipped unless asked for. With the agent installed and
+signed in, a running core, and its runtime file:
+
+```powershell
+$env:KOS_AGENT_E2E = "claude"
+$env:KOS_E2E_ROOT = "D:\notes\test-kb"            # has a project "demo"
+$env:KOS_E2E_CORE = "..\.venv\Scripts\python.exe"
+$env:KOS_RUNTIME_FILE = "$env:APPDATA\knowledge-os-desktop\runtime.json"
+npx vitest run src/main/agents/e2e.test.ts
+```
+
+It asks the agent to write one note through `kos mcp` and checks that the note
+carries the agent's provenance; it uses the agent's model.
+
 ## Updates
 
 The installed app updates itself from the

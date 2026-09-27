@@ -1055,6 +1055,14 @@ every acceptance visible. The Claude Code and Codex plugins register the
 server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
 `.codex-plugin/mcp.json`).
 
+The desktop app's own agent (decision `in-app-agent-over-acp`) is one more
+client of this server, not a second interface: the app runs a coding agent
+over the Agent Client Protocol and gives its session `kos mcp --place
+"Knowledge OS app"` as the only MCP server, with the agent's built-in tools
+turned off where the agent allows it. Its writes therefore read "Written by
+Claude Code in Knowledge OS app" and carry the same limits as any agent's. See
+"In-app agents (ACP)" in [`desktop/README.md`](../desktop/README.md).
+
 ## CLI contract
 
 - `kos clone URL PATH [--json] [--cancel-on-stdin-eof]` clones a knowledge base
