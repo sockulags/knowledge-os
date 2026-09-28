@@ -134,6 +134,8 @@ export const KOS_READ_TOOLS: ReadonlySet<string> = new Set([
   'list_projects',
   'list_folder',
   'list_proposed_decisions',
+  'list_proposed_changes',
+  'read_proposed_change',
   'check_documentation',
   'read_commit'
 ])

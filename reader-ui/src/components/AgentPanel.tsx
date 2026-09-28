@@ -22,6 +22,7 @@ import { write } from "../api/write";
 import type { AgentContext, AgentMode } from "../lib/agentPrompt";
 import { pagesUsed, permissionQuestion, toolLabel } from "../lib/agentPrompt";
 import { agentStore, useAgent, type TranscriptItem } from "../lib/agentStore";
+import { AgentReview } from "./AgentReview";
 import { Markdown } from "./Markdown";
 
 /** How often a streaming answer is rendered again, at most. */
@@ -86,16 +87,19 @@ function Item({
   item,
   titles,
   onSave,
+  review = false,
 }: {
   item: TranscriptItem;
   titles: Map<string, string>;
   onSave: (agentId: number) => void;
+  /** An answer to a Review request: its items get Decide's actions. */
+  review?: boolean;
 }) {
   if (item.kind === "user") {
     return (
       <div className="ml-8 rounded-(--radius-card) bg-(--color-accent-ink-bg) px-3 py-2 text-sm text-(--color-text)">
         <span className="mb-0.5 block text-[11px] font-medium uppercase tracking-wide text-(--color-accent-ink-text)">
-          {item.mode === "draft" ? "Draft" : "Ask"}
+          {MODE_LABELS[item.mode]}
         </span>
         <span className="whitespace-pre-wrap">{item.text}</span>
       </div>
@@ -187,6 +191,7 @@ function Item({
               Save as note
             </button>
           )}
+          {review && <AgentReview text={item.text} />}
         </>
       )}
     </div>
@@ -263,6 +268,9 @@ function Setup() {
     </div>
   );
 }
+
+const MODE_LABELS: Record<AgentMode, string> = { ask: "Ask", draft: "Draft", review: "Review" };
+const DEFAULT_REVIEW_REQUEST = "Go through everything that waits for me in Decide.";
 
 function formatWhen(stamp: string): string {
   const date = new Date(stamp);
@@ -355,6 +363,13 @@ export function AgentPanel({
     else if (result !== null) navigate(`/r/${encodeURIComponent(result.id)}/edit`);
   };
   const hasAnswer = state.transcript.some((item) => item.kind === "agent" && item.done && item.text.trim() !== "");
+  // The answers to Review requests: the agent messages after a Review request.
+  const reviewAnswers = new Set<number>();
+  let lastMode: AgentMode | null = null;
+  for (const item of state.transcript) {
+    if (item.kind === "user") lastMode = item.mode;
+    else if (item.kind === "agent" && lastMode === "review") reviewAnswers.add(item.id);
+  }
 
   useEffect(() => {
     if (open) {
@@ -372,8 +387,8 @@ export function AgentPanel({
   const chosen = state.providers?.find((item) => item.id === state.providerId) ?? null;
   const canChat = chosen !== null && chosen.state === "ready" && chosen.adapterInstalled && state.session !== "auth-required";
   const send = () => {
-    if (!canChat || text.trim() === "" || state.busy) return;
-    const request = text;
+    const request = text.trim() || (mode === "review" ? DEFAULT_REVIEW_REQUEST : "");
+    if (!canChat || request === "" || state.busy) return;
     setText("");
     void agentStore.send(mode, request, context);
   };
@@ -461,7 +476,13 @@ export function AgentPanel({
           </p>
         )}
         {state.transcript.map((item) => (
-          <Item key={item.id} item={item} titles={titles} onSave={(agentId) => void saveNote(agentId)} />
+          <Item
+            key={item.id}
+            item={item}
+            titles={titles}
+            onSave={(agentId) => void saveNote(agentId)}
+            review={item.kind === "agent" && reviewAnswers.has(item.id)}
+          />
         ))}
         {state.session === "auth-required" && state.auth !== null && (
           <div className="kos-card px-3 py-2.5 text-sm" role="alert">
@@ -491,7 +512,7 @@ export function AgentPanel({
 
       <footer className="border-t border-(--color-border) px-3 py-2.5">
         <div className="mb-2 flex items-center gap-1" role="radiogroup" aria-label="Mode">
-          {(["ask", "draft"] as const).map((value) => (
+          {(["ask", "draft", "review"] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -504,7 +525,7 @@ export function AgentPanel({
                   : "text-(--color-text-muted) hover:text-(--color-text)"
               }`}
             >
-              {value === "ask" ? "Ask" : "Draft"}
+              {MODE_LABELS[value]}
             </button>
           ))}
           {scope && <span className="ml-auto truncate pl-2 text-xs text-(--color-text-faint)">About: {scope}</span>}
@@ -517,7 +538,13 @@ export function AgentPanel({
             onKeyDown={onKey}
             rows={2}
             disabled={!canChat}
-            placeholder={mode === "ask" ? "Ask the knowledge base…" : "What should the agent write?"}
+            placeholder={
+              mode === "ask"
+                ? "Ask the knowledge base…"
+                : mode === "draft"
+                  ? "What should the agent write?"
+                  : "Press Enter to go through Decide, or say what to look at"
+            }
             aria-label={mode === "ask" ? "Question" : "Request"}
             className="kos-input min-h-[2.75rem] flex-1 resize-none text-sm"
           />
@@ -526,7 +553,7 @@ export function AgentPanel({
               <Square size={14} />
             </button>
           ) : (
-            <button type="button" className="kos-btn kos-btn-primary" onClick={send} disabled={!canChat || text.trim() === ""} aria-label="Send" title="Send (Enter)">
+            <button type="button" className="kos-btn kos-btn-primary" onClick={send} disabled={!canChat || (text.trim() === "" && mode !== "review")} aria-label="Send" title="Send (Enter)">
               <Send size={14} />
             </button>
           )}

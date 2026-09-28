@@ -15,7 +15,7 @@ export interface AgentContext {
   project: { id: string; title: string } | null;
 }
 
-export type AgentMode = "ask" | "draft";
+export type AgentMode = "ask" | "draft" | "review";
 
 /** The knowledge base's tools as the agent reports them, e.g. `mcp__knowledge-os__read_page`. */
 export function toolName(title: string | null): string {
@@ -32,6 +32,8 @@ const TOOL_LABELS: Record<string, string> = {
   write_note: "Writing a note",
   propose_decision: "Proposing a decision",
   list_proposed_decisions: "Checking the proposed decisions",
+  list_proposed_changes: "Checking the proposed changes",
+  read_proposed_change: "Reading a proposed change",
   check_documentation: "Checking the documentation against the code",
   read_commit: "Reading a commit",
   propose_documentation_decision: "Proposing a decision",
@@ -47,6 +49,8 @@ const TOOL_REQUESTS: Record<string, string> = {
   write_note: "Allow the agent to write a note?",
   propose_decision: "Allow the agent to propose a decision?",
   list_proposed_decisions: "Allow the agent to check the proposed decisions?",
+  list_proposed_changes: "Allow the agent to check the proposed changes?",
+  read_proposed_change: "Allow the agent to read a proposed change?",
   check_documentation: "Allow the agent to check the documentation against the code?",
   read_commit: "Allow the agent to read a commit?",
   propose_documentation_decision: "Allow the agent to propose a decision?",
@@ -77,6 +81,8 @@ function scopeLine(context: AgentContext): string {
 }
 
 const MODE_LINES: Record<AgentMode, string> = {
+  review:
+    "Go through what waits for the person in Decide: list_proposed_decisions and list_proposed_changes, then read each item (read_page for a decision, read_proposed_change for a change) and search for what is already in force that it repeats, contradicts, or replaces. Do not write, propose, accept, withdraw, or discard anything: the person decides, in this panel. Write one section per item, most important first, headed `### [title](/r/<id>)` for a decision or `### [title](/c/<change id>)` for a proposed change, saying in a few sentences what it is, what it would change, and any conflict or duplicate, and end each section with a line `Recommendation: accept`, `Recommendation: withdraw` (decisions), `Recommendation: discard` (changes), or `Recommendation: leave for now`, followed by one sentence why. If nothing waits, say so.",
   ask:
     "Answer from the knowledge base: search and read the relevant pages with the knowledge-os tools first, and say so when it holds no answer. Do not write anything. Link every page you used as [title](/r/<id>).",
   draft:
@@ -160,7 +166,10 @@ export function pagesUsed(tools: readonly ToolUse[]): { read: string[]; written:
     if (name === "read_page" && id !== null && !read.includes(id)) read.push(id);
     if (PAGE_WRITING_TOOLS.has(name)) {
       // A new page's id is known only from the result; an edit names it in the input.
-      const writtenId = field(resultObject(tool.output), "id") ?? id;
+      const result = resultObject(tool.output);
+      // A write held for review is not written yet: it waits in Decide.
+      if (field(result, "action") === "waiting_for_review") continue;
+      const writtenId = field(result, "id") ?? id;
       if (writtenId !== null && !written.includes(writtenId)) written.push(writtenId);
     }
   }
@@ -271,4 +280,29 @@ export function noteFromTurns(
     }
   }
   return { title, body: `${parts.join("\n\n")}\n` };
+}
+
+export type Recommendation = "accept" | "withdraw" | "discard" | "leave";
+
+/**
+ * The agent's recommendations in a review answer (issue #99): each section
+ * headed by a link to a decision (`/r/<id>`) or a proposed change (`/c/<id>`),
+ * and its `Recommendation:` line. Items it did not recommend on are left out.
+ */
+export function reviewRecommendations(text: string): { kind: "decision" | "change"; id: string; recommendation: Recommendation; why: string }[] {
+  const found: { kind: "decision" | "change"; id: string; recommendation: Recommendation; why: string }[] = [];
+  const sections = text.split(/^#{2,4}\s+/m).slice(1);
+  for (const section of sections) {
+    const link = /\]\(\/(r|c)\/([A-Za-z0-9._-]+)\)/.exec(section.split("\n")[0] ?? "");
+    const line = /^\**Recommendation:?\**:?\s*\**\s*(accept|withdraw|discard|leave(?: (?:it )?for now)?)\b\**\s*[.,:;—–-]*\s*(.*)$/im.exec(section);
+    if (link === null || line === null) continue;
+    const word = line[1].toLowerCase();
+    found.push({
+      kind: link[1] === "r" ? "decision" : "change",
+      id: link[2],
+      recommendation: word.startsWith("leave") ? "leave" : (word as Recommendation),
+      why: line[2].trim(),
+    });
+  }
+  return found;
 }

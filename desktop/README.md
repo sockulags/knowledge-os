@@ -322,6 +322,17 @@ row says "allowed" or "refused". Sign-in
 trouble shows the command to run and *Try again*; a crashed agent offers
 *Restart*; *New conversation* ends the session.
 
+**Review** (#99), the third mode next to Ask and Draft, has the agent go
+through what waits in Decide (Enter with an empty request goes through
+everything): it reads the proposed decisions and the proposed changes the review
+rules held back (`list_proposed_changes`, `read_proposed_change`, both read tools
+that need no permission), compares them with what is in force, and writes one
+section per item ending in a recommendation (accept, withdraw, discard, or
+leave for now). Under the answer each item it recommended on gets its
+recommendation and the same one-click actions as Decide, with Undo
+(`AgentReview.tsx`); the agent itself still cannot accept, withdraw, or discard
+anything.
+
 **Conversations** (#100) are kept on this computer after every answer, in
 `conversations/<hash of the knowledge base path>/<id>.json` in the app's
 user-data folder (`src/main/agents/conversations.ts`): not in the knowledge

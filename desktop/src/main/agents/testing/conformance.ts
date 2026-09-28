@@ -200,8 +200,9 @@ export function describeConformance(provider: AgentProvider): void {
     it('lets the knowledge base’s own read tools run without asking', async () => {
       const { session, events } = await open()
       await session.prompt('permission mcp__knowledge-os__read_page')
+      await session.prompt('permission mcp__knowledge-os__read_proposed_change')
       expect(events.some((event) => event.type === 'permission')).toBe(false)
-      expect(text(events)).toBe('chose allow')
+      expect(text(events)).toBe('chose allowchose allow')
     })
 
     it('still asks before a knowledge base write or any other tool', async () => {

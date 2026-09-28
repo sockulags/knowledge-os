@@ -24,6 +24,7 @@ reason, and ``propose_decision`` always creates a draft.
 
 from __future__ import annotations
 
+import difflib
 import html
 import re
 from dataclasses import dataclass, field
@@ -390,6 +391,76 @@ def _list_proposed_decisions(api: LocalApi, arguments: dict[str, Any], _caller: 
             "note": "These are proposals. None governs anything until a person accepts it in the Knowledge OS app.",
         }
     )
+
+
+_CHANGE_DIFF_LIMIT = 20_000
+
+
+def _list_proposed_changes(api: LocalApi, arguments: dict[str, Any], _caller: Caller) -> ToolResult:
+    project = _string(arguments, "project")
+    body = _expect(api.get("/api/changes"), 200)
+    items = [
+        {
+            "id": item.get("id"),
+            "action": "new page" if item.get("action") == "create" else "edit",
+            "title": item.get("title"),
+            "page": (item.get("record") or {}).get("id"),
+            "project": (item.get("project") or {}).get("id") or "general",
+            "proposed_by": (item.get("proposed_by") or {}).get("label"),
+            "proposed_at": item.get("proposed_at"),
+            "rule": item.get("rule"),
+            "stale": bool(item.get("stale")),
+            "excerpt": item.get("excerpt"),
+        }
+        for item in body.get("items") or []
+        if project is None or ((item.get("project") or {}).get("id") or "general") == project
+    ]
+    return ToolResult(
+        {
+            "ok": True,
+            "count": len(items),
+            "changes": items,
+            "note": (
+                "Writes the knowledge base's review rules held back: nothing is written until a person accepts "
+                "one in the Knowledge OS app. A stale edit was made against an older revision and can only be discarded."
+            ),
+        }
+    )
+
+
+def _read_proposed_change(api: LocalApi, arguments: dict[str, Any], _caller: Caller) -> ToolResult:
+    change_id = _string(arguments, "id", required=True) or ""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", change_id):
+        raise ToolError("bad_request", f"{change_id!r} is not a proposed change id.", _API_NEXT_STEP["bad_request"])
+    body = _expect(api.get(f"/api/changes/{quote(change_id)}"), 200)
+    proposed = str(body.get("proposed_markdown") or "")
+    current = body.get("current_markdown")
+    data: dict[str, Any] = {
+        "ok": True,
+        "id": body.get("id"),
+        "action": "new page" if body.get("action") == "create" else "edit",
+        "title": body.get("title"),
+        "page": (body.get("record") or {}).get("id"),
+        "project": (body.get("project") or {}).get("id") or "general",
+        "proposed_by": (body.get("proposed_by") or {}).get("label"),
+        "rule": body.get("rule"),
+        "stale": bool(body.get("stale")),
+        "effect": body.get("effect"),
+        "metadata_changes": body.get("metadata_changes") or [],
+    }
+    if current is None:
+        data["content"] = proposed[:_CHANGE_DIFF_LIMIT]
+    else:
+        diff = "".join(
+            difflib.unified_diff(
+                str(current).splitlines(keepends=True),
+                proposed.splitlines(keepends=True),
+                fromfile="current",
+                tofile="proposed",
+            )
+        )
+        data["diff"] = diff[:_CHANGE_DIFF_LIMIT]
+    return ToolResult(data)
 
 
 # ---------------------------------------------------------------------------
@@ -872,6 +943,40 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         read_only=True,
         handler=_list_proposed_decisions,
+    ),
+    ToolSpec(
+        name="list_proposed_changes",
+        title="List proposed changes",
+        description=(
+            "List the writes the knowledge base's review rules held back, waiting in the app's Decide inbox next to "
+            "proposed decisions: new pages and edits, each with who proposed it, the rule that held it, and "
+            "whether an edit is stale. Nothing in them is written until a person accepts it."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project": {**_PROJECT_ARG, "description": "Only this project ('general' for knowledge that applies everywhere)."}
+            },
+            "additionalProperties": False,
+        },
+        read_only=True,
+        handler=_list_proposed_changes,
+    ),
+    ToolSpec(
+        name="read_proposed_change",
+        title="Read a proposed change",
+        description=(
+            "Read one proposed change from list_proposed_changes: a new page's full Markdown, or an edit as a "
+            "unified diff against the page as it is now (cut at 20,000 characters), with any metadata changes."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"id": {"type": "string", "description": "The proposed change's id from list_proposed_changes."}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        read_only=True,
+        handler=_read_proposed_change,
     ),
     ToolSpec(
         name="check_documentation",

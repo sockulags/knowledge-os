@@ -8,6 +8,7 @@ import {
   composePrompt,
   documentationPrompt,
   noteFromTurns,
+  reviewRecommendations,
   slugify,
   withEarlierTurns,
   isWriteTool,
@@ -86,6 +87,7 @@ describe("tools", () => {
       { title: "mcp__knowledge-os__write_note", input: { title: "Retry runbook" }, output: created },
       { title: "mcp__knowledge-os__propose_decision", input: { title: "Cap" }, output: [{ type: "text", text: '{"id":"cap"}' }] },
       { title: "mcp__knowledge-os__write_note", input: { title: "Held" }, output: '{"ok":false,"waiting_for_review":true}' },
+      { title: "mcp__knowledge-os__write_note", input: { title: "Held" }, output: '{"ok":true,"action":"waiting_for_review","id":"held"}' },
     ]);
     assert.deepEqual(used, { read: [], written: ["retry-runbook", "cap"] });
   });
@@ -159,5 +161,46 @@ describe("conversations", () => {
         "## Who is paged?\n\n_No answer._\n",
     );
     assert.equal(noteFromTurns([{ request: "y".repeat(100), answer: "a", pages: [] }], { agent: "Codex", date: "d" }).title.length, 78);
+  });
+});
+
+describe("review", () => {
+  it("asks for one section and recommendation per waiting item", () => {
+    const prompt = buildPrompt("review", "Go through Decide", onPage);
+    assert.match(prompt, /list_proposed_decisions and list_proposed_changes/);
+    assert.match(prompt, /### \[title\]\(\/c\/<change id>\)/);
+    assert.match(prompt, /Recommendation: accept/);
+    assert.match(prompt, /Do not write, propose, accept, withdraw, or discard anything/);
+  });
+
+  it("reads the recommendations back from the answer", () => {
+    const answer = [
+      "Two things wait.",
+      "",
+      "### [Cap retries at three](/r/cap-retries-at-three)",
+      "A proposed decision that matches the Retry policy.",
+      "",
+      "Recommendation: accept. It states what is already done.",
+      "",
+      "### [Cache warmup](/c/20260928-cache-warmup-1a2b)",
+      "A new note, held by the agent rule.",
+      "**Recommendation: discard** — it repeats Retry runbook.",
+      "",
+      "### [Old idea](/r/old-idea)",
+      "Recommendation: leave for now: needs a person who knows.",
+      "",
+      "### [Another](/r/another)",
+      "Recommendation: withdraw, because it is replaced.",
+      "",
+      "### Something without a link",
+      "Recommendation: accept.",
+    ].join("\n");
+    assert.deepEqual(reviewRecommendations(answer), [
+      { kind: "decision", id: "cap-retries-at-three", recommendation: "accept", why: "It states what is already done." },
+      { kind: "change", id: "20260928-cache-warmup-1a2b", recommendation: "discard", why: "it repeats Retry runbook." },
+      { kind: "decision", id: "old-idea", recommendation: "leave", why: "needs a person who knows." },
+      { kind: "decision", id: "another", recommendation: "withdraw", why: "because it is replaced." },
+    ]);
+    assert.deepEqual(reviewRecommendations("Nothing waits in Decide."), []);
   });
 });
