@@ -420,7 +420,12 @@ release is made by hand:
    `desktop/package.json`.
 2. Commit, merge, and build from a clean checkout of that commit in a shell
    where `MAIN_VITE_KOS_UPDATE_TEST_FEED` is not set: `npm ci`, then
-   `npm run dist`.
+   `npm run dist`. Or let GitHub Actions do steps 2 and 3: run the
+   **Release** workflow (`.github/workflows/release.yml`) on `main` from the
+   Actions tab. It builds the same way on `windows-latest`, uploads the three
+   files as a workflow artifact, and with *publish* checked creates and
+   publishes the release `vX.Y.Z` from `desktop/package.json` with them
+   attached. Run it once without *publish* to try the installer first.
 3. Create a GitHub release with the tag `vX.Y.Z` (for example
    `gh release create vX.Y.Z --title "X.Y.Z" --notes "…"`) and attach these
    three files from `desktop/dist/`:

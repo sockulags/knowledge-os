@@ -49,8 +49,10 @@ $core = Join-Path $build 'dist\kos-core\kos-core.exe'
 Invoke-Checked 'kos-core -m knowledge_os --help' { & $core -m knowledge_os --help | Out-Null }
 Invoke-Checked 'kos-core -m knowledge_os.reader --help' { & $core -m knowledge_os.reader --help | Out-Null }
 # The MCP server imports the MCP SDK at start and exits cleanly when stdin
-# closes, so an empty stdin proves the SDK was bundled.
+# closes, so an empty stdin proves the SDK was bundled. The in-app agent starts
+# it with a leading -P (src/main/agents/service.ts), so test that form too.
 Invoke-Checked 'kos-core -m knowledge_os mcp' { $null | & $core -m knowledge_os mcp | Out-Null }
+Invoke-Checked 'kos-core -P -m knowledge_os mcp' { $null | & $core -P -m knowledge_os mcp --place 'Knowledge OS app' | Out-Null }
 
 $size = (Get-ChildItem -LiteralPath (Split-Path -Parent $core) -Recurse -File | Measure-Object -Property Length -Sum).Sum
 Write-Host ("Built {0} ({1:N1} MB)" -f $core, ($size / 1MB))
