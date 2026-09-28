@@ -15,6 +15,9 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { WriteFailureCallout } from "../components/WriteFailureCallout";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Bot, Loader2 } from "lucide-react";
+import { agentBridge } from "../lib/agentBridge";
+import { agentStore, useAgent } from "../lib/agentStore";
 import {
   Field,
   PrimaryButton,
@@ -93,7 +96,7 @@ function NewRecordForm({
   supersedes: string | null;
 }) {
   const navigate = useNavigate();
-  const { refreshNav } = useShell();
+  const { refreshNav, nav } = useShell();
   const [title, setTitle] = useState("");
   const [id, setId] = useState("");
   const [idEdited, setIdEdited] = useState(false);
@@ -225,6 +228,22 @@ function NewRecordForm({
       {failure && <WriteFailureCallout failure={failure} />}
 
       <div className="space-y-4">
+        {!supersedes && agentBridge() !== null && (
+          <StartWithAgent
+            context={{
+              workspaceName: nav?.workspace_name ?? null,
+              page: null,
+              project: { id: projectId, title: projectTitle },
+            }}
+            replacesText={body.trim() !== "" && body !== templateText}
+            onDraft={(draft) => {
+              if (draft.title) {
+                setTitle(draft.title);
+              }
+              if (draft.body) setBody(draft.body);
+            }}
+          />
+        )}
         {templates.data && (
           <TemplatePicker
             payload={templates.data}
@@ -311,6 +330,76 @@ function NewRecordForm({
  * decision templates for a proposed replacement. */
 function usableTemplates(payload: TemplatesPayload, decisionsOnly: boolean): PageTemplate[] {
   return payload.templates.filter((item) => item.error === null && (!decisionsOnly || item.kind === "decision"));
+}
+
+/** Ctrl+N's agent start: one line in, a drafted title and body out, which the
+ * person then reviews and saves. The agent writes nothing itself. */
+function StartWithAgent({
+  context,
+  replacesText,
+  onDraft,
+}: {
+  context: Parameters<typeof agentStore.compose>[1];
+  replacesText: boolean;
+  onDraft: (draft: { title: string; body: string }) => void;
+}) {
+  const agent = useAgent();
+  const [request, setRequest] = useState("");
+  const [working, setWorking] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void agentStore.refresh();
+  }, []);
+
+  const chosen = agent.providers?.find((item) => item.id === agent.providerId) ?? null;
+  const ready = chosen !== null && chosen.state === "ready" && chosen.adapterInstalled;
+
+  async function draft() {
+    if (request.trim() === "" || working) return;
+    if (replacesText && !window.confirm("Replace the text you have written with the agent's draft?")) return;
+    setWorking(true);
+    setMessage(null);
+    const result = await agentStore.compose(request, context);
+    setWorking(false);
+    if (result === null || (result.title === "" && result.body === "")) {
+      setMessage(agentStore.snapshot().error ?? "The agent did not return a draft. Open the agent panel (Ctrl+J) to see why.");
+      return;
+    }
+    onDraft(result);
+  }
+
+  return (
+    <div className="kos-card px-4 py-3">
+      <label className="block">
+        <span className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-(--color-text-muted)">
+          <Bot size={14} />
+          Start with the agent
+        </span>
+        <div className="flex gap-2">
+          <input
+            className={`${inputClass} min-w-0 flex-1`}
+            value={request}
+            onChange={(event) => setRequest(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void draft();
+              }
+            }}
+            placeholder={ready ? "Describe the page in one line" : "Set up the agent in the agent panel (Ctrl+J) first"}
+            disabled={!ready || working}
+          />
+          <SecondaryButton onClick={() => void draft()}>
+            {working ? <Loader2 size={14} className="animate-spin" /> : "Draft"}
+          </SecondaryButton>
+        </div>
+      </label>
+      <p className="mt-1.5 text-xs text-(--color-text-faint)">
+        {message ?? "The agent drafts the title and text from the knowledge base; nothing is saved until you create the page."}
+      </p>
+    </div>
+  );
 }
 
 function TemplatePicker({

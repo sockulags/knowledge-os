@@ -12,12 +12,14 @@ import type { RecentWorkspace } from '../shared/types'
 
 /** Commands the main process runs; a menu item names one by id. */
 export const COMMAND = {
+  newPage: 'file:new-page',
   open: 'file:open',
   create: 'file:create',
   clone: 'file:clone',
   reopenOnStart: 'file:reopen-on-start',
   close: 'file:close',
   exit: 'file:exit',
+  agent: 'view:agent',
   reload: 'view:reload',
   devTools: 'view:dev-tools',
   resetZoom: 'view:reset-zoom',
@@ -98,8 +100,16 @@ export function buildMenus(input: MenuInput): MenuSpec[] {
     {
       label: text.file,
       items: [
+        // Ctrl+N is a new page in the open knowledge base (issue #83).
+        {
+          command: COMMAND.newPage,
+          label: text.newPage,
+          accelerator: 'CmdOrCtrl+N',
+          enabled: input.workspaceOpen
+        },
+        separator,
         { command: COMMAND.open, label: text.open, accelerator: 'CmdOrCtrl+O' },
-        { command: COMMAND.create, label: text.create, accelerator: 'CmdOrCtrl+N' },
+        { command: COMMAND.create, label: text.create, accelerator: 'CmdOrCtrl+Shift+N' },
         { command: COMMAND.clone, label: CLONE_TEXT.menuItem },
         { label: text.openRecent, submenu: recentItems },
         {
@@ -117,6 +127,14 @@ export function buildMenus(input: MenuInput): MenuSpec[] {
     {
       label: text.view,
       items: [
+        // Shows or hides the agent panel (issue #83).
+        {
+          command: COMMAND.agent,
+          label: text.agent,
+          accelerator: 'CmdOrCtrl+J',
+          enabled: input.workspaceOpen
+        },
+        separator,
         { command: COMMAND.reload, label: text.reload, accelerator: 'CmdOrCtrl+R' },
         { command: COMMAND.devTools, label: text.devTools, accelerator: 'CmdOrCtrl+Shift+I' },
         separator,

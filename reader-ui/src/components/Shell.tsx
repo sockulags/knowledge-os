@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Outlet, useLocation, useOutletContext } from "react-router";
-import { Menu, PanelLeftClose, PanelLeft } from "lucide-react";
+import { Outlet, useLocation, useNavigate, useOutletContext } from "react-router";
+import { Bot, Menu, PanelLeftClose, PanelLeft } from "lucide-react";
 import { api } from "../api/client";
 import type { NavPayload } from "../api/types";
 import { Sidebar } from "./Sidebar";
@@ -16,6 +16,10 @@ import { MAC, isQuickSwitchShortcut } from "../lib/quickSwitch";
 import { showsOutcome } from "../lib/pendingActions";
 import { pendingActions, useOnPendingSettled, usePendingEntries } from "../lib/pendingStore";
 import { prepareSession } from "../api/write";
+import { AgentPanel } from "./AgentPanel";
+import { agentBridge, onReaderCommand } from "../lib/agentBridge";
+import type { AgentContext } from "../lib/agentPrompt";
+import { agentStore } from "../lib/agentStore";
 
 export interface ShellContext {
   /** Reload the sidebar after a write changed titles or added a page. */
@@ -32,6 +36,28 @@ export function useShell(): ShellContext {
   return useOutletContext<ShellContext>();
 }
 
+/** What the agent is told about where the person is: the page or project open. */
+export function agentContextFor(pathname: string, nav: NavPayload | null): AgentContext {
+  const projects = new Map((nav?.projects ?? []).map((project) => [project.id, project.title]));
+  const project = (id: string | null) => (id !== null && projects.has(id) ? { id, title: projects.get(id)! } : null);
+  const record = /^\/r\/([^/]+)/.exec(pathname);
+  if (record !== null) {
+    const id = decodeURIComponent(record[1]);
+    const entry = nav?.record_index.find((item) => item.id === id && item.kind !== "skill" && item.kind !== "doc");
+    return {
+      workspaceName: nav?.workspace_name ?? null,
+      page: entry ? { id, title: entry.title } : null,
+      project: project(entry?.project ?? null),
+    };
+  }
+  const projectPage = /^\/p\/([^/]+)/.exec(pathname);
+  return {
+    workspaceName: nav?.workspace_name ?? null,
+    page: null,
+    project: projectPage !== null ? project(decodeURIComponent(projectPage[1])) : null,
+  };
+}
+
 /** The app shell: a resizable left sidebar (256px by default) on a tinted ground, a centred
  * reading column, and the Ctrl K command palette. Collapses to a slide-over
  * drawer below 768px (design brief). */
@@ -40,6 +66,9 @@ export function Shell() {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [quickFindOpen, setQuickFindOpen] = useState(false);
+  // The in-app agent exists only in the desktop app.
+  const [agentOpen, setAgentOpen] = useState(false);
+  const agentAvailable = agentBridge() !== null;
 
   // Bumped after a sync pulls changes, which remounts the page so it
   // re-reads what the pull changed.
@@ -72,11 +101,34 @@ export function Shell() {
     loadNav();
   }, [loadNav]);
 
+  // The agent's writes show up in the sidebar at once.
+  useEffect(() => {
+    agentStore.onWrite = loadNav;
+    return () => {
+      agentStore.onWrite = null;
+    };
+  }, [loadNav]);
+
   // One-click decision actions wait a few seconds for Undo before they are
   // written (lib/pendingActions.ts). Leaving never drops one: a new route
   // sends everything still waiting and then reloads the page it shows, and a
   // page that is hidden or closed sends it with keepalive.
   const location = useLocation();
+  const navigate = useNavigate();
+  const agentContext = useMemo(() => agentContextFor(location.pathname, nav), [location.pathname, nav]);
+
+  // The desktop menu's New Page (Ctrl+N) and Agent (Ctrl+J).
+  useEffect(
+    () =>
+      onReaderCommand((command) => {
+        if (command === "toggle-agent") setAgentOpen((value) => !value);
+        if (command === "new-page") {
+          const projectId = agentContext.project?.id ?? nav?.projects[0]?.id ?? null;
+          if (projectId !== null) navigate(`/p/${encodeURIComponent(projectId)}/new`);
+        }
+      }),
+    [agentContext, nav, navigate],
+  );
   useEffect(() => {
     if (pendingActions.pendingCount() === 0) return;
     void pendingActions.flushAll().then((sent) => {
@@ -164,7 +216,8 @@ export function Shell() {
         </div>
       )}
 
-      <div className="min-w-0 flex-1">
+      {/* The agent panel sits beside the page on wider screens, not over it. */}
+      <div className={`min-w-0 flex-1 ${agentOpen ? "sm:mr-[400px]" : ""}`}>
         <header className="sticky top-(--frame-top) z-30 flex items-center justify-between border-b border-(--color-border) bg-[color-mix(in_srgb,var(--color-bg)_92%,transparent)] px-3 py-2 backdrop-blur-sm">
           <div className="flex items-center gap-1">
             <button
@@ -186,6 +239,19 @@ export function Shell() {
           </div>
           <div className="flex min-w-0 items-center gap-2">
             <SyncBar sync={sync} />
+            {agentAvailable && (
+              <button
+                type="button"
+                onClick={() => setAgentOpen((value) => !value)}
+                className="kos-icon-btn"
+                aria-label={agentOpen ? "Close the agent" : "Open the agent"}
+                aria-pressed={agentOpen}
+                title="Agent (Ctrl+J)"
+                data-testid="agent-toggle"
+              >
+                <Bot size={16} />
+              </button>
+            )}
             <ThemeToggle />
           </div>
         </header>
@@ -196,6 +262,7 @@ export function Shell() {
       </div>
 
       <QuickFind open={quickFindOpen} onClose={() => setQuickFindOpen(false)} nav={nav} />
+      <AgentPanel open={agentOpen} onClose={() => setAgentOpen(false)} context={agentContext} nav={nav} />
       <UndoNotices />
     </div>
     </StructureProvider>

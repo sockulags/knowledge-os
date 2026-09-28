@@ -48,7 +48,17 @@ export type SessionState = 'starting' | 'ready' | 'working' | 'auth-required' | 
 export type AgentEvent =
   | { type: 'state'; state: SessionState; message: string | null; auth: AuthHelp | null }
   | { type: 'text'; kind: 'message' | 'thought'; text: string }
-  | { type: 'tool'; id: string; title: string | null; status: string | null; kind: string | null }
+  | {
+      type: 'tool'
+      id: string
+      title: string | null
+      status: string | null
+      kind: string | null
+      /** The tool's arguments, when the agent reports them (e.g. a page id to read). */
+      input: unknown
+      /** The tool's result as the agent reports it, once it has one. */
+      output: unknown
+    }
   | { type: 'plan'; entries: { content: string; status: string }[] }
   | {
       type: 'permission'
@@ -383,7 +393,9 @@ export class AcpAgentSession {
           id: update.toolCallId,
           title: update.title ?? null,
           status: update.status ?? null,
-          kind: update.kind ?? null
+          kind: update.kind ?? null,
+          input: update.rawInput ?? null,
+          output: update.rawOutput ?? null
         })
         return
       case 'plan':

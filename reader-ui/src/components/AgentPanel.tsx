@@ -1,0 +1,342 @@
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Link } from "react-router";
+import { Bot, Check, Copy, Download, FileText, Loader2, RotateCcw, Send, Square, SquarePen, X } from "lucide-react";
+import type { NavPayload } from "../api/types";
+import { write } from "../api/write";
+import type { AgentContext, AgentMode } from "../lib/agentPrompt";
+import { pagesUsed, permissionQuestion, toolLabel } from "../lib/agentPrompt";
+import { agentStore, useAgent, type TranscriptItem } from "../lib/agentStore";
+import { Markdown } from "./Markdown";
+
+/** An agent answer as Markdown, rendered by the core like a page body once complete. */
+function AgentMarkdown({ text, done }: { text: string; done: boolean }) {
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    if (!done || text.trim() === "") return;
+    let cancelled = false;
+    // No page path: the agent links pages as /r/<id>, which stay as written.
+    void write.preview(text).then((outcome) => {
+      if (!cancelled && outcome.ok) setHtml(outcome.data.html);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [text, done]);
+  if (done && html !== null) return <Markdown html={html} className="prose-sm" />;
+  return <p className="whitespace-pre-wrap text-sm leading-relaxed text-(--color-text)">{text}</p>;
+}
+
+function PageChips({ label, ids, titles }: { label: string; ids: string[]; titles: Map<string, string> }) {
+  if (ids.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-(--color-text-faint)">
+      <span>{label}</span>
+      {ids.map((id) => (
+        <Link key={id} to={`/r/${id}`} className="kos-chip inline-flex items-center gap-1" title={id}>
+          <FileText size={11} />
+          {titles.get(id) ?? id}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function Item({ item, titles }: { item: TranscriptItem; titles: Map<string, string> }) {
+  if (item.kind === "user") {
+    return (
+      <div className="ml-8 rounded-(--radius-card) bg-(--color-accent-ink-bg) px-3 py-2 text-sm text-(--color-text)">
+        <span className="mb-0.5 block text-[11px] font-medium uppercase tracking-wide text-(--color-accent-ink-text)">
+          {item.mode === "draft" ? "Draft" : "Ask"}
+        </span>
+        <span className="whitespace-pre-wrap">{item.text}</span>
+      </div>
+    );
+  }
+  if (item.kind === "notice") {
+    return (
+      <p
+        className={`rounded-(--radius-card) px-3 py-2 text-sm ${
+          item.tone === "error" ? "bg-(--color-accent-red-bg) text-(--color-accent-red-text)" : "text-(--color-text-muted)"
+        }`}
+        role={item.tone === "error" ? "alert" : undefined}
+      >
+        {item.text}
+      </p>
+    );
+  }
+  if (item.kind === "permission") {
+    return (
+      <div className="kos-card px-3 py-2.5 text-sm" data-testid="agent-permission">
+        <p className="font-medium text-(--color-text)">{permissionQuestion(item.title)}</p>
+        <p className="mt-0.5 text-xs text-(--color-text-faint)">{item.title}</p>
+        {item.answer === null ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {item.options.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={`kos-btn kos-btn-sm ${option.kind.startsWith("allow") ? "kos-btn-primary" : "kos-btn-secondary"}`}
+                onClick={() => void agentStore.answer(item, option.id)}
+              >
+                {option.name}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1.5 text-xs text-(--color-text-muted)">You chose: {item.answer}</p>
+        )}
+      </div>
+    );
+  }
+  const used = pagesUsed(item.tools);
+  return (
+    <div data-testid="agent-message">
+      {item.tools.length > 0 && (
+        <ul className="mb-1.5 space-y-0.5">
+          {item.tools.map((tool) => (
+            <li key={tool.id} className="flex items-center gap-1.5 text-xs text-(--color-text-faint)">
+              {tool.status === "completed" ? (
+                <Check size={12} className="text-(--color-accent-green-text)" />
+              ) : tool.status === "failed" ? (
+                <X size={12} className="text-(--color-accent-red-text)" />
+              ) : (
+                <Loader2 size={12} className="animate-spin" />
+              )}
+              {toolLabel(tool.title)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {item.text !== "" && <AgentMarkdown text={item.text} done={item.done} />}
+      {item.done && (
+        <>
+          <PageChips label="Pages used:" ids={used.read} titles={titles} />
+          <PageChips label="Written:" ids={used.written} titles={titles} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function CopyCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="mt-2 inline-flex items-center gap-1.5 rounded-[5px] bg-(--color-bg-sidebar) px-2 py-1 font-mono text-xs text-(--color-text)"
+      onClick={() => {
+        void navigator.clipboard?.writeText(command).then(() => setCopied(true));
+      }}
+      title="Copy"
+    >
+      {command}
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+    </button>
+  );
+}
+
+/** Choosing the agent, installing its adapter, and signing in, before the first request. */
+function Setup() {
+  const state = useAgent();
+  const providers = state.providers;
+  if (providers === null) return <p className="text-sm text-(--color-text-muted)">Looking for agents on this computer…</p>;
+  if (providers.length === 0) return <p className="text-sm text-(--color-text-muted)">No agents are available.</p>;
+  const chosen = providers.find((item) => item.id === state.providerId) ?? providers[0];
+  const installing = state.install?.providerId === chosen.id ? state.install : null;
+  return (
+    <div className="space-y-3 text-sm">
+      <fieldset>
+        <legend className="mb-1.5 text-[13px] font-medium text-(--color-text-muted)">Agent</legend>
+        <div className="space-y-1.5" role="radiogroup">
+          {providers.map((provider) => (
+            <label key={provider.id} className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-(--color-bg-sidebar)">
+              <input
+                type="radio"
+                name="agent-provider"
+                className="mt-1 accent-(--color-accent)"
+                checked={provider.id === chosen.id}
+                onChange={() => agentStore.choose(provider.id)}
+                disabled={state.session !== "none" && state.session !== "closed"}
+              />
+              <span>
+                <span className="block font-medium text-(--color-text)">{provider.displayName}</span>
+                <span className="block text-xs text-(--color-text-faint)">{provider.message}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {chosen.state === "ready" && !chosen.adapterInstalled && (
+        <div className="kos-card px-3 py-2.5">
+          <p className="text-(--color-text)">
+            The app talks to {chosen.displayName} through a small adapter ({chosen.adapterVersion}), which is downloaded
+            from npm the first time and checked against the version Knowledge OS was tested with.
+          </p>
+          {installing ? (
+            <p className="mt-2 flex items-center gap-2 text-xs text-(--color-text-muted)">
+              <Loader2 size={12} className="animate-spin" />
+              Installing… {installing.total > 0 ? `${installing.done} of ${installing.total} packages` : ""}
+            </p>
+          ) : (
+            <button type="button" className="kos-btn kos-btn-primary kos-btn-sm mt-2 inline-flex items-center gap-1.5" onClick={() => void agentStore.install(chosen.id)}>
+              <Download size={13} />
+              Install adapter
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AgentPanel({
+  open,
+  onClose,
+  context,
+  nav,
+}: {
+  open: boolean;
+  onClose: () => void;
+  context: AgentContext;
+  nav: NavPayload | null;
+}) {
+  const state = useAgent();
+  const [mode, setMode] = useState<AgentMode>("ask");
+  const [text, setText] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  const titles = new Map((nav?.record_index ?? []).map((entry) => [entry.id, entry.title]));
+
+  useEffect(() => {
+    if (open) {
+      void agentStore.refresh();
+      inputRef.current?.focus();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [state.transcript]);
+
+  if (!open || !state.available) return null;
+
+  const chosen = state.providers?.find((item) => item.id === state.providerId) ?? null;
+  const canChat = chosen !== null && chosen.state === "ready" && chosen.adapterInstalled && state.session !== "auth-required";
+  const send = () => {
+    if (!canChat || text.trim() === "" || state.busy) return;
+    const request = text;
+    setText("");
+    void agentStore.send(mode, request, context);
+  };
+  const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      send();
+    }
+  };
+  const scope = context.page?.title ?? context.project?.title ?? null;
+
+  return (
+    <aside
+      className="fixed right-0 top-(--frame-top) bottom-0 z-40 flex w-full flex-col border-l border-(--color-border) bg-(--color-bg) shadow-[-8px_0_24px_rgb(0_0_0/0.06)] sm:w-[400px]"
+      aria-label="Agent"
+      data-testid="agent-panel"
+    >
+      <header className="flex items-center gap-2 border-b border-(--color-border) px-3 py-2">
+        <Bot size={16} className="text-(--color-accent-text)" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-(--color-text)">Agent</p>
+          <p className="truncate text-xs text-(--color-text-faint)">
+            {state.sessionProvider !== null ? `${chosen?.displayName ?? ""} · ${state.session}` : "Not started"}
+          </p>
+        </div>
+        <button type="button" className="kos-icon-btn" onClick={() => void agentStore.clear()} aria-label="New conversation" title="New conversation">
+          <SquarePen size={15} />
+        </button>
+        <button type="button" className="kos-icon-btn" onClick={onClose} aria-label="Close the agent panel" title="Close (Ctrl+J)">
+          <X size={16} />
+        </button>
+      </header>
+
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+        {state.transcript.length === 0 && <Setup />}
+        {state.transcript.length === 0 && canChat && (
+          <p className="text-sm text-(--color-text-muted)">
+            Ask about the knowledge base, or switch to Draft to have the agent write a note or propose a decision.
+            It uses the same tools as agents outside the app: it cannot accept, withdraw, or delete anything, and what
+            it writes is marked as the agent's.
+          </p>
+        )}
+        {state.transcript.map((item) => (
+          <Item key={item.id} item={item} titles={titles} />
+        ))}
+        {state.session === "auth-required" && state.auth !== null && (
+          <div className="kos-card px-3 py-2.5 text-sm" role="alert">
+            <p className="text-(--color-text)">{state.auth.message}</p>
+            {state.auth.command && <CopyCommand command={state.auth.command} />}
+            <button type="button" className="kos-btn kos-btn-secondary kos-btn-sm mt-2 flex items-center gap-1.5" onClick={() => void agentStore.restart()}>
+              <RotateCcw size={13} />
+              Try again
+            </button>
+          </div>
+        )}
+        {state.session === "crashed" && (
+          <button type="button" className="kos-btn kos-btn-secondary kos-btn-sm flex items-center gap-1.5" onClick={() => void agentStore.restart()}>
+            <RotateCcw size={13} />
+            Restart the agent
+          </button>
+        )}
+        {state.error && (
+          <p className="rounded-(--radius-card) bg-(--color-accent-red-bg) px-3 py-2 text-sm text-(--color-accent-red-text)" role="alert">
+            {state.error}
+          </p>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <footer className="border-t border-(--color-border) px-3 py-2.5">
+        <div className="mb-2 flex items-center gap-1" role="radiogroup" aria-label="Mode">
+          {(["ask", "draft"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={mode === value}
+              onClick={() => setMode(value)}
+              className={`rounded-[5px] px-2.5 py-1 text-[13px] ${
+                mode === value
+                  ? "bg-(--color-accent-ink-bg) font-medium text-(--color-accent-ink-text)"
+                  : "text-(--color-text-muted) hover:text-(--color-text)"
+              }`}
+            >
+              {value === "ask" ? "Ask" : "Draft"}
+            </button>
+          ))}
+          {scope && <span className="ml-auto truncate pl-2 text-xs text-(--color-text-faint)">About: {scope}</span>}
+        </div>
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={inputRef}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={onKey}
+            rows={2}
+            disabled={!canChat}
+            placeholder={mode === "ask" ? "Ask the knowledge base…" : "What should the agent write?"}
+            aria-label={mode === "ask" ? "Question" : "Request"}
+            className="kos-input min-h-[2.75rem] flex-1 resize-none text-sm"
+          />
+          {state.busy ? (
+            <button type="button" className="kos-btn kos-btn-secondary" onClick={() => void agentStore.cancel()} aria-label="Stop" title="Stop">
+              <Square size={14} />
+            </button>
+          ) : (
+            <button type="button" className="kos-btn kos-btn-primary" onClick={send} disabled={!canChat || text.trim() === ""} aria-label="Send" title="Send (Enter)">
+              <Send size={14} />
+            </button>
+          )}
+        </div>
+      </footer>
+    </aside>
+  );
+}

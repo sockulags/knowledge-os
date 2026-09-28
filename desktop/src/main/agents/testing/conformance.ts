@@ -180,6 +180,8 @@ export function describeConformance(provider: AgentProvider): void {
         'in_progress',
         'completed'
       ])
+      expect(tools[0]).toMatchObject({ input: { query: 'retry' }, output: null })
+      expect(tools[1]).toMatchObject({ output: '{"results":[]}' })
     })
 
     it('puts every permission question to the person', async () => {
