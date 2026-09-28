@@ -28,6 +28,7 @@ import {
   unsavedChangesDialog,
   updateNotice
 } from './chromeState'
+import { ConversationStore } from './agents/conversations'
 import { AgentService, electronLaunchHost, kosMcpCommand } from './agents/service'
 import { createCloneWindow, type CloneWindow } from './cloneWindow'
 import { flushReaderActions } from './flushReader'
@@ -105,6 +106,8 @@ let closeConfirmed = false
 let readerUrl: string | null = null
 /** The in-app agent (issue #90): at most one session, in the open knowledge base. */
 const adaptersRoot = join(app.getPath('userData'), 'agents')
+/** The agent's past conversations, per knowledge base (issue #100). */
+const conversations = new ConversationStore(join(app.getPath('userData'), 'conversations'))
 const agents = new AgentService(
   electronLaunchHost(process.execPath, process.env, adaptersRoot),
   {
@@ -693,6 +696,19 @@ function registerAgentIpc(): void {
   )
   handleForReader(IPC.agentRestart, () => agents.restart())
   handleForReader(IPC.agentClose, async () => agents.close())
+  // Conversations belong to the knowledge base open in the window.
+  const openRoot = (): string => {
+    if (state.kind !== 'ready') throw new Error('No knowledge base is open.')
+    return state.root
+  }
+  handleForReader(IPC.agentConversations, async () => conversations.list(openRoot()))
+  handleForReader(IPC.agentConversationGet, async (id) => conversations.get(openRoot(), String(id)))
+  handleForReader(IPC.agentConversationSave, async (conversation) =>
+    conversations.save(openRoot(), conversation)
+  )
+  handleForReader(IPC.agentConversationDelete, async (id) =>
+    conversations.remove(openRoot(), String(id))
+  )
 }
 
 function registerIpc(): void {

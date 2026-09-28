@@ -320,8 +320,20 @@ by `kos mcp`. Reading the knowledge base needs no permission; every write
 asks, inside the answer where the agent waits, and once answered the tool's
 row says "allowed" or "refused". Sign-in
 trouble shows the command to run and *Try again*; a crashed agent offers
-*Restart*; *New conversation* ends the session. Nothing of the conversation is
-saved.
+*Restart*; *New conversation* ends the session.
+
+**Conversations** (#100) are kept on this computer after every answer, in
+`conversations/<hash of the knowledge base path>/<id>.json` in the app's
+user-data folder (`src/main/agents/conversations.ts`): not in the knowledge
+base, and not synced. The panel's history button lists them, newest first,
+with when and what they were about; one can be opened, renamed, or deleted,
+and the newest 200 per knowledge base are kept. A conversation opened from the
+list continues in a new agent session, whose first prompt repeats the latest
+earlier turns (at most 12,000 characters). *Save as note*, for the whole
+conversation or one answer, writes a draft note in the project in view (general
+knowledge without one) with the agent's `agent-authored` provenance: each
+request as a heading, its answer, and the pages it used as links; the editor
+opens on it. Review rules apply as to any write.
 
 File → New Page (Ctrl+N) opens a new page in the current project (the first
 project when none is in view). In the app it has *Start with the agent*: one

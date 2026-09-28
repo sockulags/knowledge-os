@@ -18,6 +18,8 @@ export interface ProviderInfo {
   adapterVersion: string
   /** Whether its adapter is installed; `installAdapter` fetches it. */
   adapterInstalled: boolean
+  /** The name its writes carry in provenance (`agent:<name>:<place>`). */
+  mcpClientName: string
 }
 
 /** The open knowledge base, as a session needs it. */
@@ -96,7 +98,8 @@ export class AgentService {
           version: status.version,
           message: status.message,
           adapterVersion: provider.adapter.version,
-          adapterInstalled: installedEntry(provider.adapter, this.adapters.root) !== null
+          adapterInstalled: installedEntry(provider.adapter, this.adapters.root) !== null,
+          mcpClientName: provider.mcpClientName
         }
       })
     )

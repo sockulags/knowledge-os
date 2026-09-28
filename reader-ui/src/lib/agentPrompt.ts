@@ -203,3 +203,72 @@ export function documentationPrompt(
   );
   return lines.join("\n");
 }
+
+/** One turn of a conversation, as text: what the person asked and what the agent answered. */
+export interface Turn {
+  request: string;
+  answer: string;
+}
+
+/** How much of an earlier conversation a continued one repeats, at most. */
+export const EARLIER_TURNS_LIMIT = 12_000;
+
+/**
+ * A prompt for a conversation continued in a new agent session (issue #100):
+ * the agent does not remember the earlier turns, so the latest of them come
+ * first, cut at EARLIER_TURNS_LIMIT characters (the oldest are dropped).
+ */
+export function withEarlierTurns(prompt: string, turns: readonly Turn[]): string {
+  const blocks: string[] = [];
+  let length = 0;
+  for (const turn of [...turns].reverse()) {
+    const block = `Person: ${turn.request.trim()}\nYou: ${turn.answer.trim() || "(no answer)"}`;
+    if (length + block.length > EARLIER_TURNS_LIMIT) break;
+    blocks.unshift(block);
+    length += block.length;
+  }
+  if (blocks.length === 0) return prompt;
+  return [
+    "Earlier in this conversation (repeated here, since you do not remember it):",
+    "",
+    blocks.join("\n\n"),
+    "",
+    "The conversation continues:",
+    "",
+    prompt,
+  ].join("\n");
+}
+
+/** A page id from a title: lowercase ASCII words joined by hyphens, as the MCP tools make them. */
+export function slugify(title: string): string {
+  const text = title
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+    .replace(/-+$/, "");
+  return text || "conversation";
+}
+
+/**
+ * A conversation, or one answer, as a draft note (issue #100): each request as
+ * a heading with its answer below, and the pages the agent used listed as
+ * links (`/r/<id>`, as the app links pages).
+ */
+export function noteFromTurns(
+  turns: readonly (Turn & { pages: readonly { id: string; title: string }[] })[],
+  { agent, date }: { agent: string; date: string },
+): { title: string; body: string } {
+  const first = turns[0]?.request.trim() ?? "";
+  const title = first.length > 80 ? `${first.slice(0, 77).trimEnd()}…` : first || "Conversation with the agent";
+  const parts = [`Saved from a conversation with ${agent} in Knowledge OS on ${date}.`];
+  for (const turn of turns) {
+    parts.push(`## ${turn.request.trim().replace(/\s+/g, " ")}`, turn.answer.trim() || "_No answer._");
+    if (turn.pages.length > 0) {
+      parts.push(`Pages used: ${turn.pages.map((page) => `[${page.title}](/r/${page.id})`).join(", ")}`);
+    }
+  }
+  return { title, body: `${parts.join("\n\n")}\n` };
+}

@@ -12,6 +12,23 @@ export interface AgentProviderInfo {
   message: string;
   adapterVersion: string;
   adapterInstalled: boolean;
+  /** The name its writes carry in provenance, e.g. `claude-code`. */
+  mcpClientName: string;
+}
+
+/** A past conversation as the chat list shows it (issue #100). */
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  providerId: string | null;
+  about: string | null;
+}
+
+export interface StoredConversation extends ConversationSummary {
+  version: 1;
+  transcript: unknown[];
 }
 
 export interface AuthHelp {
@@ -47,6 +64,11 @@ export interface AgentBridge {
   restart: () => Promise<void>;
   close: () => Promise<void>;
   onEvent: (callback: (event: AgentEvent) => void) => () => void;
+  /** The open knowledge base's past conversations, newest first. */
+  conversations: () => Promise<ConversationSummary[]>;
+  conversation: (id: string) => Promise<StoredConversation>;
+  saveConversation: (conversation: StoredConversation) => Promise<ConversationSummary>;
+  deleteConversation: (id: string) => Promise<void>;
 }
 
 interface DesktopBridge {

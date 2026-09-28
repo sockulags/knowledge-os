@@ -20,6 +20,11 @@ export const IPC = {
   agentRestart: 'agent:restart',
   agentClose: 'agent:close',
   agentEvent: 'agent:event',
+  // Past conversations (issue #100), kept in the app's user-data folder.
+  agentConversations: 'agent:conversations',
+  agentConversationGet: 'agent:conversation-get',
+  agentConversationSave: 'agent:conversation-save',
+  agentConversationDelete: 'agent:conversation-delete',
   /** A menu command for the reader UI: 'new-page' or 'toggle-agent'. */
   readerCommand: 'reader:command'
 } as const
@@ -93,6 +98,11 @@ export interface DesktopApi {
     restart: () => Promise<void>
     close: () => Promise<void>
     onEvent: (callback: (event: unknown) => void) => () => void
+    /** The open knowledge base's past conversations, newest first (issue #100). */
+    conversations: () => Promise<unknown[]>
+    conversation: (id: string) => Promise<unknown>
+    saveConversation: (conversation: unknown) => Promise<unknown>
+    deleteConversation: (id: string) => Promise<void>
   }
   /** Menu commands meant for the reader UI (New Page, Agent). */
   onReaderCommand: (callback: (command: string) => void) => () => void

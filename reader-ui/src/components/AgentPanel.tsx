@@ -1,6 +1,22 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Link } from "react-router";
-import { Bot, Check, Copy, Download, FileText, Loader2, RotateCcw, Send, Square, SquarePen, X } from "lucide-react";
+import { Link, useNavigate } from "react-router";
+import {
+  Bot,
+  Check,
+  Copy,
+  Download,
+  FileText,
+  History,
+  Loader2,
+  NotebookPen,
+  Pencil,
+  RotateCcw,
+  Send,
+  Square,
+  SquarePen,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { NavPayload } from "../api/types";
 import { write } from "../api/write";
 import type { AgentContext, AgentMode } from "../lib/agentPrompt";
@@ -66,7 +82,15 @@ function PageChips({ label, ids, titles }: { label: string; ids: string[]; title
   );
 }
 
-function Item({ item, titles }: { item: TranscriptItem; titles: Map<string, string> }) {
+function Item({
+  item,
+  titles,
+  onSave,
+}: {
+  item: TranscriptItem;
+  titles: Map<string, string>;
+  onSave: (agentId: number) => void;
+}) {
   if (item.kind === "user") {
     return (
       <div className="ml-8 rounded-(--radius-card) bg-(--color-accent-ink-bg) px-3 py-2 text-sm text-(--color-text)">
@@ -152,6 +176,17 @@ function Item({ item, titles }: { item: TranscriptItem; titles: Map<string, stri
         <>
           <PageChips label="Pages used:" ids={used.read} titles={titles} />
           <PageChips label="Written:" ids={used.written} titles={titles} />
+          {item.text.trim() !== "" && (
+            <button
+              type="button"
+              className="mt-1.5 inline-flex items-center gap-1 text-xs text-(--color-text-faint) hover:text-(--color-text)"
+              onClick={() => onSave(item.id)}
+              title="Save this answer as a draft note"
+            >
+              <NotebookPen size={12} />
+              Save as note
+            </button>
+          )}
         </>
       )}
     </div>
@@ -229,6 +264,70 @@ function Setup() {
   );
 }
 
+function formatWhen(stamp: string): string {
+  const date = new Date(stamp);
+  const today = new Date();
+  return date.toDateString() === today.toDateString()
+    ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: date.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+}
+
+/** The chat list (issue #100): past conversations in this knowledge base, newest first. */
+function ConversationList({ onOpen }: { onOpen: (id: string) => void }) {
+  const state = useAgent();
+  useEffect(() => {
+    void agentStore.loadConversations();
+  }, []);
+  const conversations = state.conversations;
+  if (conversations === null) return <p className="text-sm text-(--color-text-muted)">Loading conversations…</p>;
+  if (conversations.length === 0)
+    return <p className="text-sm text-(--color-text-muted)">No conversations yet. They are kept on this computer after every answer.</p>;
+  return (
+    <ul className="space-y-1" data-testid="agent-conversations">
+      {conversations.map((conversation) => (
+        <li
+          key={conversation.id}
+          className={`group flex items-start gap-1 rounded-(--radius-control) px-2 py-1.5 hover:bg-(--color-bg-sidebar) ${
+            conversation.id === state.conversationId ? "bg-(--color-bg-sidebar)" : ""
+          }`}
+        >
+          <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpen(conversation.id)}>
+            <span className="block truncate text-sm text-(--color-text)">{conversation.title}</span>
+            <span className="block truncate text-xs text-(--color-text-faint)">
+              {formatWhen(conversation.updatedAt)}
+              {conversation.about ? ` · ${conversation.about}` : ""}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="kos-icon-btn opacity-60 group-hover:opacity-100"
+            aria-label={`Rename ${conversation.title}`}
+            title="Rename"
+            onClick={() => {
+              const title = window.prompt("Rename the conversation", conversation.title);
+              if (title !== null) void agentStore.renameConversation(conversation.id, title);
+            }}
+          >
+            <Pencil size={13} />
+          </button>
+          <button
+            type="button"
+            className="kos-icon-btn opacity-60 group-hover:opacity-100"
+            aria-label={`Delete ${conversation.title}`}
+            title="Delete"
+            onClick={() => {
+              if (window.confirm(`Delete “${conversation.title}”? It is removed from this computer.`))
+                void agentStore.deleteConversation(conversation.id);
+            }}
+          >
+            <Trash2 size={13} />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function AgentPanel({
   open,
   onClose,
@@ -245,7 +344,17 @@ export function AgentPanel({
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const [showList, setShowList] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const navigate = useNavigate();
   const titles = new Map((nav?.record_index ?? []).map((entry) => [entry.id, entry.title]));
+  const saveNote = async (agentId: number | null) => {
+    setSaved(null);
+    const result = await agentStore.saveAsNote(agentId, context, titles);
+    if (result === "held") setSaved("The note waits for review in Decide.");
+    else if (result !== null) navigate(`/r/${encodeURIComponent(result.id)}/edit`);
+  };
+  const hasAnswer = state.transcript.some((item) => item.kind === "agent" && item.done && item.text.trim() !== "");
 
   useEffect(() => {
     if (open) {
@@ -290,7 +399,36 @@ export function AgentPanel({
             {state.sessionProvider !== null ? `${chosen?.displayName ?? ""} · ${state.session}` : "Not started"}
           </p>
         </div>
-        <button type="button" className="kos-icon-btn" onClick={() => void agentStore.clear()} aria-label="New conversation" title="New conversation">
+        <button
+          type="button"
+          className="kos-icon-btn"
+          onClick={() => setShowList((value) => !value)}
+          aria-label="Conversations"
+          aria-pressed={showList}
+          title="Conversations"
+        >
+          <History size={15} />
+        </button>
+        <button
+          type="button"
+          className="kos-icon-btn"
+          onClick={() => void saveNote(null)}
+          disabled={!hasAnswer || state.busy}
+          aria-label="Save the conversation as a note"
+          title="Save the conversation as a draft note"
+        >
+          <NotebookPen size={15} />
+        </button>
+        <button
+          type="button"
+          className="kos-icon-btn"
+          onClick={() => {
+            setShowList(false);
+            void agentStore.clear();
+          }}
+          aria-label="New conversation"
+          title="New conversation"
+        >
           <SquarePen size={15} />
         </button>
         <button type="button" className="kos-icon-btn" onClick={onClose} aria-label="Close the agent panel" title="Close (Ctrl+J)">
@@ -298,7 +436,22 @@ export function AgentPanel({
         </button>
       </header>
 
+      {showList ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+          <ConversationList
+            onOpen={(id) => {
+              setShowList(false);
+              void agentStore.openConversation(id);
+            }}
+          />
+        </div>
+      ) : (
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+        {state.conversationTitle && (
+          <p className="truncate text-xs font-medium text-(--color-text-faint)" title={state.conversationTitle}>
+            {state.conversationTitle}
+          </p>
+        )}
         {state.transcript.length === 0 && <Setup />}
         {state.transcript.length === 0 && canChat && (
           <p className="text-sm text-(--color-text-muted)">
@@ -308,7 +461,7 @@ export function AgentPanel({
           </p>
         )}
         {state.transcript.map((item) => (
-          <Item key={item.id} item={item} titles={titles} />
+          <Item key={item.id} item={item} titles={titles} onSave={(agentId) => void saveNote(agentId)} />
         ))}
         {state.session === "auth-required" && state.auth !== null && (
           <div className="kos-card px-3 py-2.5 text-sm" role="alert">
@@ -331,8 +484,10 @@ export function AgentPanel({
             {state.error}
           </p>
         )}
+        {saved && <p className="text-sm text-(--color-text-muted)">{saved}</p>}
         <div ref={endRef} />
       </div>
+      )}
 
       <footer className="border-t border-(--color-border) px-3 py-2.5">
         <div className="mb-2 flex items-center gap-1" role="radiogroup" aria-label="Mode">

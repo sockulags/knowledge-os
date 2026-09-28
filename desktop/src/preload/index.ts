@@ -44,6 +44,10 @@ const api: DesktopApi = {
       ipcRenderer.invoke(IPC.agentPermission, requestId, optionId),
     restart: () => ipcRenderer.invoke(IPC.agentRestart),
     close: () => ipcRenderer.invoke(IPC.agentClose),
+    conversations: () => ipcRenderer.invoke(IPC.agentConversations),
+    conversation: (id) => ipcRenderer.invoke(IPC.agentConversationGet, id),
+    saveConversation: (conversation) => ipcRenderer.invoke(IPC.agentConversationSave, conversation),
+    deleteConversation: (id) => ipcRenderer.invoke(IPC.agentConversationDelete, id),
     onEvent: (callback) => {
       const listener = (_event: IpcRendererEvent, event: unknown): void => callback(event)
       ipcRenderer.on(IPC.agentEvent, listener)
