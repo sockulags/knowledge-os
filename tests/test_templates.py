@@ -37,10 +37,10 @@ class TemplateTests(unittest.TestCase):
         (self.root / "templates" / name).write_text(text, encoding="utf-8")
 
     def test_without_a_templates_folder_the_built_in_ones_are_offered(self) -> None:
-        self.assertEqual(_names(self.workspace), ["blank", "meeting-notes", "how-to", "decision"])
-        decision = list_templates(self.workspace)[-1]
+        self.assertEqual(_names(self.workspace), ["blank", "meeting-notes", "how-to", "decision", "requirement", "plan"])
+        decision = list_templates(self.workspace)[3]
         self.assertEqual(decision.kind, "decision")
-        for section in ("## Context", "## Decision", "## Consequences"):
+        for section in ("## Context", "## Decision", "## Alternatives considered", "## Consequences"):
             self.assertIn(section, decision.body)
 
     def test_a_file_replaces_a_built_in_template_and_others_are_added(self) -> None:
@@ -50,7 +50,7 @@ class TemplateTests(unittest.TestCase):
         self.write("notes.txt", "not a template")
 
         templates = {template.name: template for template in list_templates(self.workspace)}
-        self.assertEqual(_names(self.workspace), ["blank", "meeting-notes", "how-to", "decision", "retro"])
+        self.assertEqual(_names(self.workspace), ["blank", "meeting-notes", "how-to", "decision", "requirement", "plan", "retro"])
         self.assertEqual(templates["meeting-notes"].title, "Möte")
         self.assertEqual(templates["meeting-notes"].source, "workspace")
         self.assertEqual(templates["meeting-notes"].path, "templates/meeting-notes.md")
@@ -90,10 +90,11 @@ class TemplateTests(unittest.TestCase):
             root = init_workspace(Path(tmp) / "kb")
             self.assertEqual(
                 sorted(path.name for path in (root / "templates").iterdir()),
-                ["README.md", "decision.md", "how-to.md", "meeting-notes.md"],
+                ["README.md", "decision.md", "how-to.md", "meeting-notes.md", "plan.md", "requirement.md"],
             )
             sources = {template.name: template.source for template in list_templates(Workspace(root))}
-            self.assertEqual(sources, {"blank": "built-in", "meeting-notes": "workspace", "how-to": "workspace", "decision": "workspace"})
+            self.assertEqual(sources, {"blank": "built-in", "meeting-notes": "workspace", "how-to": "workspace", "decision": "workspace",
+                                       "requirement": "workspace", "plan": "workspace"})
 
 
 class TemplatesApiTests(unittest.TestCase):

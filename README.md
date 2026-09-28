@@ -68,8 +68,9 @@ See "Structure editing" in [`docs/architecture.md`](docs/architecture.md).
 
 ## Write pages: templates, images, and files
 
-*New page* starts from a template: blank, meeting notes, how-to, or decision
-(Context / Decision / Consequences, which creates a proposed decision).
+*New page* starts from a template: blank, meeting notes, how-to, decision
+(Context / Decision / Alternatives considered / Consequences, which creates a
+proposed decision), requirement, or plan.
 Templates are ordinary Markdown files in the knowledge base's `templates/`
 folder, which `kos init` fills with the built-in ones; edit them, or add
 `templates/<name>.md` with optional `title`, `description`, and `kind: note`

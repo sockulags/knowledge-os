@@ -24,9 +24,9 @@ never indexed, and are not checked by ``kos lint``, so a broken template can
 never block a write. A file that cannot be used is still listed, with the
 reason, so the person who wrote it can see what is wrong.
 
-Four templates are built in (``blank``, ``meeting-notes``, ``how-to``, and
-``decision``); ``kos init`` writes the last three into ``templates/`` so they
-can be edited. A file in ``templates/`` with the same name replaces the
+Six templates are built in (``blank``, ``meeting-notes``, ``how-to``,
+``decision``, ``requirement``, and ``plan``); ``kos init`` writes all but
+``blank`` into ``templates/`` so they can be edited. A file in ``templates/`` with the same name replaces the
 built-in one, and any other file adds a template. Knowledge bases created
 before templates existed get the built-in ones until they add their own.
 """
@@ -130,9 +130,68 @@ BUILT_IN: tuple[Template, ...] = (
             "\n"
             "What is decided, stated as a rule.\n"
             "\n"
+            "## Alternatives considered\n"
+            "\n"
+            "Which other options were weighed, and why they were not chosen.\n"
+            "\n"
             "## Consequences\n"
             "\n"
             "What becomes easier or harder, and what has to change.\n"
+        ),
+        "built-in",
+        None,
+    ),
+    Template(
+        "requirement",
+        "Requirement",
+        "What must be true, for whom, and how to tell that it is.",
+        "note",
+        (
+            "Who needs this, and why.\n"
+            "\n"
+            "## Requirements\n"
+            "\n"
+            "- \n"
+            "\n"
+            "## Acceptance criteria\n"
+            "\n"
+            "- \n"
+            "\n"
+            "## Out of scope\n"
+            "\n"
+            "## Open questions\n"
+        ),
+        "built-in",
+        None,
+    ),
+    Template(
+        "plan",
+        "Plan",
+        "A goal, the way there, and who does what.",
+        "note",
+        (
+            "- **Date:** {{date}}\n"
+            "- **Owner:** \n"
+            "\n"
+            "## Goal\n"
+            "\n"
+            "What is true when this plan is done.\n"
+            "\n"
+            "## Scope\n"
+            "\n"
+            "What is included, and what is deliberately left out.\n"
+            "\n"
+            "## Milestones\n"
+            "\n"
+            "1. \n"
+            "\n"
+            "## Action items\n"
+            "\n"
+            "- \n"
+            "\n"
+            "## Risks\n"
+            "\n"
+            "## Open questions\n"
         ),
         "built-in",
         None,
