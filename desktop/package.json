@@ -1,6 +1,6 @@
 {
   "name": "knowledge-os-desktop",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "Electron shell that runs the Knowledge OS Python core and loads the reader UI",
   "main": "./out/main/index.js",
@@ -24,6 +24,7 @@
     "postinstall": "install-electron"
   },
   "devDependencies": {
+    "@agentclientprotocol/sdk": "1.5.0",
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
@@ -47,7 +48,6 @@
     }
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.5.0",
     "electron-updater": "^6.8.9"
   }
 }

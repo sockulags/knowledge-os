@@ -423,7 +423,9 @@ release is made by hand:
    `npm run dist`. Or let GitHub Actions do steps 2 and 3: run the
    **Release** workflow (`.github/workflows/release.yml`) on `main` from the
    Actions tab. It builds the same way on `windows-latest`, uploads the three
-   files as a workflow artifact, and with *publish* checked creates and
+   files as a workflow artifact after `node scripts/check-packaged.mjs`
+   confirmed the packaged app can load every run-time dependency of its main
+   process (run it after a local `npm run dist` too), and with *publish* checked creates and
    publishes the release `vX.Y.Z` from `desktop/package.json` with them
    attached. Run it once without *publish* to try the installer first.
 3. Create a GitHub release with the tag `vX.Y.Z` (for example
