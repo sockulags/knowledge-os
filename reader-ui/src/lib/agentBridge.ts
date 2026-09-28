@@ -27,7 +27,13 @@ export type AgentEvent =
   | { type: "text"; kind: "message" | "thought"; text: string }
   | { type: "tool"; id: string; title: string | null; status: string | null; kind: string | null; input: unknown; output: unknown }
   | { type: "plan"; entries: { content: string; status: string }[] }
-  | { type: "permission"; requestId: string; title: string; options: { id: string; name: string; kind: string }[] }
+  | {
+      type: "permission";
+      requestId: string;
+      toolCallId: string | null;
+      title: string;
+      options: { id: string; name: string; kind: string }[];
+    }
   | { type: "turn-end"; stopReason: string }
   | { type: "install"; providerId: string; done: number; total: number };
 

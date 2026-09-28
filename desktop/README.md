@@ -277,9 +277,15 @@ with `kos mcp --place "Knowledge OS app"` as the only MCP server,
 provider supports it, and turning `session/update` into plain `AgentEvent`s
 (message and thought text, tool calls, plans, the end of a turn). Every
 `session/request_permission` becomes a `permission` event that waits for the
-person's answer; nothing is approved automatically. When the agent needs
-sign-in the session is `auth-required` with the provider's help (for example
-"Run `claude /login` in a terminal"); a process that stops is `crashed`, and
+person's answer, except for the knowledge base's own read tools
+(`KOS_READ_TOOLS`: `search`, `read_page`, `list_projects`, `list_folder`,
+`list_proposed_decisions`, `check_documentation`, `read_commit` on the
+`knowledge-os` server), which are allowed without asking. Writes, the
+agent's own tools, and any other MCP server's tools always ask. When the agent
+needs sign-in the session is `auth-required` with the provider's help (for
+example "Run `claude /login` in a terminal"), also when a sign-in expires
+during the session and the agent fails a prompt with a sign-in error instead
+of ACP's `auth_required`; a process that stops is `crashed`, and
 `restart()` starts it again. Because the only tools are those of `kos mcp`,
 the in-app agent has exactly the limits of any external agent: it cannot
 accept, withdraw, supersede, or delete, its writes carry `agent-authored`
@@ -310,7 +316,9 @@ policy"), and goes in one of two modes:
   review rules waits in Decide.
 
 The mode only steers the words of the prompt; what the agent can do is fixed
-by `kos mcp`. Every tool call asks for permission in the panel. Sign-in
+by `kos mcp`. Reading the knowledge base needs no permission; every write
+asks, inside the answer where the agent waits, and once answered the tool's
+row says "allowed" or "refused". Sign-in
 trouble shows the command to run and *Try again*; a crashed agent offers
 *Restart*; *New conversation* ends the session. Nothing of the conversation is
 saved.

@@ -17,9 +17,19 @@ import { buildPrompt, composePrompt, isWriteTool, parseComposed, type AgentConte
 
 export type TranscriptItem =
   | { kind: "user"; id: number; text: string; mode: AgentMode }
-  | { kind: "agent"; id: number; text: string; done: boolean; tools: ToolItem[] }
-  | { kind: "permission"; id: number; requestId: string; title: string; options: { id: string; name: string; kind: string }[]; answer: string | null }
+  | { kind: "agent"; id: number; text: string; done: boolean; tools: ToolItem[]; permissions: PermissionAsk[] }
   | { kind: "notice"; id: number; text: string; tone: "info" | "error" };
+
+/** A question the agent put to the person during its answer, shown with that answer. */
+export interface PermissionAsk {
+  requestId: string;
+  /** The tool call it is about, whose row shows the answer once given. */
+  toolCallId: string | null;
+  title: string;
+  options: { id: string; name: string; kind: string }[];
+  /** "allowed", "allowed from now on", "refused", or "cancelled"; null while it waits. */
+  answer: string | null;
+}
 
 /** A transcript item before it has an id (distributes over the union). */
 type WithoutId<T> = T extends unknown ? Omit<T, "id"> : never;
@@ -107,9 +117,9 @@ class AgentStore {
   }
 
   /**
-   * The agent message being written in this turn, creating it on first text
-   * or tool. A permission question can come between two updates of the same
-   * tool call, so it is the latest unfinished message since the request.
+   * The agent message being written in this turn, creating it on first text,
+   * tool, or permission question: the latest unfinished message since the
+   * request.
    */
   private currentAgent(): Extract<TranscriptItem, { kind: "agent" }> {
     for (let index = this.state.transcript.length - 1; index >= 0; index--) {
@@ -117,7 +127,7 @@ class AgentStore {
       if (item.kind === "user") break;
       if (item.kind === "agent" && !item.done) return item;
     }
-    const item = { kind: "agent" as const, id: this.nextId++, text: "", done: false, tools: [] };
+    const item = { kind: "agent" as const, id: this.nextId++, text: "", done: false, tools: [], permissions: [] };
     this.set({ transcript: [...this.state.transcript, item] });
     return item;
   }
@@ -162,9 +172,19 @@ class AgentStore {
         if (tool.status === "completed" && isWriteTool(tool.title)) this.onWrite?.();
         return;
       }
-      case "permission":
-        this.push({ kind: "permission", requestId: event.requestId, title: event.title, options: event.options, answer: null });
+      case "permission": {
+        // The question belongs to the answer being written, not after it.
+        const agent = this.currentAgent();
+        const ask: PermissionAsk = {
+          requestId: event.requestId,
+          toolCallId: event.toolCallId ?? null,
+          title: event.title,
+          options: event.options,
+          answer: null,
+        };
+        this.replace({ ...agent, permissions: [...agent.permissions, ask] });
         return;
+      }
       case "turn-end":
         this.finishTurn();
         return;
@@ -182,7 +202,9 @@ class AgentStore {
       const item = this.state.transcript[index];
       if (item.kind === "user") return;
       if (item.kind === "agent" && !item.done) {
-        this.replace({ ...item, done: true });
+        // A question still open when the turn ends (Stop) was never answered.
+        const permissions = item.permissions.map((ask) => (ask.answer === null ? { ...ask, answer: "cancelled" } : ask));
+        this.replace({ ...item, done: true, permissions });
         return;
       }
     }
@@ -265,7 +287,8 @@ class AgentStore {
     try {
       await this.bridge.prompt(buildPrompt(mode, request, context));
     } catch (error) {
-      this.notice(bridgeError(error));
+      // A sign-in problem shows as the sign-in card (session state), not as an error too.
+      if (this.state.session !== "auth-required") this.notice(bridgeError(error));
     } finally {
       this.finishTurn();
       this.set({ busy: false });
@@ -289,7 +312,7 @@ class AgentStore {
       const reply = [...this.state.transcript].reverse().find((item) => item.kind === "agent");
       return reply?.kind === "agent" ? parseComposed(reply.text) : null;
     } catch (error) {
-      this.notice(bridgeError(error));
+      if (this.state.session !== "auth-required") this.notice(bridgeError(error));
       return null;
     } finally {
       this.finishTurn();
@@ -305,10 +328,21 @@ class AgentStore {
     }
   }
 
-  async answer(item: Extract<TranscriptItem, { kind: "permission" }>, optionId: string | null): Promise<void> {
-    const option = item.options.find((candidate) => candidate.id === optionId);
-    this.replace({ ...item, answer: option?.name ?? "Refused" });
-    await this.bridge?.respondPermission(item.requestId, optionId);
+  /** Answer one of the agent's questions; `optionId` null refuses. */
+  async answer(requestId: string, optionId: string | null): Promise<void> {
+    const agent = this.state.transcript.find(
+      (item): item is Extract<TranscriptItem, { kind: "agent" }> =>
+        item.kind === "agent" && item.permissions.some((ask) => ask.requestId === requestId),
+    );
+    if (agent === undefined) return;
+    const permissions = agent.permissions.map((ask) => {
+      if (ask.requestId !== requestId) return ask;
+      const kind = ask.options.find((candidate) => candidate.id === optionId)?.kind ?? "reject_once";
+      const answer = kind === "allow_always" ? "allowed from now on" : kind.startsWith("allow") ? "allowed" : "refused";
+      return { ...ask, answer };
+    });
+    this.replace({ ...agent, permissions });
+    await this.bridge?.respondPermission(requestId, optionId);
   }
 
   /** Start over: a new conversation (the next request starts a new session). */

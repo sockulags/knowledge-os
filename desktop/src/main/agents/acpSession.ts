@@ -6,7 +6,8 @@
 // the knowledge base's own `kos mcp`, with the provider's `_meta` limiting the
 // agent to it. Prompts stream back as plain `AgentEvent`s. Every permission
 // request is put to the person through `onEvent` and waits for
-// `respondPermission`; nothing is approved automatically. When the agent says
+// `respondPermission`, except the knowledge base's own read tools
+// (`KOS_READ_TOOLS`), which run without asking. When the agent says
 // it needs sign-in, the session reports `auth-required` with the provider's
 // own help instead of failing. A crashed process is reported, and `restart`
 // starts a new one, continuing the same session when the provider supports
@@ -63,6 +64,8 @@ export type AgentEvent =
   | {
       type: 'permission'
       requestId: string
+      /** The tool call it is about, so the app can show it with that call. */
+      toolCallId: string | null
       title: string
       options: { id: string; name: string; kind: string }[]
     }
@@ -101,12 +104,47 @@ interface PendingPermission {
   resolve: (response: RequestPermissionResponse) => void
 }
 
+/**
+ * Sign-in that expired or was revoked while the session was open: the agent
+ * then fails a prompt with an ordinary error, not ACP's `auth_required`
+ * (Claude Code: "Internal error: Failed to authenticate: OAuth session expired
+ * and could not be refreshed"). Only sign-in wording counts, so an unrelated
+ * failure is never mistaken for one.
+ */
+const SIGN_IN_FAILURE =
+  /failed to authenticate|oauth (?:session|token)[^.]*(?:expired|revoked|invalid)|not (?:logged|signed) in|please (?:run \S*login|log ?in|sign in)|invalid api key|authentication_error|token (?:has )?expired/i
+
 function isAuthRequired(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code === AUTH_REQUIRED
+  if (typeof error !== 'object' || error === null) return false
+  if ((error as { code?: unknown }).code === AUTH_REQUIRED) return true
+  const data = (error as { data?: unknown }).data
+  return SIGN_IN_FAILURE.test(
+    `${errorText(error)} ${data === undefined ? '' : JSON.stringify(data)}`
   )
+}
+
+/**
+ * The knowledge base's tools that only read (see knowledge_os/agent_access/
+ * tools.py): the agent may use them without asking. Writes and every other
+ * tool, including the agent's own, still ask the person.
+ */
+export const KOS_READ_TOOLS: ReadonlySet<string> = new Set([
+  'search',
+  'read_page',
+  'list_projects',
+  'list_folder',
+  'list_proposed_decisions',
+  'check_documentation',
+  'read_commit'
+])
+
+/** Whether a permission request is for one of `KOS_READ_TOOLS` on the `kos mcp` server. */
+export function isKosReadTool(title: string | null | undefined): boolean {
+  // Adapters name an MCP tool with its server, e.g. `mcp__knowledge-os__read_page`.
+  const match = new RegExp(`^(?:mcp__)?${KOS_MCP_SERVER_NAME}(?:__|[./:])([a-z_]+)$`).exec(
+    title?.trim() ?? ''
+  )
+  return match !== null && KOS_READ_TOOLS.has(match[1])
 }
 
 function errorText(error: unknown): string {
@@ -355,12 +393,22 @@ export class AcpAgentSession {
   }
 
   private askPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+    // Reading the knowledge base needs no question; everything else does.
+    if (isKosReadTool(params.toolCall.title)) {
+      const allow =
+        params.options.find((option) => option.kind === 'allow_once') ??
+        params.options.find((option) => option.kind === 'allow_always')
+      if (allow !== undefined) {
+        return Promise.resolve({ outcome: { outcome: 'selected', optionId: allow.optionId } })
+      }
+    }
     const requestId = `permission-${this.nextPermission++}`
     return new Promise((resolve) => {
       this.permissions.set(requestId, { resolve })
       this.options.onEvent({
         type: 'permission',
         requestId,
+        toolCallId: params.toolCall.toolCallId ?? null,
         title: params.toolCall.title ?? 'The agent asks to use a tool',
         options: params.options.map((option) => ({
           id: option.optionId,

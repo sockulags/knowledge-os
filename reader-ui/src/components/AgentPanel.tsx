@@ -64,50 +64,65 @@ function Item({ item, titles }: { item: TranscriptItem; titles: Map<string, stri
       </p>
     );
   }
-  if (item.kind === "permission") {
-    return (
-      <div className="kos-card px-3 py-2.5 text-sm" data-testid="agent-permission">
-        <p className="font-medium text-(--color-text)">{permissionQuestion(item.title)}</p>
-        <p className="mt-0.5 text-xs text-(--color-text-faint)">{item.title}</p>
-        {item.answer === null ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {item.options.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={`kos-btn kos-btn-sm ${option.kind.startsWith("allow") ? "kos-btn-primary" : "kos-btn-secondary"}`}
-                onClick={() => void agentStore.answer(item, option.id)}
-              >
-                {option.name}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-1.5 text-xs text-(--color-text-muted)">You chose: {item.answer}</p>
-        )}
-      </div>
-    );
-  }
   const used = pagesUsed(item.tools);
+  const answered = item.permissions.filter((ask) => ask.answer !== null);
+  const waiting = item.permissions.filter((ask) => ask.answer === null);
+  const toolIds = new Set(item.tools.map((tool) => tool.id));
+  // An answered question shows on its tool's row; one without a row gets its own.
+  const loose = answered.filter((ask) => ask.toolCallId === null || !toolIds.has(ask.toolCallId));
   return (
     <div data-testid="agent-message">
-      {item.tools.length > 0 && (
+      {(item.tools.length > 0 || loose.length > 0) && (
         <ul className="mb-1.5 space-y-0.5">
-          {item.tools.map((tool) => (
-            <li key={tool.id} className="flex items-center gap-1.5 text-xs text-(--color-text-faint)">
-              {tool.status === "completed" ? (
-                <Check size={12} className="text-(--color-accent-green-text)" />
-              ) : tool.status === "failed" ? (
+          {item.tools.map((tool) => {
+            const ask = answered.find((candidate) => candidate.toolCallId === tool.id);
+            return (
+              <li key={tool.id} className="flex items-center gap-1.5 text-xs text-(--color-text-faint)">
+                {tool.status === "completed" ? (
+                  <Check size={12} className="text-(--color-accent-green-text)" />
+                ) : tool.status === "failed" || ask?.answer === "refused" ? (
+                  <X size={12} className="text-(--color-accent-red-text)" />
+                ) : (
+                  <Loader2 size={12} className="animate-spin" />
+                )}
+                {toolLabel(tool.title)}
+                {ask && <span className="text-(--color-text-muted)">· {ask.answer}</span>}
+              </li>
+            );
+          })}
+          {loose.map((ask) => (
+            <li key={ask.requestId} className="flex items-center gap-1.5 text-xs text-(--color-text-faint)">
+              {ask.answer === "refused" ? (
                 <X size={12} className="text-(--color-accent-red-text)" />
               ) : (
-                <Loader2 size={12} className="animate-spin" />
+                <Check size={12} className="text-(--color-accent-green-text)" />
               )}
-              {toolLabel(tool.title)}
+              {toolLabel(ask.title)}
+              <span className="text-(--color-text-muted)">· {ask.answer}</span>
             </li>
           ))}
         </ul>
       )}
       {item.text !== "" && <AgentMarkdown text={item.text} done={item.done} />}
+      {waiting.map((ask) => (
+        // Where the agent is waiting: after what it has said so far.
+        <div key={ask.requestId} className="kos-card mt-2 px-3 py-2.5 text-sm" data-testid="agent-permission">
+          <p className="font-medium text-(--color-text)">{permissionQuestion(ask.title)}</p>
+          <p className="mt-0.5 text-xs text-(--color-text-faint)">{ask.title}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {ask.options.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={`kos-btn kos-btn-sm ${option.kind.startsWith("allow") ? "kos-btn-primary" : "kos-btn-secondary"}`}
+                onClick={() => void agentStore.answer(ask.requestId, option.id)}
+              >
+                {option.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
       {item.done && (
         <>
           <PageChips label="Pages used:" ids={used.read} titles={titles} />
