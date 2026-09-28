@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider } from "react-router";
 import { Shell } from "./components/Shell";
 import { Home } from "./pages/Home";
 import { Project } from "./pages/Project";
+import { DocumentationCheck } from "./pages/DocumentationCheck";
 import { Document } from "./pages/Document";
 import { EditRecord } from "./pages/EditRecord";
 import { NewRecord } from "./pages/NewRecord";
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
       { path: "c/:changeId", element: <ChangeDetail /> },
       { path: "p/:projectId", element: <Project /> },
       { path: "p/:projectId/new", element: <NewRecord /> },
+      { path: "p/:projectId/code", element: <DocumentationCheck /> },
       { path: "r/:recordId", element: <Document /> },
       { path: "r/:recordId/edit", element: <EditRecord /> },
       { path: "r/:recordId/compare", element: <Compare /> },

@@ -38,7 +38,7 @@ const READY: ProviderStatus = {
 
 const KOS = {
   command: '/opt/kos/kos-core',
-  args: ['-m', 'knowledge_os', 'mcp', '--place', 'Knowledge OS app'],
+  args: ['-P', '-m', 'knowledge_os', 'mcp', '--place', 'Knowledge OS app'],
   env: { KOS_RUNTIME_FILE: '/tmp/runtime.json' }
 }
 

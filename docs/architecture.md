@@ -125,6 +125,13 @@ overview with `type: project`, `id: <slug>`, and that same scope. The overview
 must use `draft` or `active` status. `kos lint` enforces this globally;
 context repeats the exact check when resolving its requested project.
 
+A project overview may also carry `repositories`, the code repositories the
+project describes (see "Code repositories and the documentation check"): a
+list of objects with a `path` (absolute, or relative to the knowledge base
+folder), an optional `remote`, and `checked` (a full commit hash) with
+`checked_on` (its date), always together. The field is rejected on any other
+record, and so are unknown keys and a path listed twice.
+
 Discoveries use their own workflow statuses:
 `proposed -> retained | rejected | promoted`. Retained discoveries must be
 project-scoped. Rejected and promoted are terminal. Discovery evidence and
@@ -1003,8 +1010,11 @@ The accepted `agent-access` decision gives agents a narrow interface: `kos
 mcp` (`knowledge_os/agent_access/`), an MCP server on stdio built on the
 official MCP Python SDK (the optional `mcp` extra, bundled in the desktop
 app's frozen core, so the installed `kos` shim runs it without Python). It
-serves seven tools: `search`, `read_page`, `list_projects`, `list_folder`,
-`write_note`, `propose_decision`, and `list_proposed_decisions`. None accepts,
+serves twelve tools: `search`, `read_page`, `list_projects`, `list_folder`,
+`write_note`, `propose_decision`, and `list_proposed_decisions`, plus the
+documentation check's `check_documentation`, `read_commit`,
+`propose_documentation_decision`, `mark_documentation_checked`, and
+`link_repository` (see "Code repositories and the documentation check"). None accepts,
 withdraws, or supersedes a decision; `write_note` refuses to edit a decision
 (or a source, synthesis, or discovery), and `propose_decision` always creates
 a `draft` decision, optionally declaring `supersedes`. No tool deletes a
@@ -1063,6 +1073,74 @@ turned off where the agent allows it. Its writes therefore read "Written by
 Claude Code in Knowledge OS app" and carry the same limits as any agent's. See
 "In-app agents (ACP)" in [`desktop/README.md`](../desktop/README.md).
 
+`kos mcp` for the in-app agent runs as `python -P -m knowledge_os mcp`: the
+agent's working folder is the knowledge base, and `-P` keeps a
+`knowledge_os/` folder in it from shadowing the installed package.
+
+## Code repositories and the documentation check
+
+A project can link the code repositories it describes (issue #84), so its
+pages can be kept in step with the code without rewriting anything silently.
+`knowledge_os/codedocs.py` holds the rules; the core does the deterministic
+part with Git alone, and a person or an agent writes what it suggests.
+
+**Linking.** A link is an entry in the overview's `repositories` (see "Record
+metadata"): the folder, the `origin` remote unless another is given (without
+credentials), and the repository's current commit as `checked`. Checks
+therefore start at the moment of linking. The path is kept as given; a
+relative path resolves against the knowledge base folder, so a knowledge base
+synced to another computer finds the repository when the folders are laid
+out the same, and says "not found on this computer" (with the remote to
+clone) otherwise.
+
+**The check** (`kos code check`, `GET
+/api/projects/{id}/documentation-check`, the MCP tool `check_documentation`)
+writes nothing. For each linked repository it resolves `checked..HEAD`
+(refusing when the checked commit is gone or `HEAD` does not descend from it,
+say after a rewrite or on another branch) and reads, with `git log`, `git
+diff`, `git show`, and `git ls-tree`:
+
+- the commits, oldest first (at most 200 listed);
+- dependencies and commands declared in `pyproject.toml`, `package.json`,
+  `requirements*.txt`, `Cargo.toml`, and `go.mod`, each attributed to the
+  commits whose version of the manifest added or removed it;
+- commands (`argparse` `add_parser`) and API routes (Starlette `Route`,
+  decorator routes such as `@app.get`, and Express-style `app.get`) declared
+  on changed lines of code, attributed with `git log -S`;
+- configuration files and documentation (READMEs, `docs/`, top-level
+  Markdown) added, removed, or changed;
+- modules: code files added or removed, grouped into the shallowest new or
+  removed folder. Tests and built, bundled, or vendored folders are left out.
+
+It then suggests, each with the commits it came from:
+
+- **page updates**: every page of the project (never a decision) that
+  mentions something removed or changed, and the overview when the
+  repository's README changed or when a new dependency, command, route, or
+  module folder is mentioned by no page;
+- **decisions**: a dependency added or removed, or a module folder added or
+  removed. A suggestion whose title matches an existing decision names it.
+
+**Acting on it.** `kos code propose`, `POST
+.../documentation-check/propose`, or `propose_documentation_decision` drafts
+one suggested decision in the project's `decisions/` folder: a `draft`
+decision whose body lists its commits and whose provenance has one
+`repository-commit` entry (`<remote or folder>@<full hash>`) per commit, after
+the writer's own entry. Page updates are ordinary edits under the review
+rules: in the app *Edit*, or *Update with the agent*, which sends the page's
+reasons and commits to the in-app agent; the agent reads the commits with
+`read_commit` (message, files, and diff, cut at 20,000 characters) and names
+them in what it writes. Finally `kos code mark`, `POST
+.../documentation-check/mark`, or `mark_documentation_checked` records the
+head commit the check covered as `checked` (it must descend from the previous
+one), so the next check only looks at what is new.
+
+Linking, unlinking, and recording a check edit the overview through the same
+edit path as any page (one commit each in the app, the review rules apply);
+`GET /api/projects/{id}/repositories` lists the links and whether each folder
+exists here, and `GET .../repositories/commit?repository=&commit=` reads one
+commit.
+
 ## CLI contract
 
 - `kos clone URL PATH [--json] [--cancel-on-stdin-eof]` clones a knowledge base
@@ -1106,6 +1184,11 @@ Claude Code in Knowledge OS app" and carry the same limits as any agent's. See
   guidance and the global workspace location after direct authorization.
 - `kos documentation init-repo --repo PATH --project ID[=RELATIVE_PATH]`
   writes one portable repository binding for one or more project scopes.
+- `kos code link PROJECT PATH [--remote URL]`, `kos code unlink PROJECT
+  PATH`, `kos code check PROJECT [--repository PATH] [--since COMMIT]`, `kos
+  code propose PROJECT KEY`, and `kos code mark PROJECT [--commit HASH]` link
+  code repositories and run the documentation check (see "Code repositories
+  and the documentation check"); each takes `--json`.
 - `kos mcp [--place LABEL]` serves the agent tools over MCP on stdio through
   the running desktop app (see "Agent access over MCP"); it ignores `--root`.
 

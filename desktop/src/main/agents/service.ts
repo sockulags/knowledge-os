@@ -63,7 +63,9 @@ export function kosMcpCommand(
   }
   return {
     command: coreExecutable,
-    args: ['-m', 'knowledge_os', 'mcp', '--place', IN_APP_PLACE],
+    // -P: the agent's working folder is the knowledge base, which must never
+    // shadow the knowledge_os package (`python -m` would import it from there).
+    args: ['-P', '-m', 'knowledge_os', 'mcp', '--place', IN_APP_PLACE],
     env: passed
   }
 }

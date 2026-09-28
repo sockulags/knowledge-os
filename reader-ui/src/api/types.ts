@@ -724,3 +724,80 @@ export interface ProposedWriteResult {
   proposal: { id: string; action: "create" | "edit"; record_id: string; title: string; rule: string; message: string };
   commit: CommitInfo | null;
 }
+
+/** A code repository a project links (issue #84): `found` says whether its
+ * folder exists on this computer. */
+export interface RepositoryLink {
+  path: string;
+  remote?: string;
+  checked?: string;
+  checked_on?: string;
+  label: string;
+  folder: string;
+  found: boolean;
+}
+
+export interface RepositoriesPayload {
+  project: string;
+  repositories: RepositoryLink[];
+}
+
+export interface CheckCommit {
+  sha: string;
+  short: string;
+  author: string;
+  date: string;
+  subject: string;
+}
+
+export interface CheckChange {
+  key: string;
+  kind: "dependency" | "command" | "route" | "configuration" | "module" | "documentation";
+  action: "added" | "removed" | "changed";
+  name: string;
+  detail: string;
+  summary: string;
+  files: string[];
+  commits: string[];
+}
+
+export interface PageUpdateSuggestion {
+  page: string;
+  title: string;
+  path: string;
+  reasons: { text: string; changes: string[]; commits: string[] }[];
+  commits: string[];
+}
+
+export interface DecisionSuggestion {
+  key: string;
+  title: string;
+  summary: string;
+  commits: string[];
+  /** A decision with this title that already exists in the project. */
+  existing: string | null;
+}
+
+/** One repository in GET /api/projects/{id}/documentation-check. */
+export interface RepositoryCheck {
+  path: string;
+  remote: string | null;
+  label: string;
+  folder: string;
+  state: "changed" | "up-to-date" | "unavailable";
+  message: string;
+  checked: string | null;
+  checked_on: string | null;
+  base: string | null;
+  head: string | null;
+  commits: CheckCommit[];
+  commits_truncated: boolean;
+  changes: CheckChange[];
+  pages: PageUpdateSuggestion[];
+  decisions: DecisionSuggestion[];
+}
+
+export interface DocumentationCheckPayload {
+  project: string;
+  repositories: RepositoryCheck[];
+}

@@ -17,6 +17,7 @@ import { useShell } from "../components/Shell";
 import { useStructure } from "../components/Structure";
 import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { CodeRepositories } from "../components/CodeRepositories";
 
 function GroupSection({ group }: { group: GroupPayload }) {
   return (
@@ -152,6 +153,8 @@ export function Project() {
           <ProjectPageTree projectId={data.id} projectTitle={projectName} tree={data.tree} />
         </section>
       )}
+
+      <CodeRepositories projectId={data.id} />
 
       <Collapsible title={data.observations.header} defaultOpen={data.observations.records.length > 0}>
         {data.observations.records.length === 0 ? (

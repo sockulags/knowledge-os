@@ -104,8 +104,10 @@ export function Shell() {
   // The agent's writes show up in the sidebar at once.
   useEffect(() => {
     agentStore.onWrite = loadNav;
+    agentStore.onOpen = () => setAgentOpen(true);
     return () => {
       agentStore.onWrite = null;
+      agentStore.onOpen = null;
     };
   }, [loadNav]);
 

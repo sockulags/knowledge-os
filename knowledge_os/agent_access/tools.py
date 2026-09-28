@@ -551,6 +551,162 @@ def _propose_decision(api: LocalApi, arguments: dict[str, Any], caller: Caller) 
 
 
 # ---------------------------------------------------------------------------
+# Code repositories and the documentation check (issue #84)
+# ---------------------------------------------------------------------------
+
+
+def _project_arg(arguments: Mapping[str, Any]) -> str:
+    return _record_id(_string(arguments, "project", required=True) or "", "project")
+
+
+def _repository(api: LocalApi, project: str, arguments: Mapping[str, Any]) -> str:
+    """The linked repository's path: the one given, or the only one linked."""
+
+    given = _string(arguments, "repository")
+    if given is not None:
+        return given
+    links = _expect(api.get(f"/api/projects/{quote(project)}/repositories"), 200).get("repositories") or []
+    if len(links) == 1:
+        return str(links[0]["path"])
+    if not links:
+        raise ToolError(
+            "not_found",
+            f"Project {project!r} links no code repository.",
+            "Link one with link_repository (a person can also do it on the project page in the app).",
+        )
+    raise ToolError(
+        "bad_request",
+        f"Project {project!r} links several repositories: {', '.join(str(link['path']) for link in links)}.",
+        "Call again with repository set to one of those paths.",
+    )
+
+
+def _short(shas: Any) -> list[str]:
+    return [str(sha)[:12] for sha in shas or []]
+
+
+def _check_documentation(api: LocalApi, arguments: dict[str, Any], _caller: Caller) -> ToolResult:
+    project = _project_arg(arguments)
+    body = _expect(api.get(f"/api/projects/{quote(project)}/documentation-check"), 200)
+    repositories = []
+    for repo in body.get("repositories") or []:
+        repositories.append(
+            {
+                "repository": repo.get("path"),
+                "label": repo.get("label"),
+                "state": repo.get("state"),
+                "message": repo.get("message"),
+                "checked": (repo.get("base") or repo.get("checked") or "")[:12] or None,
+                "head": repo.get("head"),
+                "commits": [
+                    {"commit": commit.get("short"), "subject": commit.get("subject"), "author": commit.get("author"), "date": commit.get("date")}
+                    for commit in repo.get("commits") or []
+                ],
+                "changes": [
+                    {"key": change.get("key"), "change": change.get("summary"), "commits": _short(change.get("commits"))}
+                    for change in repo.get("changes") or []
+                ],
+                "page_updates": [
+                    {
+                        "id": page.get("page"),
+                        "title": page.get("title"),
+                        "reasons": [
+                            {"reason": reason.get("text"), "commits": _short(reason.get("commits"))}
+                            for reason in page.get("reasons") or []
+                        ],
+                    }
+                    for page in repo.get("pages") or []
+                ],
+                "decisions": [
+                    {
+                        "key": decision.get("key"),
+                        "title": decision.get("title"),
+                        "why": decision.get("summary"),
+                        "commits": _short(decision.get("commits")),
+                        "already_exists": decision.get("existing"),
+                    }
+                    for decision in repo.get("decisions") or []
+                ],
+            }
+        )
+    return ToolResult(
+        {
+            "ok": True,
+            "project": project,
+            "repositories": repositories,
+            "next_step": (
+                "For each page update: read_commit for what changed, read_page, then write_note with the page's "
+                "id and expected_sha256, naming the commits you used. For each decision that does not already "
+                "exist: propose_documentation_decision with its key. When every page is up to date, "
+                "mark_documentation_checked with the head commit, so the next check starts there. Nothing here "
+                "was written."
+            ),
+        }
+    )
+
+
+def _read_commit(api: LocalApi, arguments: dict[str, Any], _caller: Caller) -> ToolResult:
+    project = _project_arg(arguments)
+    commit = _string(arguments, "commit", required=True) or ""
+    repository = _repository(api, project, arguments)
+    body = _expect(
+        api.get(f"/api/projects/{quote(project)}/repositories/commit", {"repository": repository, "commit": commit}), 200
+    )
+    return ToolResult({"ok": True, "project": project, "repository": repository, **body})
+
+
+def _propose_documentation_decision(api: LocalApi, arguments: dict[str, Any], caller: Caller) -> ToolResult:
+    project = _project_arg(arguments)
+    key = _string(arguments, "key", required=True) or ""
+    repository = _repository(api, project, arguments)
+    status, body = api.post(
+        f"/api/projects/{quote(project)}/documentation-check/propose",
+        {"repository": repository, "key": key, "agent": caller.agent_json()},
+    )
+    if status == 202:
+        return _waiting_result(body)
+    return _write_result(
+        "proposed",
+        _expect((status, body), 201),
+        next_step=(
+            "The decision waits in the Knowledge OS app's Decide inbox, with the commits it came from as its "
+            "provenance. Add its reasons with write_note only if a person asks; it is a draft until accepted."
+        ),
+    )
+
+
+def _mark_documentation_checked(api: LocalApi, arguments: dict[str, Any], caller: Caller) -> ToolResult:
+    project = _project_arg(arguments)
+    commit = _string(arguments, "commit", required=True) or ""
+    repository = _repository(api, project, arguments)
+    status, body = api.post(
+        f"/api/projects/{quote(project)}/documentation-check/mark",
+        {"repository": repository, "commit": commit, "agent": caller.agent_json()},
+    )
+    if status == 202:
+        return _waiting_result(body)
+    return _write_result("checked", _expect((status, body), 200), repository=repository, commit=commit)
+
+
+def _link_repository(api: LocalApi, arguments: dict[str, Any], caller: Caller) -> ToolResult:
+    project = _project_arg(arguments)
+    path = _string(arguments, "path", required=True) or ""
+    payload: dict[str, Any] = {"path": path, "agent": caller.agent_json()}
+    remote = _string(arguments, "remote")
+    if remote is not None:
+        payload["remote"] = remote
+    status, body = api.post(f"/api/projects/{quote(project)}/repositories", payload)
+    if status == 202:
+        return _waiting_result(body)
+    return _write_result(
+        "linked",
+        _expect((status, body), 200),
+        repository=path,
+        next_step="Checks start at the repository's current commit: after the next commits, call check_documentation.",
+    )
+
+
+# ---------------------------------------------------------------------------
 # The tool table
 # ---------------------------------------------------------------------------
 
@@ -716,6 +872,107 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         read_only=True,
         handler=_list_proposed_decisions,
+    ),
+    ToolSpec(
+        name="check_documentation",
+        title="Check a project's documentation against its code",
+        description=(
+            "Compare a project's pages with what changed in its linked code repositories since the last check: "
+            "the commits, what changed (dependencies, commands, API routes, configuration, modules, "
+            "documentation), which pages to update and why, and which decisions to propose, each naming the "
+            "commits it came from. Deterministic and read-only."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"project": {"type": "string", "description": "Project id from list_projects."}},
+            "required": ["project"],
+            "additionalProperties": False,
+        },
+        read_only=True,
+        handler=_check_documentation,
+    ),
+    ToolSpec(
+        name="read_commit",
+        title="Read a commit",
+        description=(
+            "Read one commit of a repository a project links: its message, the files it changed, and its diff "
+            "(cut at 20,000 characters). Use it to write a page update that check_documentation suggests."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project": {"type": "string", "description": "Project id."},
+                "commit": {"type": "string", "description": "Commit hash (short or full), e.g. from check_documentation."},
+                "repository": {"type": "string", "description": "The linked repository's path; needed only when the project links several."},
+            },
+            "required": ["project", "commit"],
+            "additionalProperties": False,
+        },
+        read_only=True,
+        handler=_read_commit,
+    ),
+    ToolSpec(
+        name="propose_documentation_decision",
+        title="Propose a decision a documentation check suggests",
+        description=(
+            "Draft the decision check_documentation suggests under key (for example a new dependency): it is "
+            "saved as a proposed decision in the project's decisions folder, with the commits it came from as "
+            "its provenance, and waits for a person in Decide."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project": {"type": "string", "description": "Project id."},
+                "key": {"type": "string", "description": "The suggestion's key from check_documentation, e.g. 'dependency-added:httpx'."},
+                "repository": {"type": "string", "description": "The linked repository's path; needed only when the project links several."},
+            },
+            "required": ["project", "key"],
+            "additionalProperties": False,
+        },
+        read_only=False,
+        handler=_propose_documentation_decision,
+    ),
+    ToolSpec(
+        name="mark_documentation_checked",
+        title="Record a documentation check",
+        description=(
+            "Record that the project's pages are up to date with a repository as of commit (the head from "
+            "check_documentation), so the next check only looks at what is new. Only once the suggested page "
+            "updates are written or judged unnecessary."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project": {"type": "string", "description": "Project id."},
+                "commit": {"type": "string", "description": "The commit the check covered (check_documentation's head)."},
+                "repository": {"type": "string", "description": "The linked repository's path; needed only when the project links several."},
+            },
+            "required": ["project", "commit"],
+            "additionalProperties": False,
+        },
+        read_only=False,
+        handler=_mark_documentation_checked,
+    ),
+    ToolSpec(
+        name="link_repository",
+        title="Link a code repository to a project",
+        description=(
+            "Link a Git repository on this computer to a project, so check_documentation can compare the "
+            "project's pages with its commits. Checks start at the repository's current commit. Give the "
+            "repository's absolute path."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project": {"type": "string", "description": "Project id."},
+                "path": {"type": "string", "description": "Absolute path of the repository folder."},
+                "remote": {"type": "string", "description": "Optional remote URL; defaults to the repository's origin."},
+            },
+            "required": ["project", "path"],
+            "additionalProperties": False,
+        },
+        read_only=False,
+        handler=_link_repository,
     ),
 )
 

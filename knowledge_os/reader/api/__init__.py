@@ -16,6 +16,7 @@ from starlette.routing import Route
 
 from . import (
     changes,
+    codedocs,
     decisions,
     docs,
     everything,
@@ -99,6 +100,41 @@ def build_api_routes() -> list[Route]:
         Route("/api/home", home.view, name="api-home"),
         Route("/api/decisions/proposed", decisions.proposed_view, name="api-decisions-proposed"),
         Route("/api/projects/{project_id}", project.view, name="api-project"),
+        Route("/api/projects/{project_id}/repositories", codedocs.repositories_view, name="api-repositories"),
+        Route(
+            "/api/projects/{project_id}/repositories",
+            codedocs.link_view,
+            methods=["POST"],
+            name="api-repository-link",
+        ),
+        Route(
+            "/api/projects/{project_id}/repositories/commit",
+            codedocs.commit_view,
+            name="api-repository-commit",
+        ),
+        Route(
+            "/api/projects/{project_id}/repositories/unlink",
+            codedocs.unlink_view,
+            methods=["POST"],
+            name="api-repository-unlink",
+        ),
+        Route(
+            "/api/projects/{project_id}/documentation-check",
+            codedocs.check_view,
+            name="api-documentation-check",
+        ),
+        Route(
+            "/api/projects/{project_id}/documentation-check/propose",
+            codedocs.propose_view,
+            methods=["POST"],
+            name="api-documentation-propose",
+        ),
+        Route(
+            "/api/projects/{project_id}/documentation-check/mark",
+            codedocs.mark_view,
+            methods=["POST"],
+            name="api-documentation-mark",
+        ),
         Route("/api/records/{record_id}", record.view, name="api-record"),
         Route("/api/records/{record_id}/compare", record.compare_view, name="api-record-compare"),
         Route("/api/skills/{skill_name}", skill.view, name="api-skill"),

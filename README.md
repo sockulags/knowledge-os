@@ -184,6 +184,11 @@ nothing is written.
 | `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. A write the review rules hold back answers `waiting_for_review` and writes nothing yet. |
 | `propose_decision` | Create a decision as a draft (`title`, `content`, optional `project`, `folder`, `supersedes`, `related`). |
 | `list_proposed_decisions` | The Decide inbox: drafts waiting for a person, with who proposed them. |
+| `check_documentation` | What changed in a project's linked code repositories since the last check, and the page updates and decisions that suggests, with their commits. Read-only. |
+| `read_commit` | One commit of a linked repository: message, files, and diff. |
+| `propose_documentation_decision` | Draft a decision the check suggests (`key`), with its commits as provenance. |
+| `mark_documentation_checked` | Record the commit a check covered, so the next check starts there. |
+| `link_repository` | Link a Git repository (absolute `path`) to a project. |
 
 There is no tool to accept, withdraw, or supersede a decision; those stay yours, in the app or the
 command line. Failures come back as structured results with an `error` kind (`app_not_open`,
@@ -204,6 +209,17 @@ reader): it runs the Claude Code or Codex you installed over the Agent Client Pr
 it read; *Draft* writes notes and proposes decisions, shown as written or proposed by the agent "in
 Knowledge OS app". File → New Page (Ctrl+N) can start a page from one line with the agent. See
 "In-app agents (ACP)" in [`desktop/README.md`](desktop/README.md).
+
+**Keeping documentation in step with code.** A project can link the code repositories it
+describes (the *Code* section of the project page, or `kos code link PROJECT PATH`). *Check
+documentation* then lists what changed in them since the last check (commits, dependencies,
+commands and API routes, configuration, modules, READMEs), which pages to update and why, and
+which decisions to propose (a new or removed dependency or module), each with the commits it came
+from. Nothing is rewritten: a suggested decision is proposed as a draft with its commits as
+provenance, pages are updated by you or by the agent (`read_commit` lets it read the commits), and
+*Mark as checked* records the commit covered, so the next check starts there. Agents get the same
+through `check_documentation`, `read_commit`, `propose_documentation_decision`,
+`mark_documentation_checked`, and `link_repository`.
 
 **Setup.** Install the desktop app (it puts `kos` on PATH with the MCP server built in) or, in a
 checkout, `pip install -e ".[reader,mcp]"`. Then:

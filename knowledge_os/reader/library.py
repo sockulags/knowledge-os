@@ -45,7 +45,7 @@ from knowledge_os.capture import (
     DuplicateRecordError,
     capture_record_text,
 )
-from knowledge_os import gitsetup, gitsync
+from knowledge_os import codedocs, gitsetup, gitsync
 from knowledge_os.attachments import (
     MAX_ATTACHMENT_BYTES,
     AttachmentError,
@@ -753,6 +753,7 @@ def edit_record(
     confirm_non_material: bool = False,
     change_reference: str | None = None,
     agent: AgentIdentity | None = None,
+    verb: str = "Edit",
 ) -> WriteResult | ProposedWrite:
     """Edit one record's body and metadata with ``kos update``'s rules.
 
@@ -848,7 +849,7 @@ def edit_record(
         raise _write_error(exc) from exc
     else:
         outcome = WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
-    return _with_commit(workspace, outcome, "Edit", agent)
+    return _with_commit(workspace, outcome, verb, agent)
 
 
 # ---------------------------------------------------------------------------
@@ -1684,3 +1685,169 @@ def discard_change(workspace: Workspace, proposal_id: str, *, expected_sha256: s
         raise WriteError("validation", str(exc)) from exc
     commit = gitsync.auto_commit(workspace, [proposal.path], _proposal_message("Discard proposed", proposal))
     return ProposedWrite(proposal.id, proposal.action, proposal.record_id, proposal.title, proposal.rule, commit)
+
+
+# ---------------------------------------------------------------------------
+# Code repositories and documentation checks (issue #84)
+# ---------------------------------------------------------------------------
+
+
+def _project_overview(workspace: Workspace, project_id: str) -> tuple[list[Document], Document]:
+    documents, _issues = validate_workspace(workspace)
+    overview = next(
+        (
+            document
+            for document in documents
+            if document.metadata["type"] == "project"
+            and document.metadata["id"] == project_id
+            and document.metadata["scope"] == f"project:{project_id}"
+        ),
+        None,
+    )
+    if overview is None:
+        raise WriteError("not_found", f"project not found: {project_id}")
+    return documents, overview
+
+
+def repository_links(workspace: Workspace, project_id: str) -> list[dict[str, Any]]:
+    """The repositories a project links, and whether each is on this computer."""
+
+    _documents, overview = _project_overview(workspace, project_id)
+    links = []
+    for link in codedocs.repository_links(overview.metadata):
+        folder = codedocs.resolve(workspace.root, link.path)
+        links.append(
+            {
+                **link.as_metadata(),
+                "label": codedocs.label(link),
+                "folder": str(folder),
+                "found": folder.is_dir(),
+            }
+        )
+    return links
+
+
+def documentation_check(
+    workspace: Workspace, project_id: str, *, since: Mapping[str, str] | None = None
+) -> dict[str, Any]:
+    """What changed in a project's repositories since their last check, and
+    what that suggests for its pages and decisions. Writes nothing."""
+
+    documents, _overview = _project_overview(workspace, project_id)
+    try:
+        check = codedocs.check_documentation(workspace.root, project_id, documents, workspace.relative, since=since)
+    except codedocs.CodeDocsError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+    return check.as_json()
+
+
+def repository_commit(workspace: Workspace, project_id: str, *, path: str, commit: str) -> dict[str, Any]:
+    """One commit of a repository the project links, with its diff."""
+
+    _documents, overview = _project_overview(workspace, project_id)
+    link = next((item for item in codedocs.repository_links(overview.metadata) if item.path == path), None)
+    if link is None:
+        raise WriteError("not_found", f"{path} is not linked to project {project_id!r}")
+    try:
+        return codedocs.commit_details(codedocs.resolve(workspace.root, link.path), commit)
+    except codedocs.CodeDocsError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+
+
+def _edit_links(
+    workspace: Workspace,
+    project_id: str,
+    change: Callable[[list[codedocs.RepositoryLink]], list[codedocs.RepositoryLink]],
+    verb: str,
+    agent: AgentIdentity | None,
+) -> WriteResult | ProposedWrite:
+    _documents, overview = _project_overview(workspace, project_id)
+    try:
+        links = change(codedocs.repository_links(overview.metadata))
+    except codedocs.CodeDocsError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    return edit_record(
+        workspace,
+        project_id,
+        expected_sha256=hashlib.sha256(overview.path.read_bytes()).hexdigest(),
+        changes={"repositories": codedocs.links_metadata(links)},
+        agent=agent,
+        verb=verb,
+    )
+
+
+def link_repository(
+    workspace: Workspace, project_id: str, *, path: str, remote: str | None = None, agent: AgentIdentity | None = None
+) -> WriteResult | ProposedWrite:
+    """Link a code repository to a project, starting its checks at its current commit."""
+
+    return _edit_links(
+        workspace,
+        project_id,
+        lambda links: codedocs.with_link(workspace.root, links, path, remote=remote)[0],
+        "Link a repository to",
+        agent,
+    )
+
+
+def unlink_repository(
+    workspace: Workspace, project_id: str, *, path: str, agent: AgentIdentity | None = None
+) -> WriteResult | ProposedWrite:
+    return _edit_links(
+        workspace,
+        project_id,
+        lambda links: codedocs.without_link(workspace.root, links, path),
+        "Unlink a repository from",
+        agent,
+    )
+
+
+def mark_documentation_checked(
+    workspace: Workspace, project_id: str, *, path: str, commit: str, agent: AgentIdentity | None = None
+) -> WriteResult | ProposedWrite:
+    """Record that a project's documentation was checked against ``commit``."""
+
+    return _edit_links(
+        workspace,
+        project_id,
+        lambda links: codedocs.with_checked(workspace.root, links, path, commit),
+        "Record a documentation check in",
+        agent,
+    )
+
+
+def _free_id(documents: list[Document], wanted: str) -> str:
+    taken = {document.metadata["id"] for document in documents}
+    candidate, number = wanted, 2
+    while candidate in taken:
+        candidate = f"{wanted}-{number}"
+        number += 1
+    return candidate
+
+
+def propose_documentation_decision(
+    workspace: Workspace, project_id: str, *, path: str, key: str, agent: AgentIdentity | None = None
+) -> WriteResult | ProposedWrite:
+    """Draft the decision a documentation check suggests, in the project's
+    ``decisions`` folder, with provenance naming the commits it came from."""
+
+    documents, _overview = _project_overview(workspace, project_id)
+    try:
+        check = codedocs.check_documentation(workspace.root, project_id, documents, workspace.relative)
+        title, body, provenance = codedocs.decision_draft(check.repository(path), key)
+    except codedocs.CodeDocsError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80].rstrip("-") or "decision"
+    record_id = _free_id(documents, slug)
+    metadata: dict[str, Any] = {
+        "id": record_id,
+        "title": title,
+        "type": "project",
+        "record_kind": "decision",
+        "status": "draft",
+        "scope": f"project:{project_id}",
+        "provenance": provenance if agent is not None else [*_interface_provenance("create"), *provenance],
+    }
+    return create_record(
+        workspace, metadata=metadata, body=body, project_path=f"decisions/{record_id}.md", agent=agent
+    )

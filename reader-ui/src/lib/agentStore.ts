@@ -66,6 +66,8 @@ class AgentStore {
   private textTools = new Map<number, number>();
   /** Called after the agent wrote something, to reload the sidebar. */
   onWrite: (() => void) | null = null;
+  /** Opens the panel, for a request started elsewhere in the reader. */
+  onOpen: (() => void) | null = null;
 
   constructor() {
     this.bridge = agentBridge();
@@ -220,8 +222,14 @@ class AgentStore {
 
   /** Start (or restart after sign-in) the chosen provider's session. */
   async start(): Promise<boolean> {
+    if (this.bridge === null) return false;
+    // A request can come from a page before the panel has listed the providers.
+    if (this.state.providers === null) await this.refresh();
     const providerId = this.state.providerId;
-    if (this.bridge === null || providerId === null) return false;
+    if (providerId === null) {
+      this.set({ error: "Choose an agent first." });
+      return false;
+    }
     this.set({ session: "starting", auth: null, error: null });
     try {
       const { state } = await this.bridge.start(providerId);
@@ -249,9 +257,9 @@ class AgentStore {
   }
 
   /** Send one request; the answer streams into the transcript. */
-  async send(mode: AgentMode, request: string, context: AgentContext): Promise<void> {
+  async send(mode: AgentMode, request: string, context: AgentContext, label?: string): Promise<void> {
     if (this.bridge === null || request.trim() === "" || this.state.busy) return;
-    this.push({ kind: "user", text: request.trim(), mode });
+    this.push({ kind: "user", text: (label ?? request).trim(), mode });
     if (!(await this.ensureSession())) return;
     this.set({ busy: true });
     try {
@@ -262,6 +270,12 @@ class AgentStore {
       this.finishTurn();
       this.set({ busy: false });
     }
+  }
+
+  /** Open the panel and send a request from elsewhere in the reader (e.g. the documentation check). */
+  async sendFromPage(mode: AgentMode, request: string, context: AgentContext, label: string): Promise<void> {
+    this.onOpen?.();
+    await this.send(mode, request, context, label);
   }
 
   /** Draft a new page's title and body from one line; the agent writes nothing. */
