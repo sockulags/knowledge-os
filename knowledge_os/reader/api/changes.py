@@ -183,6 +183,9 @@ async def detail_view(request: Request) -> Response:
         row["metadata_changes"] = _metadata_changes(current_metadata, proposed_metadata)
         row["blocks"] = [{"kind": b.kind, "left_html": b.left_html, "right_html": b.right_html} for b in blocks]
         row["summary"] = _summarize(counts)
+    # The Markdown itself, for agents (read_proposed_change) rather than the page.
+    row["proposed_markdown"] = proposal.body
+    row["current_markdown"] = current_body if proposal.action != "create" else None
     row["labels"] = strings.CHANGE_LABELS
     row["notice_labels"] = decision_language()["labels"]
     return json_response(row)

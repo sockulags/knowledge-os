@@ -1010,8 +1010,9 @@ The accepted `agent-access` decision gives agents a narrow interface: `kos
 mcp` (`knowledge_os/agent_access/`), an MCP server on stdio built on the
 official MCP Python SDK (the optional `mcp` extra, bundled in the desktop
 app's frozen core, so the installed `kos` shim runs it without Python). It
-serves twelve tools: `search`, `read_page`, `list_projects`, `list_folder`,
-`write_note`, `propose_decision`, and `list_proposed_decisions`, plus the
+serves fourteen tools: `search`, `read_page`, `list_projects`, `list_folder`,
+`write_note`, `propose_decision`, `list_proposed_decisions`,
+`list_proposed_changes`, and `read_proposed_change`, plus the
 documentation check's `check_documentation`, `read_commit`,
 `propose_documentation_decision`, `mark_documentation_checked`, and
 `link_repository` (see "Code repositories and the documentation check"). None accepts,

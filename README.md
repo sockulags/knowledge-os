@@ -185,6 +185,8 @@ nothing is written.
 | `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. A write the review rules hold back answers `waiting_for_review` and writes nothing yet. |
 | `propose_decision` | Create a decision as a draft (`title`, `content`, optional `project`, `folder`, `supersedes`, `related`). |
 | `list_proposed_decisions` | The Decide inbox: drafts waiting for a person, with who proposed them. |
+| `list_proposed_changes` | Writes the review rules held back, waiting in Decide: new pages and edits, with the rule and who proposed them. |
+| `read_proposed_change` | One proposed change: a new page's Markdown, or an edit as a diff against the page as it is now. |
 | `check_documentation` | What changed in a project's linked code repositories since the last check, and the page updates and decisions that suggests, with their commits. Read-only. |
 | `read_commit` | One commit of a linked repository: message, files, and diff. |
 | `propose_documentation_decision` | Draft a decision the check suggests (`key`), with its commits as provenance. |
