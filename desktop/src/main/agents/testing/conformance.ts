@@ -197,6 +197,31 @@ export function describeConformance(provider: AgentProvider): void {
       expect(text(events)).toBe('chose allowchose nothing')
     })
 
+    it('lets the knowledge base’s own read tools run without asking', async () => {
+      const { session, events } = await open()
+      await session.prompt('permission mcp__knowledge-os__read_page')
+      expect(events.some((event) => event.type === 'permission')).toBe(false)
+      expect(text(events)).toBe('chose allow')
+    })
+
+    it('still asks before a knowledge base write or any other tool', async () => {
+      for (const title of [
+        'mcp__knowledge-os__write_note',
+        'mcp__other__read_page',
+        'Bash',
+        'read_page'
+      ]) {
+        const { session, events } = await open()
+        answers = ['reject']
+        await session.prompt(`permission ${title}`)
+        expect(events.find((event) => event.type === 'permission')).toMatchObject({
+          title,
+          toolCallId: 'call-2'
+        })
+        expect(text(events)).toBe('chose reject')
+      }
+    })
+
     it('cancels a running turn', async () => {
       const { session } = await open()
       const turn = session.prompt('wait')
@@ -213,6 +238,23 @@ export function describeConformance(provider: AgentProvider): void {
       )
       expect(state).toMatchObject({ auth: provider.authHelp([]) })
       await expect(session.prompt('echo hi')).rejects.toMatchObject({ kind: 'auth-required' })
+    })
+
+    it('reports a sign-in that expired during the session as needing sign-in', async () => {
+      const { session, events } = await open()
+      const error = await session.prompt('expired').catch((caught: unknown) => caught)
+      expect(error).toMatchObject({ kind: 'auth-required', auth: provider.authHelp([]) })
+      expect(session.state).toBe('auth-required')
+      expect(events.at(-1)).toMatchObject({ type: 'state', state: 'auth-required' })
+      // After signing in, starting again gives a working session.
+      await session.restart()
+      await expect(session.prompt('echo signed in')).resolves.toBe('end_turn')
+    })
+
+    it('keeps other failures as errors of the turn', async () => {
+      const { session } = await open()
+      await expect(session.prompt('fail')).rejects.toMatchObject({ kind: 'protocol' })
+      expect(session.state).toBe('ready')
     })
 
     it('reports a crashed agent and starts again', async () => {

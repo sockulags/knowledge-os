@@ -114,10 +114,12 @@ const connection = new AgentSideConnection(
         })
         return { stopReason: 'end_turn' }
       }
-      if (text === 'permission') {
+      // `permission [TITLE]`: ask to use a tool, `write_note` unless named.
+      if (text === 'permission' || text.startsWith('permission ')) {
+        const title = text.split(' ')[1] ?? 'write_note'
         const answer = await client.requestPermission({
           sessionId: params.sessionId,
-          toolCall: { toolCallId: 'call-2', title: 'write_note', status: 'pending' },
+          toolCall: { toolCallId: 'call-2', title, status: 'pending' },
           options: [
             { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
             { optionId: 'reject', name: 'Reject', kind: 'reject_once' }
@@ -136,6 +138,17 @@ const connection = new AgentSideConnection(
       }
       if (text === 'crash') {
         process.exit(3)
+      }
+      // A sign-in that expired mid-session, as Claude Code reports it.
+      if (text === 'expired') {
+        await say('Failed to authenticate: OAuth session expired and could not be refreshed')
+        throw RequestError.internalError(
+          undefined,
+          'Failed to authenticate: OAuth session expired and could not be refreshed'
+        )
+      }
+      if (text === 'fail') {
+        throw RequestError.internalError(undefined, 'Something else went wrong')
       }
       await say(`unknown command: ${text}`)
       return { stopReason: 'end_turn' }
