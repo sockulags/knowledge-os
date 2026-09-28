@@ -113,6 +113,8 @@ export interface CreateRequest {
   metadata: Record<string, unknown>;
   body: string;
   project_path?: string;
+  /** Marks the page as the agent's: `agent-authored` provenance and commit. */
+  agent?: { client: string; place: string };
 }
 
 export interface EditRequest {

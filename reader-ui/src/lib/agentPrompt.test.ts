@@ -3,9 +3,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  EARLIER_TURNS_LIMIT,
   buildPrompt,
   composePrompt,
   documentationPrompt,
+  noteFromTurns,
+  slugify,
+  withEarlierTurns,
   isWriteTool,
   pagesUsed,
   parseComposed,
@@ -110,5 +114,50 @@ describe("documentation check", () => {
     assert.match(prompt, /- "HTTP layer" \(id http\):\n  - Mentions the dependency `requests` removed\. Commits: a{12}\./);
     assert.match(prompt, /read_commit \(project demo, repository \.\.\/code\)/);
     assert.match(prompt, /Do not record the check as done/);
+  });
+});
+
+describe("conversations", () => {
+  it("repeats the latest earlier turns when a conversation continues", () => {
+    assert.equal(withEarlierTurns("Next?", []), "Next?");
+    const prompt = withEarlierTurns("Next?", [
+      { request: "How many retries?", answer: "Three." },
+      { request: "And the backoff?", answer: "" },
+    ]);
+    assert.match(prompt, /^Earlier in this conversation/);
+    assert.match(prompt, /Person: How many retries\?\nYou: Three\.\n\nPerson: And the backoff\?\nYou: \(no answer\)/);
+    assert.ok(prompt.endsWith("The conversation continues:\n\nNext?"));
+
+    const long = "x".repeat(EARLIER_TURNS_LIMIT / 2);
+    const cut = withEarlierTurns("Now", [
+      { request: "oldest", answer: long },
+      { request: "middle", answer: long },
+      { request: "latest", answer: "short" },
+    ]);
+    assert.ok(!cut.includes("oldest") && cut.includes("middle") && cut.includes("latest"));
+  });
+
+  it("makes page ids from titles", () => {
+    assert.equal(slugify("Hur fungerar återförsök?"), "hur-fungerar-aterforsok");
+    assert.equal(slugify("!!!"), "conversation");
+  });
+
+  it("turns a conversation into a note with its pages linked", () => {
+    const note = noteFromTurns(
+      [
+        { request: "How do retries work?", answer: "Three times, see [Retry policy](/r/retry-policy).", pages: [{ id: "retry-policy", title: "Retry policy" }] },
+        { request: "Who is paged?", answer: "", pages: [] },
+      ],
+      { agent: "Claude Code", date: "2026-09-28" },
+    );
+    assert.equal(note.title, "How do retries work?");
+    assert.equal(
+      note.body,
+      "Saved from a conversation with Claude Code in Knowledge OS on 2026-09-28.\n\n" +
+        "## How do retries work?\n\nThree times, see [Retry policy](/r/retry-policy).\n\n" +
+        "Pages used: [Retry policy](/r/retry-policy)\n\n" +
+        "## Who is paged?\n\n_No answer._\n",
+    );
+    assert.equal(noteFromTurns([{ request: "y".repeat(100), answer: "a", pages: [] }], { agent: "Codex", date: "d" }).title.length, 78);
   });
 });
