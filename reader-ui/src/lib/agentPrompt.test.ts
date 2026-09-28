@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   buildPrompt,
   composePrompt,
+  documentationPrompt,
   isWriteTool,
   pagesUsed,
   parseComposed,
@@ -83,5 +84,31 @@ describe("tools", () => {
       { title: "mcp__knowledge-os__write_note", input: { title: "Held" }, output: '{"ok":false,"waiting_for_review":true}' },
     ]);
     assert.deepEqual(used, { read: [], written: ["retry-runbook", "cap"] });
+  });
+});
+
+describe("documentation check", () => {
+  it("counts the check's tools and links the decision it proposes", () => {
+    assert.equal(toolLabel("mcp__knowledge-os__check_documentation"), "Checking the documentation against the code");
+    assert.ok(isWriteTool("mcp__knowledge-os__propose_documentation_decision"));
+    assert.ok(isWriteTool("mcp__knowledge-os__mark_documentation_checked"));
+    assert.ok(!isWriteTool("mcp__knowledge-os__read_commit"));
+    const used = pagesUsed([
+      { title: "mcp__knowledge-os__propose_documentation_decision", input: { key: "dependency-added:httpx" }, output: '{"id":"add-the-dependency-httpx"}' },
+      { title: "mcp__knowledge-os__mark_documentation_checked", input: { commit: "abc" }, output: '{"id":"demo"}' },
+    ]);
+    assert.deepEqual(used.written, ["add-the-dependency-httpx"]);
+  });
+
+  it("asks for page updates with their reasons and commits", () => {
+    const prompt = documentationPrompt(
+      { id: "demo", title: "Demo" },
+      { path: "../code", label: "code", head: "f".repeat(40) },
+      [{ page: "http", title: "HTTP layer", reasons: [{ text: "Mentions the dependency `requests` removed.", commits: ["a".repeat(40)] }] }],
+    );
+    assert.match(prompt, /project "Demo" \(id demo\) against the code repository code suggests updating this page:/);
+    assert.match(prompt, /- "HTTP layer" \(id http\):\n  - Mentions the dependency `requests` removed\. Commits: a{12}\./);
+    assert.match(prompt, /read_commit \(project demo, repository \.\.\/code\)/);
+    assert.match(prompt, /Do not record the check as done/);
   });
 });

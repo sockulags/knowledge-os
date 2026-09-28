@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 *.egg-info/
+/build/
 indexes/catalog.sqlite3
 indexes/catalog.sqlite3-*
 reader-ui/node_modules/

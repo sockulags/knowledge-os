@@ -9,10 +9,12 @@ import type {
   DecidePayload,
   DeletePreview,
   DocPayload,
+  DocumentationCheckPayload,
   EverythingPayload,
   HomePayload,
   NavPayload,
   ProjectPayload,
+  RepositoriesPayload,
   RecordPayload,
   SearchPayload,
   SkillPayload,
@@ -80,6 +82,10 @@ export const api = {
   changes: () => request<ChangesPayload>("/api/changes"),
   change: (id: string) => request<ChangeDetail>(`/api/changes/${encodeURIComponent(id)}`),
   pageDeletion: (id: string) => request<DeletePreview>(`/api/records/${encodeURIComponent(id)}/delete-preview`),
+  repositories: (projectId: string) =>
+    request<RepositoriesPayload>(`/api/projects/${encodeURIComponent(projectId)}/repositories`),
+  documentationCheck: (projectId: string) =>
+    request<DocumentationCheckPayload>(`/api/projects/${encodeURIComponent(projectId)}/documentation-check`),
   folderDeletion: (projectId: string, path: string) =>
     request<DeletePreview>(
       `/api/projects/${encodeURIComponent(projectId)}/folders/delete-preview?path=${encodeURIComponent(path)}`,

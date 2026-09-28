@@ -224,6 +224,20 @@ export const structure = {
     send<StructureResult>("POST", `${projectPath(projectId)}/folders/delete`, { path, expected }),
 };
 
+/** A project's code repositories and its documentation check (issue #84).
+ * Linking, unlinking, and recording a check edit the project overview; a
+ * proposed decision is a draft whose provenance names its commits. */
+export const code = {
+  link: (projectId: string, path: string, remote?: string) =>
+    send<WriteResult | ProposedWriteResult>("POST", `${projectPath(projectId)}/repositories`, remote ? { path, remote } : { path }),
+  unlink: (projectId: string, path: string) =>
+    send<WriteResult | ProposedWriteResult>("POST", `${projectPath(projectId)}/repositories/unlink`, { path }),
+  propose: (projectId: string, repository: string, key: string) =>
+    send<WriteResult | ProposedWriteResult>("POST", `${projectPath(projectId)}/documentation-check/propose`, { repository, key }),
+  mark: (projectId: string, repository: string, commit: string) =>
+    send<WriteResult | ProposedWriteResult>("POST", `${projectPath(projectId)}/documentation-check/mark`, { repository, commit }),
+};
+
 /** Git sync (see "Git sync API" in docs/architecture.md). A failed sync
  * carries the fresh repository status, and a stopped pull its conflicts. */
 export const sync = {

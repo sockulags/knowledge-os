@@ -32,6 +32,11 @@ const TOOL_LABELS: Record<string, string> = {
   write_note: "Writing a note",
   propose_decision: "Proposing a decision",
   list_proposed_decisions: "Checking the proposed decisions",
+  check_documentation: "Checking the documentation against the code",
+  read_commit: "Reading a commit",
+  propose_documentation_decision: "Proposing a decision",
+  mark_documentation_checked: "Recording the documentation check",
+  link_repository: "Linking a repository",
 };
 
 const TOOL_REQUESTS: Record<string, string> = {
@@ -42,6 +47,11 @@ const TOOL_REQUESTS: Record<string, string> = {
   write_note: "Allow the agent to write a note?",
   propose_decision: "Allow the agent to propose a decision?",
   list_proposed_decisions: "Allow the agent to check the proposed decisions?",
+  check_documentation: "Allow the agent to check the documentation against the code?",
+  read_commit: "Allow the agent to read a commit?",
+  propose_documentation_decision: "Allow the agent to propose a decision?",
+  mark_documentation_checked: "Allow the agent to record the documentation check?",
+  link_repository: "Allow the agent to link a repository?",
 };
 
 /** A permission question in words. */
@@ -137,6 +147,9 @@ function resultObject(output: unknown): unknown {
   }
 }
 
+/** The tools that create or change a page, whose id the "Written" row links. */
+const PAGE_WRITING_TOOLS = new Set(["write_note", "propose_decision", "propose_documentation_decision"]);
+
 /** The pages a turn read and the ones it wrote to, by id, in the order used. */
 export function pagesUsed(tools: readonly ToolUse[]): { read: string[]; written: string[] } {
   const read: string[] = [];
@@ -145,7 +158,7 @@ export function pagesUsed(tools: readonly ToolUse[]): { read: string[]; written:
     const name = toolName(tool.title);
     const id = field(tool.input, "id");
     if (name === "read_page" && id !== null && !read.includes(id)) read.push(id);
-    if (name === "write_note" || name === "propose_decision") {
+    if (PAGE_WRITING_TOOLS.has(name)) {
       // A new page's id is known only from the result; an edit names it in the input.
       const writtenId = field(resultObject(tool.output), "id") ?? id;
       if (writtenId !== null && !written.includes(writtenId)) written.push(writtenId);
@@ -154,8 +167,39 @@ export function pagesUsed(tools: readonly ToolUse[]): { read: string[]; written:
   return { read, written };
 }
 
+const WRITE_TOOLS = new Set([
+  "write_note",
+  "propose_decision",
+  "propose_documentation_decision",
+  "mark_documentation_checked",
+  "link_repository",
+]);
+
 /** Whether a tool writes to the knowledge base (the sidebar is reloaded after one). */
 export function isWriteTool(title: string | null): boolean {
-  const name = toolName(title);
-  return name === "write_note" || name === "propose_decision";
+  return WRITE_TOOLS.has(toolName(title));
+}
+
+/** What the documentation check asks the agent to do with one page, or with
+ * all of them (issue #84): the reasons and commits come from the check. */
+export function documentationPrompt(
+  project: { id: string; title: string },
+  repository: { path: string; label: string; head: string | null },
+  pages: readonly { page: string; title: string; reasons: readonly { text: string; commits: readonly string[] }[] }[],
+): string {
+  const lines = [
+    `The documentation check of the project "${project.title}" (id ${project.id}) against the code repository ${repository.label} suggests updating ${pages.length === 1 ? "this page" : "these pages"}:`,
+    "",
+  ];
+  for (const page of pages) {
+    lines.push(`- "${page.title}" (id ${page.page}):`);
+    for (const reason of page.reasons) {
+      lines.push(`  - ${reason.text} Commits: ${reason.commits.map((sha) => sha.slice(0, 12)).join(", ")}.`);
+    }
+  }
+  lines.push(
+    "",
+    `Use read_commit (project ${project.id}, repository ${repository.path}) to see what changed, read_page for each page, and write_note to update it with only what the commits show. Name the commits you used at the end of each change, e.g. "(from abc1234)". Do not record the check as done; the person does that.`,
+  );
+  return lines.join("\n");
 }

@@ -104,7 +104,7 @@ describe('AgentService', () => {
     )
     expect(kos).toEqual({
       command: '/app/core/kos-core.exe',
-      args: ['-m', 'knowledge_os', 'mcp', '--place', 'Knowledge OS app'],
+      args: ['-P', '-m', 'knowledge_os', 'mcp', '--place', 'Knowledge OS app'],
       env: { KOS_RUNTIME_FILE: '/data/runtime.json', PYTHONPATH: '/repo' }
     })
   })

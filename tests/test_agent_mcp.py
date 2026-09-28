@@ -43,6 +43,11 @@ EXPECTED_TOOLS = {
     "write_note",
     "propose_decision",
     "list_proposed_decisions",
+    "check_documentation",
+    "read_commit",
+    "propose_documentation_decision",
+    "mark_documentation_checked",
+    "link_repository",
 }
 
 try:
@@ -332,6 +337,66 @@ class ToolTests(IsolatedTestCase):
         self.assertEqual(self.call("list_folder", project="demo", folder="nope")["error"], "not_found")
         self.assertEqual(self.call("list_folder", project="nope")["error"], "not_found")
 
+    def test_documentation_check_links_checks_proposes_and_marks(self) -> None:
+        """Issue #84 through the tools: link a repository, commit to it, check,
+        read a commit, propose the suggested decision, and record the check."""
+
+        code = self.base / "code"
+        code.mkdir()
+        git(code, "init", "--quiet", "-b", "main")
+        git(code, "config", "user.name", "Bob")
+        git(code, "config", "user.email", "bob@example.invalid")
+        (code / "pyproject.toml").write_text('[project]\nname = "demo"\ndependencies = ["requests"]\n', encoding="utf-8")
+        git(code, "add", "-A")
+        git(code, "commit", "--quiet", "-m", "Start")
+
+        linked = self.call("link_repository", project="demo", path=str(code))
+        self.assertEqual(linked["action"], "linked")
+        overview = self.front_matter("projects/demo/README.md")
+        self.assertEqual(overview["repositories"][0]["path"], str(code))
+        self.assertEqual(overview["repositories"][0]["checked"], git(code, "rev-parse", "HEAD"))
+        self.assertEqual(self.call("check_documentation", project="demo")["repositories"][0]["state"], "up-to-date")
+
+        (code / "pyproject.toml").write_text('[project]\nname = "demo"\ndependencies = ["httpx"]\n', encoding="utf-8")
+        git(code, "commit", "--quiet", "-am", "Switch to httpx")
+        switch = git(code, "rev-parse", "HEAD")
+
+        check = self.call("check_documentation", project="demo")
+        repo = check["repositories"][0]
+        self.assertEqual(repo["state"], "changed")
+        self.assertEqual([commit["subject"] for commit in repo["commits"]], ["Switch to httpx"])
+        self.assertEqual(
+            {change["key"] for change in repo["changes"]}, {"dependency-added:httpx", "dependency-removed:requests"}
+        )
+        self.assertEqual({decision["key"] for decision in repo["decisions"]}, {"dependency-added:httpx", "dependency-removed:requests"})
+        self.assertEqual(repo["page_updates"][0]["id"], "demo")
+        self.assertIn("httpx", repo["page_updates"][0]["reasons"][0]["reason"])
+        self.assertEqual(repo["page_updates"][0]["reasons"][0]["commits"], [switch[:12]])
+
+        commit = self.call("read_commit", project="demo", commit=switch[:7])
+        self.assertEqual(commit["subject"], "Switch to httpx")
+        self.assertIn('+dependencies = ["httpx"]', commit["diff"])
+
+        before = self.head()
+        proposed = self.call("propose_documentation_decision", project="demo", key="dependency-added:httpx")
+        self.assertEqual(proposed["action"], "proposed")
+        self.assertEqual(proposed["path"], "projects/demo/decisions/add-the-dependency-httpx.md")
+        decision = self.front_matter(proposed["path"])
+        self.assertEqual((decision["record_kind"], decision["status"]), ("decision", "draft"))
+        self.assertEqual(
+            [(item["kind"], item["reference"]) for item in decision["provenance"]],
+            [("agent-authored", AGENT_REFERENCE), ("repository-commit", f"code@{switch}")],
+        )
+        self.assertEqual(self.commits_since(before), ["Claude Code: Create Add the dependency httpx"])
+        again = self.call("propose_documentation_decision", project="demo", key="dependency-added:httpx")
+        self.assertEqual(again["error"], "validation")
+
+        marked = self.call("mark_documentation_checked", project="demo", commit=switch)
+        self.assertEqual(marked["action"], "checked")
+        self.assertEqual(self.front_matter("projects/demo/README.md")["repositories"][0]["checked"], switch)
+        self.assertEqual(self.call("check_documentation", project="demo")["repositories"][0]["state"], "up-to-date")
+        self.assertEqual(self.call("link_repository", project="demo", path=str(code))["error"], "validation")
+
     def test_write_note_creates_and_edits_with_agent_provenance_and_one_commit_each(self) -> None:
         before = self.head()
         created = self.call(
@@ -451,6 +516,11 @@ class ToolTests(IsolatedTestCase):
             "write_note": {"title": "Closed", "content": "Text.\n"},
             "propose_decision": {"title": "Closed decision", "content": "Text.\n"},
             "list_proposed_decisions": {},
+            "check_documentation": {"project": "demo"},
+            "read_commit": {"project": "demo", "commit": "abc1234", "repository": "../code"},
+            "propose_documentation_decision": {"project": "demo", "key": "dependency-added:x", "repository": "../code"},
+            "mark_documentation_checked": {"project": "demo", "commit": "abc1234", "repository": "../code"},
+            "link_repository": {"project": "demo", "path": "/code"},
         }
         self.assertEqual(set(arguments), EXPECTED_TOOLS)
         for name, args in arguments.items():
