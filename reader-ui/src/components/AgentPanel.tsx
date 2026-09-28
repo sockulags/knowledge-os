@@ -8,21 +8,46 @@ import { pagesUsed, permissionQuestion, toolLabel } from "../lib/agentPrompt";
 import { agentStore, useAgent, type TranscriptItem } from "../lib/agentStore";
 import { Markdown } from "./Markdown";
 
-/** An agent answer as Markdown, rendered by the core like a page body once complete. */
+/** How often a streaming answer is rendered again, at most. */
+const STREAM_RENDER_MS = 200;
+
+/**
+ * An agent answer as Markdown, rendered by the core exactly like a page body
+ * (issue #101): while it streams, at most every STREAM_RENDER_MS, and once
+ * more when it is complete, so nothing jumps when it ends. The last render
+ * stays up until a newer one arrives; an older answer arriving late is dropped.
+ */
 function AgentMarkdown({ text, done }: { text: string; done: boolean }) {
   const [html, setHtml] = useState<string | null>(null);
+  const sent = useRef({ at: 0, seq: 0, applied: 0 });
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    if (!done || text.trim() === "") return;
-    let cancelled = false;
-    // No page path: the agent links pages as /r/<id>, which stay as written.
-    void write.preview(text).then((outcome) => {
-      if (!cancelled && outcome.ok) setHtml(outcome.data.html);
-    });
-    return () => {
-      cancelled = true;
+    if (text.trim() === "") return;
+    const render = () => {
+      timer.current = null;
+      const seq = ++sent.current.seq;
+      sent.current.at = Date.now();
+      // No page path: the agent links pages as /r/<id>, which stay as written.
+      void write.preview(text).then((outcome) => {
+        if (!outcome.ok || seq < sent.current.applied) return;
+        sent.current.applied = seq;
+        setHtml(outcome.data.html);
+      });
     };
+    if (timer.current !== null) clearTimeout(timer.current);
+    const wait = done ? 0 : Math.max(0, STREAM_RENDER_MS - (Date.now() - sent.current.at));
+    timer.current = setTimeout(render, wait);
   }, [text, done]);
-  if (done && html !== null) return <Markdown html={html} className="prose-sm" />;
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  if (html !== null) return <Markdown html={html} className="prose-sm" />;
   return <p className="whitespace-pre-wrap text-sm leading-relaxed text-(--color-text)">{text}</p>;
 }
 
