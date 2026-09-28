@@ -104,8 +104,8 @@ README_CONTENT: dict[str, str] = {
         "`kind: note` or `kind: decision` (a decision template starts a proposal).\n"
         "The body is the new page's starting text; `{{date}}` becomes the day the\n"
         "page is created. A file named like a built-in template (`meeting-notes`,\n"
-        "`how-to`, `decision`) replaces it. Templates are not records: they are not\n"
-        "indexed or linted.\n"
+        "`how-to`, `decision`, `requirement`, `plan`) replaces it. Templates are not\n"
+        "records: they are not indexed or linted.\n"
     ),
     "tooling": (
         "# Tooling\n\n"
