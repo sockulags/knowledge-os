@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -31,7 +32,13 @@ def _json(status: SemanticStatus) -> dict[str, Any]:
         "size": status.size,
         "done_bytes": status.done_bytes,
         "total_bytes": status.total_bytes,
-        "error": strings.SEMANTIC_INSTALL_FAILED.format(error=status.error) if status.error else None,
+        "error": (
+            (strings.SEMANTIC_LOAD_FAILED if status.state == "failed" else strings.SEMANTIC_INSTALL_FAILED).format(
+                error=status.error
+            )
+            if status.error
+            else None
+        ),
         "install_label": strings.SEMANTIC_INSTALL_LABEL,
         "match_hint": strings.SEARCH_MATCH_MEANING_HINT,
     }
@@ -42,26 +49,26 @@ def semantic_json(workspace: Any) -> dict[str, Any]:
 
 
 async def status_view(request: Request) -> Response:
-    return json_response(semantic_json(request.app.state.workspace))
+    return json_response(await run_in_threadpool(semantic_json, request.app.state.workspace))
 
 
 async def install_view(request: Request) -> Response:
     payload = await _write_payload(request)
     if isinstance(payload, Response):
         return payload
-    return json_response(_json(install_semantic_model(request.app.state.workspace)))
+    return json_response(_json(await run_in_threadpool(install_semantic_model, request.app.state.workspace)))
 
 
 async def refresh_view(request: Request) -> Response:
     payload = await _write_payload(request)
     if isinstance(payload, Response):
         return payload
-    return json_response(_json(refresh_semantic_index(request.app.state.workspace)))
+    return json_response(_json(await run_in_threadpool(refresh_semantic_index, request.app.state.workspace)))
 
 
 async def remove_view(request: Request) -> Response:
     payload = await _write_payload(request)
     if isinstance(payload, Response):
         return payload
-    remove_semantic_model()
-    return json_response(semantic_json(request.app.state.workspace))
+    await run_in_threadpool(remove_semantic_model)
+    return json_response(await run_in_threadpool(semantic_json, request.app.state.workspace))

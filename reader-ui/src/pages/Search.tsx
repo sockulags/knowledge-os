@@ -233,7 +233,7 @@ function SemanticNote({ initial, onReady }: { initial: SemanticStatus; onReady: 
             {status.install_label}
           </button>
         )}
-        {status.error && status.state === "off" && <p className="text-(--color-accent-red-text)">{status.error}</p>}
+        {status.error && (status.state === "off" || status.state === "failed") && <p className="text-(--color-accent-red-text)">{status.error}</p>}
       </div>
     </div>
   );

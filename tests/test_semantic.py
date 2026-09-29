@@ -185,6 +185,16 @@ class InstallTests(unittest.TestCase):
             with self.assertRaises(semantic.SemanticError):
                 semantic._download("http://example.invalid/x", Path(directory) / "x", "0", None)
 
+    def test_checking_for_the_runtime_imports_nothing(self) -> None:
+        # Serving a request asks this; importing onnxruntime there can stall
+        # for a long time on Windows (see runtime_available).
+        import sys
+
+        if "onnxruntime" in sys.modules:
+            self.skipTest("onnxruntime was already imported by another test")
+        semantic.runtime_available()
+        self.assertNotIn("onnxruntime", sys.modules)
+
     def test_models_live_outside_the_knowledge_base(self) -> None:
         self.assertEqual(semantic.models_root({"KOS_MODELS_DIR": "/m"}), Path("/m"))
         self.assertEqual(
@@ -277,6 +287,11 @@ class ReaderSearchTests(unittest.TestCase):
         rows = library.search_with_meaning(self.workspace, lib, "coffee")
         self.assertEqual(rows[0]["id"], "coffee")
         self.assertIn(rows[0]["match"], {"text", "both"})
+
+    def test_a_model_that_cannot_load_is_reported_not_loaded_forever(self) -> None:
+        with mock.patch.object(semantic, "_load_error", "bad model file"):
+            status = library.semantic_status(self.workspace)
+        self.assertEqual((status.state, status.error), ("failed", "bad model file"))
 
     def test_without_an_index_it_is_full_text_search(self) -> None:
         lib = library.load_library(self.workspace)

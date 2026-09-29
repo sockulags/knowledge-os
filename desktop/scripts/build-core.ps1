@@ -48,7 +48,8 @@ Invoke-Checked 'PyInstaller' {
 $core = Join-Path $build 'dist\kos-core\kos-core.exe'
 Invoke-Checked 'kos-core -m knowledge_os --help' { & $core -m knowledge_os --help | Out-Null }
 Invoke-Checked 'kos-core -m knowledge_os.reader --help' { & $core -m knowledge_os.reader --help | Out-Null }
-# The search runtime (the 'search' extra) is frozen in, so search by meaning works once the model is downloaded.
+# The search runtime (the 'search' extra) is frozen in and loads, so search by meaning works once the model is
+# downloaded; 'model status' imports it and fails when it cannot.
 Invoke-Checked 'kos-core -m knowledge_os model status' { & $core -m knowledge_os model status | Out-Null }
 # The MCP server imports the MCP SDK at start and exits cleanly when stdin
 # closes, so an empty stdin proves the SDK was bundled. The in-app agent starts
