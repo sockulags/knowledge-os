@@ -228,7 +228,7 @@ function SemanticNote({ initial, onReady }: { initial: SemanticStatus; onReady: 
           {status.message}
           {status.state === "installing" ? ` ${percent}%` : ""}
         </p>
-        {status.state === "off" && (
+        {(status.state === "off" || status.state === "failed") && (
           <button type="button" className="kos-btn kos-btn-secondary kos-btn-sm text-xs" disabled={starting} onClick={() => void install()}>
             {status.install_label}
           </button>

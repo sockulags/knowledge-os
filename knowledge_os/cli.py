@@ -99,6 +99,8 @@ def build_parser() -> argparse.ArgumentParser:
     model_commands.add_parser("install", help="download the search model (checked against pinned hashes)")
     model_commands.add_parser("status", help="show whether the search model and its runtime are installed")
     model_commands.add_parser("remove", help="delete the downloaded search model")
+    # The search model's own process, started by the app and `kos index`; not for people.
+    model_commands.add_parser("serve")
 
     lint = commands.add_parser("lint", help="validate all managed records")
     _root_option(lint)
@@ -685,6 +687,10 @@ def _model(command: str) -> int:
             return 1
         print(f"runtime: yes (onnxruntime {onnxruntime.__version__}, tokenizers {tokenizers.__version__}, numpy {numpy.__version__})")
         return 0
+    if command == "serve":
+        from . import semantic_worker
+
+        return semantic_worker.serve()
     if command == "remove":
         semantic.remove_model()
         print(f"Removed {semantic.model_dir()}")
@@ -711,14 +717,10 @@ def _model(command: str) -> int:
 def _refresh_semantic_index(workspace: Workspace) -> None:
     """Update indexes/semantic.sqlite3 when the search model is installed."""
 
-    if not (semantic.is_installed() and semantic.runtime_available()):
-        return
-    embedder = semantic.shared_embedder()
-    if embedder is None:
-        return
-    documents, _issues = validate_workspace(workspace)
-    counts = semantic.update_index(workspace, documents, embedder, source_stamp=semantic.catalog_stamp(workspace))
-    print(f"Search by meaning: {counts['passages']} passage(s), {counts['embedded']} newly read; semantic.sqlite3 rebuilt")
+    from . import semantic_worker
+
+    if semantic_worker.usable():
+        semantic_worker.refresh_now(workspace)
 
 
 def _clone(args: argparse.Namespace) -> int:

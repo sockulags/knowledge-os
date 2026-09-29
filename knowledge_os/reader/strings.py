@@ -582,6 +582,7 @@ SEMANTIC_STATE_MESSAGES: dict[str, str] = {
 SEMANTIC_INSTALL_LABEL = "Download search model"
 SEMANTIC_INSTALL_FAILED = "The search model could not be downloaded: {error}"
 SEMANTIC_LOAD_FAILED = "The search model could not be loaded: {error}"
+SEMANTIC_RETRY_LABEL = "Try again"
 
 #: The type dimension: the six record types the contract allows in the FTS
 #: index (skills are never indexed, so no seventh option is offered here).

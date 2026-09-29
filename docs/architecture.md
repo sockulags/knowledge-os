@@ -1227,10 +1227,18 @@ the optional model and the semantic index:
   the full-text hits by reciprocal rank fusion (a full-text hit wins a tie)
   and marks each row `match: text | meaning | both`. `GET /api/search` uses it
   and reports `semantic.state` (`unavailable`, `off`, `installing`,
-  `loading`, `indexing`, `stale`, `ready`); `GET /api/semantic` reports the
+  `failed`, `loading`, `indexing`, `stale`, `ready`); `GET /api/semantic` reports the
   same with download progress. When a search reports `stale`, the Search page
   and the MCP `search` tool ask `POST /api/semantic/refresh`, which updates
   the index in a background thread; searches meanwhile use the older index.
-- **Start.** `kos-read` loads the model in a background thread at start, so
-  the first search does not wait for it; until it is loaded, search is
-  full-text only.
+- **Its own process.** The model never loads in the reader, the MCP server,
+  or `kos index`: loading the native runtime hung a whole process on a
+  Windows work computer. `knowledge_os/semantic_worker.py` starts `kos model
+  serve` (the same program with `-m knowledge_os model serve`, so the frozen
+  core works too), which loads the model and answers JSON lines (`search`,
+  `refresh`) on stdin/stdout. The reader starts it at start when the model is
+  installed; if it has not loaded within 180 seconds, stops, or crashes, it
+  is stopped and `semantic.state` is `failed` with the reason, and search is
+  full-text only. A search waits at most 15 seconds for it. Asking to
+  download the model again (`POST /api/semantic/install`) retries a failed
+  worker. The worker exits when its stdin closes, that is, with the app.

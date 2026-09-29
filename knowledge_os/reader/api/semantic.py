@@ -1,5 +1,6 @@
 """Search by meaning (issue #102): ``GET /api/semantic`` reports where it
-stands, ``POST /api/semantic/install`` downloads the search model,
+stands, ``POST /api/semantic/install`` downloads the search model (or, when it is
+installed but failed to load, tries loading it again),
 ``POST /api/semantic/refresh`` brings the semantic index up to date, and
 ``POST /api/semantic/remove`` deletes the model.
 
@@ -39,7 +40,7 @@ def _json(status: SemanticStatus) -> dict[str, Any]:
             if status.error
             else None
         ),
-        "install_label": strings.SEMANTIC_INSTALL_LABEL,
+        "install_label": strings.SEMANTIC_RETRY_LABEL if status.state == "failed" else strings.SEMANTIC_INSTALL_LABEL,
         "match_hint": strings.SEARCH_MATCH_MEANING_HINT,
     }
 
