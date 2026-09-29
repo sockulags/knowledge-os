@@ -573,6 +573,7 @@ SEMANTIC_STATE_MESSAGES: dict[str, str] = {
     "unavailable": "",
     "off": "Search also finds pages by meaning, in any language, once a search model is downloaded ({size}, stays on this computer).",
     "installing": "Downloading the search model...",
+    "failed": "Search by meaning could not start; search finds exact words only.",
     "loading": "Loading the search model...",
     "indexing": "Reading your pages for search by meaning...",
     "stale": "Search by meaning is catching up with recent changes.",
@@ -580,6 +581,7 @@ SEMANTIC_STATE_MESSAGES: dict[str, str] = {
 }
 SEMANTIC_INSTALL_LABEL = "Download search model"
 SEMANTIC_INSTALL_FAILED = "The search model could not be downloaded: {error}"
+SEMANTIC_LOAD_FAILED = "The search model could not be loaded: {error}"
 
 #: The type dimension: the six record types the contract allows in the FTS
 #: index (skills are never indexed, so no seventh option is offered here).

@@ -589,7 +589,7 @@ export interface SearchResult {
 
 /** Search by meaning (GET /api/semantic, and `semantic` on a search). */
 export interface SemanticStatus {
-  state: "unavailable" | "off" | "installing" | "loading" | "indexing" | "stale" | "ready";
+  state: "unavailable" | "off" | "installing" | "failed" | "loading" | "indexing" | "stale" | "ready";
   message: string;
   size: string;
   done_bytes: number;

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -111,7 +112,8 @@ async def view(request: Request) -> Response:
     if search_available and query:
         workspace = request.app.state.workspace
         trust_by_id = {record.id: record.trust_label for record in library.records}
-        rows = search_with_meaning(workspace, library, query, limit=_FETCH_LIMIT)
+        # Embedding the query is CPU work; keep it off the event loop.
+        rows = await run_in_threadpool(search_with_meaning, workspace, library, query, _FETCH_LIMIT)
         matched = [row for row in rows if matches(_row_values(row, trust_by_id), filters)]
         results = [_decorate(row, trust_by_id, library) for row in matched[:_DISPLAY_LIMIT]]
 
@@ -131,7 +133,7 @@ async def view(request: Request) -> Response:
             "results": results,
             "result_count": len(results),
             "result_count_label": _result_count_label(len(results)),
-            "semantic": semantic_json(request.app.state.workspace),
+            "semantic": await run_in_threadpool(semantic_json, request.app.state.workspace),
         }
     )
 

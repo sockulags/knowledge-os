@@ -600,7 +600,8 @@ class SemanticStatus:
     """Where search by meaning stands for this process and workspace.
 
     ``state`` is one of ``"unavailable"`` (this build has no search runtime),
-    ``"off"`` (the model is not installed), ``"installing"``, ``"loading"``
+    ``"off"`` (the model is not installed), ``"installing"``, ``"failed"``
+    (installed but could not be loaded; ``error`` says why), ``"loading"``
     (installed, being loaded into memory), ``"indexing"`` (pages are being
     embedded), ``"stale"`` (the index is behind the pages; search by meaning
     uses the older index until it is refreshed), or ``"ready"``."""
@@ -621,6 +622,8 @@ def semantic_status(workspace: Workspace) -> SemanticStatus:
         state = "installing"
     elif not semantic.is_installed():
         state = "off"
+    elif semantic.load_error() is not None:
+        state = "failed"
     elif semantic.refreshing(workspace):
         state = "indexing"
     elif not semantic.is_current(workspace):
@@ -629,7 +632,8 @@ def semantic_status(workspace: Workspace) -> SemanticStatus:
         state = "loading"
     else:
         state = "ready"
-    return SemanticStatus(state, spec.size, install.done_bytes, spec.total_bytes, install.error)
+    error = semantic.load_error() if state == "failed" else install.error
+    return SemanticStatus(state, spec.size, install.done_bytes, spec.total_bytes, error)
 
 
 def preload_semantic() -> None:

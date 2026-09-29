@@ -672,7 +672,18 @@ def _model(command: str) -> int:
         print(f"model: {spec.name} ({spec.source}, revision {spec.revision[:12]})")
         print(f"folder: {semantic.model_dir()}")
         print(f"installed: {'yes' if semantic.is_installed() else 'no'} ({spec.size})")
-        print(f"runtime: {'yes' if semantic.runtime_available() else 'no; install the search extra'}")
+        if not semantic.runtime_available():
+            print("runtime: no; install the search extra")
+            return 0
+        # Here, unlike in the app, the runtime is really imported, so a broken install shows.
+        try:
+            import numpy
+            import onnxruntime
+            import tokenizers
+        except Exception as exc:
+            print(f"runtime: installed but cannot be loaded: {exc}")
+            return 1
+        print(f"runtime: yes (onnxruntime {onnxruntime.__version__}, tokenizers {tokenizers.__version__}, numpy {numpy.__version__})")
         return 0
     if command == "remove":
         semantic.remove_model()

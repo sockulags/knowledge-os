@@ -127,15 +127,20 @@ def is_installed(spec: ModelSpec | None = None, root: Path | None = None) -> boo
 
 
 def runtime_available() -> bool:
-    """Whether the optional search runtime (the ``search`` extra) is installed."""
+    """Whether the optional search runtime (the ``search`` extra) is installed.
+
+    Looks the packages up without importing them: importing onnxruntime and
+    numpy loads large native libraries, which can take a long time the first
+    time (an antivirus scanning them on Windows), and this is asked while
+    serving requests. They are imported only when the model is loaded, in a
+    background thread."""
+
+    import importlib.util
 
     try:
-        import numpy  # noqa: F401
-        import onnxruntime  # noqa: F401
-        import tokenizers  # noqa: F401
-    except ImportError:
+        return all(importlib.util.find_spec(name) is not None for name in ("numpy", "onnxruntime", "tokenizers"))
+    except (ImportError, ValueError):
         return False
-    return True
 
 
 def _download(url: str, destination: Path, expected: str, progress: Callable[[int], None] | None) -> None:
@@ -251,6 +256,7 @@ class Embedder:
 
 
 _embedder: Embedder | None = None
+_load_error: str | None = None
 _embedder_lock = threading.Lock()
 
 
@@ -258,14 +264,21 @@ def shared_embedder() -> Embedder | None:
     """The process's embedder, loaded once (several seconds); None without
     the model or runtime."""
 
-    global _embedder
+    global _embedder, _load_error
     with _embedder_lock:
-        if _embedder is None and is_installed() and runtime_available():
+        if _embedder is None and _load_error is None and is_installed() and runtime_available():
             try:
                 _embedder = Embedder()
-            except SemanticError:
+            except Exception as exc:  # a broken runtime or model file: say so instead of loading forever
+                _load_error = str(exc) or type(exc).__name__
                 return None
         return _embedder
+
+
+def load_error() -> str | None:
+    """Why the model could not be loaded in this process, if it could not."""
+
+    return _load_error
 
 
 def loaded_embedder() -> Embedder | None:
@@ -329,6 +342,8 @@ def install_in_background(after: Callable[[], None] | None = None) -> bool:
             return
         with _install_lock:
             _install.running = False
+        global _load_error
+        _load_error = None
         shared_embedder()
         if after is not None:
             after()
