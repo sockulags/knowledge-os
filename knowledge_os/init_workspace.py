@@ -120,6 +120,7 @@ README_CONTENT: dict[str, str] = {
 #: README.md stays tracked.
 GITIGNORE_CONTENT = (
     "indexes/catalog.md\nindexes/catalog.sqlite3\nindexes/catalog.sqlite3-*\nindexes/.catalog.sqlite3.tmp\n"
+    "indexes/semantic.sqlite3\nindexes/.semantic.sqlite3.*.tmp\n"
 )
 
 

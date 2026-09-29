@@ -96,5 +96,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.exit_on_stdin_eof:
         _exit_when_stdin_closes()
+    # Search by meaning: load the model now, not on the first search (#102).
+    from .library import preload_semantic
+
+    preload_semantic()
     uvicorn.run(app, host=args.host, port=args.port)
     return 0

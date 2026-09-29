@@ -347,6 +347,7 @@ QUICK_FIND_GROUPS: dict[str, str] = {
     "skills": "Skills",
     "docs": "Repository documents",
     "text": "Found in the text",
+    "meaning": "Similar in meaning",
 }
 
 #: What each palette row is, next to its title. Decisions say their state
@@ -562,6 +563,23 @@ SEARCH_CLEAR_LABEL = "Clear filters"
 #: pluralized, not a bare "(s)".
 SEARCH_RESULT_COUNT_SINGULAR = "1 matching record"
 SEARCH_RESULT_COUNT_PLURAL = "{count} matching records"
+
+#: Search by meaning (issue #102): the label on a result found only because
+#: its content is close in meaning, not because the words match.
+SEARCH_MATCH_MEANING_LABEL = "Similar in meaning"
+SEARCH_MATCH_MEANING_HINT = "Found by meaning: the page does not contain these exact words."
+#: The Search page's note on search by meaning, per ``library.SemanticStatus.state``.
+SEMANTIC_STATE_MESSAGES: dict[str, str] = {
+    "unavailable": "",
+    "off": "Search also finds pages by meaning, in any language, once a search model is downloaded ({size}, stays on this computer).",
+    "installing": "Downloading the search model...",
+    "loading": "Loading the search model...",
+    "indexing": "Reading your pages for search by meaning...",
+    "stale": "Search by meaning is catching up with recent changes.",
+    "ready": "Search also finds pages by meaning.",
+}
+SEMANTIC_INSTALL_LABEL = "Download search model"
+SEMANTIC_INSTALL_FAILED = "The search model could not be downloaded: {error}"
 
 #: The type dimension: the six record types the contract allows in the FTS
 #: index (skills are never indexed, so no seventh option is offered here).

@@ -81,7 +81,7 @@ export interface SwitchOption {
 }
 
 export interface SwitchSection {
-  /** A key of `language.quick_find_groups`; `text` for pages found by their body. */
+  /** A key of `language.quick_find_groups`; `text` for pages found by their body, `meaning` for pages found only by meaning. */
   group: string;
   options: SwitchOption[];
 }
@@ -126,8 +126,11 @@ export function buildSections(
     const shown = new Set(sections.flatMap((section) => section.options.map((option) => option.entry.id)));
     const indexById = new Map(entries.filter((entry) => entry.kind !== "skill" && entry.kind !== "doc").map((entry) => [entry.id, entry]));
     const options: SwitchOption[] = [];
+    const meaning: SwitchOption[] = [];
     for (const hit of textHits) {
-      if (shown.has(hit.id) || options.length >= TEXT_LIMIT) continue;
+      // Pages found only by meaning (search model installed) get their own group.
+      const list = hit.match === "meaning" ? meaning : options;
+      if (shown.has(hit.id) || list.length >= TEXT_LIMIT) continue;
       shown.add(hit.id);
       const entry: RecordIndexEntry = indexById.get(hit.id) ?? {
         id: hit.id,
@@ -138,9 +141,10 @@ export function buildSections(
         group: hit.record_kind === "decision" ? "decisions" : "pages",
         kind_label: hit.record_kind_label || hit.type_label,
       };
-      options.push({ key: `text:${hit.id}`, entry, href: hrefFor(entry), snippetHtml: hit.snippet_html });
+      list.push({ key: `text:${hit.id}`, entry, href: hrefFor(entry), snippetHtml: hit.snippet_html });
     }
     if (options.length > 0) sections.push({ group: "text", options });
+    if (meaning.length > 0) sections.push({ group: "meaning", options: meaning });
   }
   return sections;
 }

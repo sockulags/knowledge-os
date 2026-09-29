@@ -45,7 +45,7 @@ from knowledge_os.capture import (
     DuplicateRecordError,
     capture_record_text,
 )
-from knowledge_os import codedocs, gitsetup, gitsync
+from knowledge_os import codedocs, gitsetup, gitsync, semantic
 from knowledge_os.attachments import (
     MAX_ATTACHMENT_BYTES,
     AttachmentError,
@@ -592,6 +592,126 @@ def search(workspace: Workspace, query: str, limit: int = 50) -> list[dict[str, 
         result = dict(row)
         result["snippet"] = " ".join(result["snippet"].split())
         results.append(result)
+    return results
+
+
+@dataclass(frozen=True)
+class SemanticStatus:
+    """Where search by meaning stands for this process and workspace.
+
+    ``state`` is one of ``"unavailable"`` (this build has no search runtime),
+    ``"off"`` (the model is not installed), ``"installing"``, ``"loading"``
+    (installed, being loaded into memory), ``"indexing"`` (pages are being
+    embedded), ``"stale"`` (the index is behind the pages; search by meaning
+    uses the older index until it is refreshed), or ``"ready"``."""
+
+    state: str
+    size: str
+    done_bytes: int
+    total_bytes: int
+    error: str | None
+
+
+def semantic_status(workspace: Workspace) -> SemanticStatus:
+    spec = semantic.MODEL
+    install = semantic.install_state()
+    if not semantic.runtime_available():
+        state = "unavailable"
+    elif install.running:
+        state = "installing"
+    elif not semantic.is_installed():
+        state = "off"
+    elif semantic.refreshing(workspace):
+        state = "indexing"
+    elif not semantic.is_current(workspace):
+        state = "stale"
+    elif semantic.loaded_embedder() is None:
+        state = "loading"
+    else:
+        state = "ready"
+    return SemanticStatus(state, spec.size, install.done_bytes, spec.total_bytes, install.error)
+
+
+def preload_semantic() -> None:
+    """Load the search model in the background when it is installed, so the
+    first search by meaning does not wait for it."""
+
+    semantic.preload_in_background()
+
+
+def _semantic_documents(workspace: Workspace) -> list[Any]:
+    documents, _issues = validate_workspace(workspace)
+    return documents
+
+
+def refresh_semantic_index(workspace: Workspace) -> SemanticStatus:
+    """Start bringing ``indexes/semantic.sqlite3`` up to date in the
+    background. It is a disposable index like the catalog; only the write
+    API calls this, so serving pages never writes to the workspace."""
+
+    semantic.preload_in_background()
+    semantic.refresh_in_background(workspace, lambda: _semantic_documents(workspace))
+    return semantic_status(workspace)
+
+
+def install_semantic_model(workspace: Workspace) -> SemanticStatus:
+    """Start downloading the search model (see ``semantic.MODEL``) in the
+    background, then index this workspace with it."""
+
+    semantic.install_in_background(
+        after=lambda: semantic.refresh_in_background(workspace, lambda: _semantic_documents(workspace))
+    )
+    return semantic_status(workspace)
+
+
+def remove_semantic_model() -> None:
+    semantic.remove_model()
+
+
+def search_with_meaning(workspace: Workspace, library: Library, query: str, limit: int = 50) -> list[dict[str, str]]:
+    """Full-text hits (``search``) merged with pages that match ``query`` by
+    meaning, best first. Every row has the keys of a ``search`` row plus
+    ``match``: ``"text"``, ``"meaning"``, or ``"both"``. A row found only by
+    meaning carries the matched passage as ``snippet``, with no ``[match]``
+    markers, and ``snippet_is_passage`` set. Without the model, its runtime,
+    or an index, this is exactly ``search``. It never writes; a stale index
+    is used as it is (see ``refresh_semantic_index``)."""
+
+    rows = search(workspace, query, limit)
+    embedder = semantic.loaded_embedder()
+    if embedder is None or not query.strip():
+        return [{**row, "match": "text"} for row in rows]
+    try:
+        matches = semantic.search(workspace, query, embedder, limit)
+    except Exception:  # search by meaning is best effort; full-text search stands alone
+        matches = []
+    if not matches:
+        return [{**row, "match": "text"} for row in rows]
+    by_id = {row["id"]: row for row in rows}
+    passage_by_id = {match.record_id: match.passage for match in matches}
+    records = {record.id: record for record in library.records}
+    results: list[dict[str, str]] = []
+    for record_id, how in semantic.fuse([row["id"] for row in rows], matches, limit):
+        if record_id in by_id:
+            results.append({**by_id[record_id], "match": how})
+            continue
+        record = records.get(record_id)
+        if record is None or record.type == "source":
+            continue  # gone since the index was built, or raw material
+        results.append(
+            {
+                "id": record.id,
+                "title": record.title,
+                "type": record.type,
+                "record_kind": record.record_kind or "",
+                "status": record.status,
+                "scope": record.scope,
+                "path": record.path,
+                "snippet": semantic.passage_snippet(passage_by_id[record_id]),
+                "snippet_is_passage": "yes",
+                "match": how,
+            }
+        )
     return results
 
 

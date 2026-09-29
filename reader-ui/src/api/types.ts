@@ -581,6 +581,22 @@ export interface SearchResult {
   project: string | null;
   project_id: string | null;
   snippet_html: string;
+  /** How it was found: the words themselves, closeness in meaning, or both. */
+  match: "text" | "meaning" | "both";
+  /** Set for a result found only by meaning. */
+  match_label: string;
+}
+
+/** Search by meaning (GET /api/semantic, and `semantic` on a search). */
+export interface SemanticStatus {
+  state: "unavailable" | "off" | "installing" | "loading" | "indexing" | "stale" | "ready";
+  message: string;
+  size: string;
+  done_bytes: number;
+  total_bytes: number;
+  error: string | null;
+  install_label: string;
+  match_hint: string;
 }
 
 export interface FilterOption {
@@ -598,6 +614,7 @@ export interface SearchPayload {
   results: SearchResult[];
   result_count: number;
   result_count_label: string;
+  semantic: SemanticStatus;
 }
 
 export interface EverythingEntry extends RecordSummary {

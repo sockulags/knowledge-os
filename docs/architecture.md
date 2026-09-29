@@ -1151,7 +1151,11 @@ commit.
   SHA-256 provenance digest and stable ID; identical input is idempotent.
 - `kos lint` validates workspace version, all managed records, cross-record
   invariants, and all skills.
-- `kos index` validates the corpus and rebuilds `catalog.md` and SQLite FTS5.
+- `kos index` validates the corpus and rebuilds `catalog.md` and SQLite FTS5,
+  and `indexes/semantic.sqlite3` when the search model is installed (see
+  "Search by meaning").
+- `kos model install|status|remove` downloads, reports, or deletes the
+  optional search model; it needs no knowledge base.
 - `kos search QUERY` reads the existing cache for compact audit results,
   including type, record kind, status, scope, path, and snippet.
 - `kos inspect ID` provides compact record metadata and exact content SHA-256;
@@ -1196,3 +1200,37 @@ commit.
 Read-only context and review require a current SQLite cache and never rebuild
 it implicitly. `kos index` is always safe to run as the derived-state repair
 step after canonical Markdown has been repaired or a cache has been removed.
+
+## Search by meaning
+
+Decision `local-semantic-search` (issue #102). `knowledge_os/semantic.py` owns
+the optional model and the semantic index:
+
+- **Model.** `semantic.MODEL` pins bge-m3 (quantized ONNX): the Hugging Face
+  revision, the pre-release of this repository that mirrors it
+  (`.github/workflows/mirror-model.yml`), and each file's sha256. `kos model
+  install` or `POST /api/semantic/install` downloads over https into a staging
+  folder, checks every hash, and renames the folder into place under
+  `models_root()` (`KOS_MODELS_DIR`, else `%LOCALAPPDATA%\knowledge-os\models`
+  or `~/.cache/knowledge-os/models`). The runtime is the `search` extra
+  (`onnxruntime`, `tokenizers`, `numpy`), frozen into the desktop core.
+- **Index.** `indexes/semantic.sqlite3` holds one row per passage (at most
+  1,500 characters, starting with the page title and heading; sources are
+  left out) with its text hash and vector, plus the model key and the catalog
+  build it follows. It is disposable and ignored by Git; a rebuild reuses
+  every vector whose passage text did not change and replaces the file
+  atomically. It is written by `kos index` and by the app's background
+  refresh, never while serving a GET.
+- **Search.** A passage matches when its score is at least `min_margin`
+  (0.11) above the median of all passage scores for the query; each page's
+  best passage counts. `library.search_with_meaning` merges these pages with
+  the full-text hits by reciprocal rank fusion (a full-text hit wins a tie)
+  and marks each row `match: text | meaning | both`. `GET /api/search` uses it
+  and reports `semantic.state` (`unavailable`, `off`, `installing`,
+  `loading`, `indexing`, `stale`, `ready`); `GET /api/semantic` reports the
+  same with download progress. When a search reports `stale`, the Search page
+  and the MCP `search` tool ask `POST /api/semantic/refresh`, which updates
+  the index in a background thread; searches meanwhile use the older index.
+- **Start.** `kos-read` loads the model in a background thread at start, so
+  the first search does not wait for it; until it is loaded, search is
+  full-text only.

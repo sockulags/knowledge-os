@@ -147,6 +147,19 @@ and the sync finishes only when the result passes `kos lint`. Git must be on
 never asks for credentials. CLI commands do not commit. See "Git versioning and
 sync" in [`docs/architecture.md`](docs/architecture.md).
 
+## Search by meaning
+
+Search finds exact words out of the box. The Search page also offers to
+download a search model (about 590 MB, bge-m3, stays on this computer), after
+which search also finds pages close in meaning, in Swedish or English, even
+when they use other words; such results are labeled "Similar in meaning".
+Nothing is sent anywhere: the model runs locally and its files are checked
+against pinned hashes. From the command line, `kos model install` downloads it
+(a Python install needs `pip install -e ".[search]"` for the runtime) and `kos
+index` then builds `indexes/semantic.sqlite3`. See the decision
+`local-semantic-search` and "Search by meaning" in
+[`docs/architecture.md`](docs/architecture.md).
+
 ## Command line
 
 The desktop app installer puts a `kos` command on PATH (see "The `kos` command" in
@@ -178,7 +191,7 @@ nothing is written.
 
 | Tool | What it does |
 | --- | --- |
-| `search` | Full-text search (`query`, optional `project`, `limit`). |
+| `search` | Search by words and, with the search model installed, by meaning (`query`, optional `project`, `limit`). |
 | `read_page` | One page by `id`: Markdown content, state, project, folder, links, provenance, and `content_sha256`. |
 | `list_projects` | Project ids, titles, and top-level folders. |
 | `list_folder` | A project folder's overview, pages, and subfolders (`project`, optional `folder`). |

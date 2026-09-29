@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams, Link } from "react-router";
-import { Search as SearchIcon } from "lucide-react";
+import { Search as SearchIcon, Sparkles } from "lucide-react";
 import { api, ApiUnreachableError } from "../api/client";
-import type { SearchPayload } from "../api/types";
+import type { SearchPayload, SemanticStatus } from "../api/types";
+import { semanticSearch } from "../api/write";
 import { Callout, LoadError } from "../components/Callout";
 import { PageSkeleton } from "../components/Skeleton";
 import { useShell } from "../components/Shell";
@@ -19,6 +20,8 @@ export function Search() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState(params.get("q") ?? "");
+  // Bumped when search by meaning becomes ready, to run the search again.
+  const [semanticRound, setSemanticRound] = useState(0);
 
   useEffect(() => {
     setInputValue(params.get("q") ?? "");
@@ -48,7 +51,7 @@ export function Search() {
     return () => {
       cancelled = true;
     };
-  }, [params, nav]);
+  }, [params, nav, semanticRound]);
 
   function updateFilter(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -78,6 +81,10 @@ export function Search() {
           className="w-full bg-transparent text-base outline-none placeholder:text-(--color-text-faint) focus-visible:outline-none"
         />
       </form>
+
+      {data && data.search_available && data.semantic && (
+        <SemanticNote initial={data.semantic} onReady={() => setSemanticRound((round) => round + 1)} />
+      )}
 
       {data && data.search_available && (
         <div className="mt-4 flex flex-wrap gap-2">
@@ -128,9 +135,20 @@ export function Search() {
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                     <span className="font-medium">{result.title}</span>
-                    <span className="text-xs text-(--color-text-faint)">
-                      {result.type_label}
-                      {result.project ? ` · ${result.project}` : ""}
+                    <span className="flex items-center gap-2 text-xs text-(--color-text-faint)">
+                      {result.match_label && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full border border-(--color-border) px-1.5 py-px"
+                          title={data.semantic?.match_hint}
+                        >
+                          <Sparkles size={11} />
+                          {result.match_label}
+                        </span>
+                      )}
+                      <span>
+                        {result.type_label}
+                        {result.project ? ` · ${result.project}` : ""}
+                      </span>
                     </span>
                   </div>
                   <p
@@ -145,6 +163,77 @@ export function Search() {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Where search by meaning stands, under the search field: an offer to
+ * download the model, its progress, or a quiet line once it works. A stale
+ * index is refreshed in the background (serving a search never writes, so
+ * the page asks for it). `onReady` runs the search again once meaning
+ * results are available. */
+function SemanticNote({ initial, onReady }: { initial: SemanticStatus; onReady: () => void }) {
+  const [status, setStatus] = useState(initial);
+  const [starting, setStarting] = useState(false);
+  const asked = useRef(false);
+  const wasReady = useRef(initial.state === "ready");
+
+  useEffect(() => {
+    setStatus(initial);
+  }, [initial]);
+
+  useEffect(() => {
+    if (initial.state === "stale" && !asked.current) {
+      asked.current = true;
+      void semanticSearch.refresh().then((outcome) => {
+        if (outcome.ok) setStatus(outcome.data);
+      });
+    }
+  }, [initial.state]);
+
+  const busy = ["installing", "loading", "indexing", "stale"].includes(status.state);
+  useEffect(() => {
+    if (!busy) return;
+    const timer = window.setInterval(() => {
+      api
+        .semantic()
+        .then((next) => {
+          setStatus(next);
+          if (next.state === "ready" && !wasReady.current) {
+            wasReady.current = true;
+            onReady();
+          }
+        })
+        .catch(() => undefined);
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [busy, onReady]);
+
+  if (status.state === "unavailable" || (status.state === "ready" && !status.message)) return null;
+
+  async function install() {
+    setStarting(true);
+    const outcome = await semanticSearch.install();
+    setStarting(false);
+    if (outcome.ok) setStatus(outcome.data);
+  }
+
+  const percent = status.total_bytes > 0 ? Math.min(100, Math.floor((status.done_bytes * 100) / status.total_bytes)) : 0;
+  return (
+    <div className="mt-3 flex items-start gap-2.5 text-[13px] text-(--color-text-faint)" aria-live="polite">
+      <Sparkles size={14} className="mt-0.5 shrink-0" />
+      <div className="space-y-2">
+        <p>
+          {status.message}
+          {status.state === "installing" ? ` ${percent}%` : ""}
+        </p>
+        {status.state === "off" && (
+          <button type="button" className="kos-btn kos-btn-secondary kos-btn-sm text-xs" disabled={starting} onClick={() => void install()}>
+            {status.install_label}
+          </button>
+        )}
+        {status.error && status.state === "off" && <p className="text-(--color-accent-red-text)">{status.error}</p>}
       </div>
     </div>
   );
