@@ -1,0 +1,82 @@
+name: Mirror a search model
+
+# Copies an embedding model's files from Hugging Face to a GitHub release of
+# this repository (issue #102), so the app downloads them from GitHub, which
+# work computers rarely block, and pins each file's sha256 in
+# knowledge_os/semantic.py. Run it by hand from the Actions tab.
+#
+# The release is a pre-release named model-<name>-<revision>: electron-updater
+# reads only the latest published, non-pre-release release (see
+# .github/workflows/release.yml), so a model release can never be taken for an
+# app update. It holds the files and a SHA256SUMS file.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: Hugging Face repository, e.g. Xenova/multilingual-e5-small
+        required: true
+      revision:
+        description: Commit hash or branch (e.g. main) of that repository; a branch is resolved to its hash
+        required: true
+        default: main
+      files:
+        description: Paths in the repository to copy, separated by commas (empty lists them only)
+        required: false
+        default: ''
+      name:
+        description: Short model name for the release tag, e.g. multilingual-e5-small
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve the revision and list its files
+        env:
+          REPO: ${{ inputs.repo }}
+          REVISION: ${{ inputs.revision }}
+        run: |
+          set -euo pipefail
+          [[ "$REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || { echo "not a repository name"; exit 1; }
+          [[ "$REVISION" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "not a revision"; exit 1; }
+          sha="$(curl -fsSL "https://huggingface.co/api/models/$REPO/revision/$REVISION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve $REVISION"; exit 1; }
+          echo "Revision $REVISION is $sha"
+          echo "RESOLVED=$sha" >> "$GITHUB_ENV"
+          curl -fsSL "https://huggingface.co/api/models/$REPO/tree/$sha?recursive=true" \
+            | python3 -c 'import json,sys; [print(f"{e.get(\"size\",0):>12}  {e[\"path\"]}") for e in json.load(sys.stdin) if e.get("type")=="file"]'
+      - name: Download the files and record their hashes
+        if: ${{ inputs.files != '' }}
+        env:
+          REPO: ${{ inputs.repo }}
+          FILES: ${{ inputs.files }}
+        run: |
+          set -euo pipefail
+          mkdir -p model
+          IFS=',' read -ra paths <<< "$FILES"
+          for path in "${paths[@]}"; do
+            path="$(echo "$path" | xargs)"
+            [[ "$path" =~ ^[A-Za-z0-9._/-]+$ && "$path" != *..* ]] || { echo "bad path: $path"; exit 1; }
+            # Release assets have no folders: onnx/model.onnx becomes onnx--model.onnx.
+            curl -fsSL -o "model/${path//\//--}" "https://huggingface.co/$REPO/resolve/$RESOLVED/$path"
+          done
+          (cd model && sha256sum * > SHA256SUMS && cat SHA256SUMS && ls -l)
+      - name: Publish as a pre-release
+        if: ${{ inputs.files != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.repo }}
+          NAME: ${{ inputs.name }}
+        run: |
+          set -euo pipefail
+          [[ "$NAME" =~ ^[a-z0-9-]+$ ]] || { echo "name must be lowercase words joined by hyphens"; exit 1; }
+          tag="model-$NAME-${RESOLVED:0:12}"
+          gh release create "$tag" model/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "Search model $NAME (${RESOLVED:0:12})" \
+            --notes "Files of https://huggingface.co/$REPO at revision $RESOLVED, for local semantic search (issue #102). Not an app release."
