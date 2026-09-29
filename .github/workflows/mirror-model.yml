@@ -49,8 +49,13 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve $REVISION"; exit 1; }
           echo "Revision $REVISION is $sha"
           echo "RESOLVED=$sha" >> "$GITHUB_ENV"
-          curl -fsSL "https://huggingface.co/api/models/$REPO/tree/$sha?recursive=true" \
-            | python3 -c 'import json,sys; [print(f"{e.get(\"size\",0):>12}  {e[\"path\"]}") for e in json.load(sys.stdin) if e.get("type")=="file"]'
+          curl -fsSL "https://huggingface.co/api/models/$REPO/tree/$sha?recursive=true" > tree.json
+          python3 - <<'LIST'
+          import json
+          for entry in json.load(open("tree.json")):
+              if entry.get("type") == "file":
+                  print(f"{entry.get('size', 0):>12}  {entry['path']}")
+          LIST
       - name: Download the files and record their hashes
         if: ${{ inputs.files != '' }}
         env:
