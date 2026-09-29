@@ -18,7 +18,7 @@ function entry(id: string, title: string, group: string, kind = "knowledge"): Re
   return { id, title, kind, status_pill: null, project: null, group, kind_label: "Label" };
 }
 
-function hit(id: string, title: string): SearchResult {
+function hit(id: string, title: string, match: SearchResult["match"] = "text"): SearchResult {
   return {
     id,
     title,
@@ -33,6 +33,8 @@ function hit(id: string, title: string): SearchResult {
     project: null,
     project_id: null,
     snippet_html: "a <mark>word</mark> in the text",
+    match,
+    match_label: match === "meaning" ? "Similar in meaning" : "",
   };
 }
 
@@ -128,6 +130,17 @@ describe("buildSections", () => {
     assert.equal(text[0].href, "/r/other");
     assert.equal(text[0].entry.kind_label, "Knowledge");
     assert.match(text[0].snippetHtml ?? "", /<mark>/);
+  });
+
+  it("puts pages found only by meaning in their own group after the text hits", () => {
+    const sections = buildSections(index, "zzz", [hit("other", "Storage", "meaning"), hit("third", "Third", "both")]);
+    assert.deepEqual(
+      sections.map((section) => [section.group, section.options.map((option) => option.entry.id)]),
+      [
+        ["text", ["third"]],
+        ["meaning", ["other"]],
+      ],
+    );
   });
 
   it("uses the index entry for a text hit it knows, so a project opens its project page", () => {

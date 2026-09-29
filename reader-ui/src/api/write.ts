@@ -7,6 +7,7 @@
 import type {
   ProposedWriteResult,
   ResolveResult,
+  SemanticStatus,
   StructureResult,
   SupersedeResult,
   SyncConnectResult,
@@ -189,6 +190,13 @@ const changePath = (id: string) => `/api/changes/${encodeURIComponent(id)}`;
 
 /** Proposed changes the review rules held back (issue #86). `expected` is
  * the proposal file's hash as shown, so a change edited since is refused. */
+/** Search by meaning: download the model, or bring its index up to date.
+ * Both only start work in the core; poll GET /api/semantic for progress. */
+export const semanticSearch = {
+  install: () => send<SemanticStatus>("POST", "/api/semantic/install", {}),
+  refresh: () => send<SemanticStatus>("POST", "/api/semantic/refresh", {}),
+};
+
 export const changes = {
   accept: (id: string, expected: string, options?: SendOptions) =>
     send<WriteResult>("POST", `${changePath(id)}/accept`, { expected_sha256: expected }, false, options),

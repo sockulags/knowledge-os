@@ -49,6 +49,8 @@ from .structure import (
 )
 from .version_info import path_warning, version_lines
 from .workspace import Workspace, WorkspaceError, validate_workspace
+from . import semantic
+from .semantic import SemanticError
 
 
 def _root_option(parser: argparse.ArgumentParser) -> None:
@@ -91,6 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     index = commands.add_parser("index", help="validate and rebuild the indexes")
     _root_option(index)
+
+    model = commands.add_parser("model", help="download, check, or remove the model for search by meaning")
+    model_commands = model.add_subparsers(dest="model_command", required=True)
+    model_commands.add_parser("install", help="download the search model (checked against pinned hashes)")
+    model_commands.add_parser("status", help="show whether the search model and its runtime are installed")
+    model_commands.add_parser("remove", help="delete the downloaded search model")
 
     lint = commands.add_parser("lint", help="validate all managed records")
     _root_option(lint)
@@ -658,6 +666,50 @@ def _inspect(workspace: Workspace, record_id: str, full: bool) -> int:
     return 0
 
 
+def _model(command: str) -> int:
+    spec = semantic.MODEL
+    if command == "status":
+        print(f"model: {spec.name} ({spec.source}, revision {spec.revision[:12]})")
+        print(f"folder: {semantic.model_dir()}")
+        print(f"installed: {'yes' if semantic.is_installed() else 'no'} ({spec.size})")
+        print(f"runtime: {'yes' if semantic.runtime_available() else 'no; install the search extra'}")
+        return 0
+    if command == "remove":
+        semantic.remove_model()
+        print(f"Removed {semantic.model_dir()}")
+        return 0
+    if semantic.is_installed():
+        print(f"Already installed in {semantic.model_dir()}")
+        return 0
+    done = 0
+    shown = -1
+
+    def progress(count: int) -> None:
+        nonlocal done, shown
+        done += count
+        percent = done * 100 // max(spec.total_bytes, 1)
+        if percent // 10 != shown:
+            shown = percent // 10
+            print(f"Downloading {spec.name}: {percent}%", flush=True)
+
+    folder = semantic.install_model(progress=progress)
+    print(f"Installed {spec.name} in {folder}; run 'kos index' in a knowledge base to use it")
+    return 0
+
+
+def _refresh_semantic_index(workspace: Workspace) -> None:
+    """Update indexes/semantic.sqlite3 when the search model is installed."""
+
+    if not (semantic.is_installed() and semantic.runtime_available()):
+        return
+    embedder = semantic.shared_embedder()
+    if embedder is None:
+        return
+    documents, _issues = validate_workspace(workspace)
+    counts = semantic.update_index(workspace, documents, embedder, source_stamp=semantic.catalog_stamp(workspace))
+    print(f"Search by meaning: {counts['passages']} passage(s), {counts['embedded']} newly read; semantic.sqlite3 rebuilt")
+
+
 def _clone(args: argparse.Namespace) -> int:
     """``kos clone URL PATH``: clone, check, and index a knowledge base.
 
@@ -769,12 +821,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "clone":
             return _clone(args)
+        if args.command == "model":
+            return _model(args.model_command)
         workspace = _workspace(args)
         if args.command == "lint":
             return _lint(workspace)
         if args.command == "index":
             count = rebuild_indexes(workspace)
             print(f"Index refreshed: {count} record(s); catalog.md and catalog.sqlite3 rebuilt")
+            _refresh_semantic_index(workspace)
             return 0
         if args.command == "ingest":
             record_id, created, count = ingest_source(workspace, args.path)
@@ -994,7 +1049,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Acknowledged related records: {', '.join(related_ids)}")
                 print(f"Index refreshed: {count} record(s)")
                 return 0
-    except (DocumentationInitError, MetadataError, WorkspaceError, ValueError, codedocs.CodeDocsError) as exc:
+    except (DocumentationInitError, MetadataError, WorkspaceError, ValueError, codedocs.CodeDocsError, SemanticError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     return 2

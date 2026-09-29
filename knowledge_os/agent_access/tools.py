@@ -248,9 +248,13 @@ def _search(api: LocalApi, arguments: dict[str, Any], _caller: Caller) -> ToolRe
             "trust": row.get("trust_label") or None,
             "project": row.get("project_id") or "general",
             "snippet": _plain(str(row.get("snippet_html") or "")),
+            "match": row.get("match") or "text",
         }
         for row in rows[:limit]
     ]
+    if (body.get("semantic") or {}).get("state") == "stale":
+        # Search by meaning uses the older index until the app catches up.
+        api.post("/api/semantic/refresh", {})
     return ToolResult(
         {
             "ok": True,
@@ -791,9 +795,11 @@ TOOLS: tuple[ToolSpec, ...] = (
         name="search",
         title="Search the knowledge base",
         description=(
-            "Full-text search of the knowledge base open in the Knowledge OS app: notes, documentation, and "
-            "decisions. Returns ids, titles, kind, state (for decisions: proposed, in force, replaced, "
-            "withdrawn), and a snippet. Results are leads, not verified facts; read_page gives the full text. "
+            "Search the knowledge base open in the Knowledge OS app: notes, documentation, and decisions. "
+            "Finds the exact words and, when the app's search model is installed, pages close in meaning in "
+            "any language (match: text, meaning, or both). Returns ids, titles, kind, state (for decisions: "
+            "proposed, in force, replaced, withdrawn), and a snippet. Results are leads, not verified facts; "
+            "read_page gives the full text. "
             "Search before writing so you extend an existing page instead of duplicating it."
         ),
         input_schema={

@@ -3,9 +3,12 @@ scope, record_kind, and trust, all readable from and written back to the
 query string by the frontend (so the browser's own back button restores a
 previous search).
 
-Uses ``library.search`` for results (never raises: a blank query, a missing
+Uses ``library.search_with_meaning`` for results: full-text hits merged with
+pages that match by meaning when the search model is installed (issue #102),
+else exactly ``library.search`` (never raises: a blank query, a missing
 index, or an unparseable FTS expression all come back as a clean empty
-list). ``Library.index`` decides whether search is offered at all; a stale
+list). Each result says how it was found in ``match``; ``semantic`` reports
+where search by meaning stands (see ``api/semantic.py``). ``Library.index`` decides whether search is offered at all; a stale
 or missing index both disable it with a plain-language reason, exactly like
 the original HTML search view.
 """
@@ -19,8 +22,9 @@ from starlette.responses import Response
 
 from .. import states, strings
 from ..app import get_library, json_response
-from ..library import Library, search
+from ..library import Library, search_with_meaning, semantic_status
 from .common import project_title
+from .semantic import semantic_json
 from .filters import FILTER_DIMENSIONS, matches, read_filters, scope_options
 from .mdtext import escape_html, strip_markdown_syntax
 
@@ -86,7 +90,13 @@ def _decorate(row: dict[str, str], trust_by_id: dict[str, str], library: Library
         "scope": row["scope"],
         "project": project_title(library, project_id) if project_id else None,
         "project_id": project_id,
-        "snippet_html": _highlight(strip_markdown_syntax(row["snippet"])),
+        "snippet_html": (
+            escape_html(row["snippet"])
+            if row.get("snippet_is_passage")
+            else _highlight(strip_markdown_syntax(row["snippet"]))
+        ),
+        "match": row.get("match", "text"),
+        "match_label": strings.SEARCH_MATCH_MEANING_LABEL if row.get("match") == "meaning" else "",
     }
 
 
@@ -101,7 +111,7 @@ async def view(request: Request) -> Response:
     if search_available and query:
         workspace = request.app.state.workspace
         trust_by_id = {record.id: record.trust_label for record in library.records}
-        rows = search(workspace, query, limit=_FETCH_LIMIT)
+        rows = search_with_meaning(workspace, library, query, limit=_FETCH_LIMIT)
         matched = [row for row in rows if matches(_row_values(row, trust_by_id), filters)]
         results = [_decorate(row, trust_by_id, library) for row in matched[:_DISPLAY_LIMIT]]
 
@@ -121,6 +131,7 @@ async def view(request: Request) -> Response:
             "results": results,
             "result_count": len(results),
             "result_count_label": _result_count_label(len(results)),
+            "semantic": semantic_json(request.app.state.workspace),
         }
     )
 

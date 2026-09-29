@@ -12,6 +12,8 @@ dependencies = ["PyYAML>=6,<7"]
 [project.optional-dependencies]
 reader = ["starlette>=0.37", "uvicorn>=0.30", "markdown-it-py>=3", "pygments>=2.17"]
 mcp = ["mcp>=2.2,<3"]
+# Search by meaning (knowledge_os/semantic.py); the model itself is downloaded on request.
+search = ["onnxruntime>=1.17", "tokenizers>=0.15", "numpy>=1.26"]
 
 [project.scripts]
 kos = "knowledge_os.cli:main"
