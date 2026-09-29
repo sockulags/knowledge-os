@@ -10,6 +10,7 @@ without it. tooling/eval_search_models.py measures the real model.
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,7 +18,7 @@ from unittest import mock
 
 from reader_support import create_workspace, write_record
 
-from knowledge_os import semantic
+from knowledge_os import semantic, semantic_worker
 from knowledge_os.index import rebuild_indexes
 from knowledge_os.reader import library
 from knowledge_os.workspace import Workspace, validate_workspace
@@ -263,8 +264,15 @@ class ReaderSearchTests(unittest.TestCase):
         self.root = Path(self._directory.name)
         self.workspace = _workspace(self.root)
         self.embedder = FakeEmbedder()
+        # The worker process is replaced by the fake embedder in this process.
         patches = [
-            mock.patch.object(semantic, "_embedder", self.embedder),
+            mock.patch.object(
+                semantic_worker,
+                "search",
+                lambda workspace, query, limit, timeout=0: semantic.search(workspace, query, self.embedder, limit),
+            ),
+            mock.patch.object(semantic_worker, "status", lambda: ("ready", None)),
+            mock.patch.object(semantic, "runtime_available", lambda: True),
             mock.patch.object(semantic, "MODEL", SPEC),
             mock.patch.object(semantic, "is_installed", lambda *args, **kwargs: True),
         ]
@@ -289,7 +297,7 @@ class ReaderSearchTests(unittest.TestCase):
         self.assertIn(rows[0]["match"], {"text", "both"})
 
     def test_a_model_that_cannot_load_is_reported_not_loaded_forever(self) -> None:
-        with mock.patch.object(semantic, "_load_error", "bad model file"):
+        with mock.patch.object(semantic_worker, "status", lambda: ("failed", "bad model file")):
             status = library.semantic_status(self.workspace)
         self.assertEqual((status.state, status.error), ("failed", "bad model file"))
 
@@ -312,7 +320,8 @@ class ReaderSearchTests(unittest.TestCase):
         refused = client.post("/api/semantic/refresh", json={})
         self.assertEqual(refused.status_code, 403, "a refresh is a write and needs the token")
         token = client.get("/api/session").json()["write_token"]
-        with mock.patch.object(semantic, "refresh_in_background", lambda workspace, load: self.index() or True):
+        with mock.patch.object(semantic_worker, "refresh_in_background", lambda workspace, **kw: self.index() or True), \
+                mock.patch.object(semantic_worker, "start_in_background", lambda **kw: None):
             response = client.post("/api/semantic/refresh", json={}, headers={"X-KOS-Write-Token": token})
         self.assertEqual(response.status_code, 200)
 
@@ -321,6 +330,114 @@ class ReaderSearchTests(unittest.TestCase):
         [row] = body["results"]
         self.assertEqual((row["id"], row["match"], row["match_label"]), ("leave", "meaning", "Similar in meaning"))
         self.assertNotIn("<mark>", row["snippet_html"])
+
+
+FAKE_WORKER = r"""
+import json, sys, time
+mode = sys.argv[1]
+if mode == "hang":
+    time.sleep(60)
+if mode == "fail":
+    print(json.dumps({"error": "cannot load the runtime"}), flush=True)
+    sys.exit(1)
+if mode == "crash":
+    sys.stderr.write("Fatal: access violation\n")
+    sys.stderr.flush()
+    sys.exit(3)
+print(json.dumps({"ready": True}), flush=True)
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["op"] == "slow":
+        time.sleep(60)
+    match = {"record_id": "leave", "score": 0.8, "margin": 0.3, "passage": "Leave\n" + request.get("query", "")}
+    print(json.dumps({"id": request["id"], "matches": [match]}), flush=True)
+"""
+
+
+class WorkerTests(unittest.TestCase):
+    """The app's side of the worker process, against a small fake worker."""
+
+    def worker(self, mode: str, load_timeout: float = 10) -> semantic_worker.Worker:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        script = Path(directory.name) / "fake_worker.py"
+        script.write_text(FAKE_WORKER, encoding="utf-8")
+        import sys
+
+        worker = semantic_worker.Worker([sys.executable, str(script), mode], load_timeout=load_timeout)
+        self.addCleanup(worker.stop)
+        worker.start()
+        return worker
+
+    def test_a_ready_worker_answers_requests(self) -> None:
+        worker = self.worker("ok")
+        self.assertTrue(worker.wait_ready(10))
+        answer = worker.request("search", 10, root="/kb", query="holiday", limit=5)
+        self.assertEqual(answer["matches"][0]["passage"], "Leave\nholiday")
+
+    def test_a_slow_answer_times_out_without_stopping_the_worker(self) -> None:
+        worker = self.worker("ok")
+        self.assertTrue(worker.wait_ready(10))
+        with self.assertRaises(semantic.SemanticError):
+            worker.request("slow", 0.5, root="/kb")
+        self.assertEqual(worker.state, "ready")
+
+    def test_a_worker_that_hangs_while_loading_is_stopped_and_reported(self) -> None:
+        worker = self.worker("hang", load_timeout=1)
+        self.assertFalse(worker.wait_ready(10))
+        self.assertEqual(worker.state, "failed")
+        self.assertIn("did not load within 1 seconds", worker.error or "")
+        with self.assertRaises(semantic.SemanticError):
+            worker.request("search", 1, root="/kb", query="x", limit=1)
+
+    def test_a_load_error_and_a_crash_are_reported(self) -> None:
+        worker = self.worker("fail")
+        self.assertFalse(worker.wait_ready(10))
+        self.assertEqual((worker.state, worker.error), ("failed", "cannot load the runtime"))
+        worker = self.worker("crash")
+        self.assertFalse(worker.wait_ready(10))
+        self.assertIn("exit code 3", worker.error or "")
+        self.assertIn("access violation", worker.error or "")
+
+    def test_search_without_a_ready_worker_is_empty(self) -> None:
+        with mock.patch.object(semantic_worker, "_worker", None):
+            self.assertEqual(semantic_worker.search(mock.Mock(), "holiday", 5), [])
+
+
+@unittest.skipIf(np is None, "the search extra (numpy) is not installed")
+class ServeTests(unittest.TestCase):
+    def test_the_worker_loop_searches_and_refreshes(self) -> None:
+        import io
+
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = _workspace(Path(directory))
+            requests = "\n".join(
+                [
+                    json.dumps({"id": 1, "op": "refresh", "root": directory}),
+                    "not json",
+                ]
+            )
+            out = io.StringIO()
+            with mock.patch.object(semantic, "MODEL", SPEC):
+                self.assertEqual(semantic_worker.serve(io.StringIO(requests), out, embedder=FakeEmbedder()), 0)
+                lines = [json.loads(line) for line in out.getvalue().splitlines()]
+                self.assertEqual(lines[0], {"ready": True})
+                self.assertEqual(lines[1]["counts"], {"passages": 5, "embedded": 5})
+
+                out = io.StringIO()
+                requests = "\n".join(
+                    [
+                        json.dumps({"id": 2, "op": "search", "root": directory, "query": "holiday days", "limit": 3}),
+                        json.dumps({"id": 3, "op": "refresh", "root": directory}),
+                        json.dumps({"id": 4, "op": "nonsense", "root": directory}),
+                    ]
+                )
+                semantic_worker.serve(io.StringIO(requests), out, embedder=FakeEmbedder())
+                answers = {line["id"]: line for line in map(json.loads, out.getvalue().splitlines()[1:])}
+            self.assertEqual(answers[2]["matches"][0]["record_id"], "leave")
+            self.assertIsNone(answers[3]["counts"], "already current")
+            self.assertIn("unknown operation", answers[4]["error"])
+            del workspace
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@ from knowledge_os.capture import (
     DuplicateRecordError,
     capture_record_text,
 )
-from knowledge_os import codedocs, gitsetup, gitsync, semantic
+from knowledge_os import codedocs, gitsetup, gitsync, semantic, semantic_worker
 from knowledge_os.attachments import (
     MAX_ATTACHMENT_BYTES,
     AttachmentError,
@@ -616,55 +616,56 @@ class SemanticStatus:
 def semantic_status(workspace: Workspace) -> SemanticStatus:
     spec = semantic.MODEL
     install = semantic.install_state()
+    worker_state, worker_error = semantic_worker.status()
     if not semantic.runtime_available():
         state = "unavailable"
     elif install.running:
         state = "installing"
     elif not semantic.is_installed():
         state = "off"
-    elif semantic.load_error() is not None:
+    elif worker_state == "failed":
         state = "failed"
-    elif semantic.refreshing(workspace):
+    elif semantic_worker.refreshing(workspace):
         state = "indexing"
     elif not semantic.is_current(workspace):
         state = "stale"
-    elif semantic.loaded_embedder() is None:
+    elif worker_state != "ready":
         state = "loading"
     else:
         state = "ready"
-    error = semantic.load_error() if state == "failed" else install.error
+    error = worker_error if state == "failed" else install.error
     return SemanticStatus(state, spec.size, install.done_bytes, spec.total_bytes, error)
 
 
 def preload_semantic() -> None:
-    """Load the search model in the background when it is installed, so the
-    first search by meaning does not wait for it."""
+    """Start the search model's own process when the model is installed, so
+    the first search by meaning does not wait for it. The model never loads
+    in this process (see ``knowledge_os.semantic_worker``)."""
 
-    semantic.preload_in_background()
-
-
-def _semantic_documents(workspace: Workspace) -> list[Any]:
-    documents, _issues = validate_workspace(workspace)
-    return documents
+    semantic_worker.start_in_background()
 
 
 def refresh_semantic_index(workspace: Workspace) -> SemanticStatus:
     """Start bringing ``indexes/semantic.sqlite3`` up to date in the
     background. It is a disposable index like the catalog; only the write
-    API calls this, so serving pages never writes to the workspace."""
+    API calls this, so serving pages never writes to the workspace. A worker
+    that failed is tried again only by ``install_semantic_model``."""
 
-    semantic.preload_in_background()
-    semantic.refresh_in_background(workspace, lambda: _semantic_documents(workspace))
+    semantic_worker.start_in_background()
+    semantic_worker.refresh_in_background(workspace)
     return semantic_status(workspace)
 
 
 def install_semantic_model(workspace: Workspace) -> SemanticStatus:
     """Start downloading the search model (see ``semantic.MODEL``) in the
-    background, then index this workspace with it."""
+    background, then index this workspace with it. With the model already
+    installed, this tries a worker that failed again."""
 
-    semantic.install_in_background(
-        after=lambda: semantic.refresh_in_background(workspace, lambda: _semantic_documents(workspace))
-    )
+    if semantic.is_installed():
+        semantic_worker.start_in_background(retry=True)
+        semantic_worker.refresh_in_background(workspace, retry=True)
+    else:
+        semantic.install_in_background(after=lambda: semantic_worker.refresh_in_background(workspace, retry=True))
     return semantic_status(workspace)
 
 
@@ -682,13 +683,7 @@ def search_with_meaning(workspace: Workspace, library: Library, query: str, limi
     is used as it is (see ``refresh_semantic_index``)."""
 
     rows = search(workspace, query, limit)
-    embedder = semantic.loaded_embedder()
-    if embedder is None or not query.strip():
-        return [{**row, "match": "text"} for row in rows]
-    try:
-        matches = semantic.search(workspace, query, embedder, limit)
-    except Exception:  # search by meaning is best effort; full-text search stands alone
-        matches = []
+    matches = semantic_worker.search(workspace, query, limit)
     if not matches:
         return [{**row, "match": "text"} for row in rows]
     by_id = {row["id"]: row for row in rows}

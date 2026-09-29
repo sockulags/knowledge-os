@@ -16,6 +16,9 @@ runs on this computer, with no network once the model is installed.
   passages are embedded. It is written to a temporary file and renamed.
 - **Search** is always best effort: without the model or the index, callers get
   no semantic results and full-text search works as before.
+- **The model runs in its own process** (``semantic_worker``): loading the
+  native runtime has hung a whole process on some Windows computers, so the
+  app, the reader, and ``kos index`` never import it themselves.
 
 The optional runtime (``onnxruntime``, ``tokenizers``, ``numpy``) is the
 ``search`` extra; it is imported only when a model is used.
@@ -255,48 +258,6 @@ class Embedder:
         return self.embed([self.spec.passage_prefix + text for text in texts])
 
 
-_embedder: Embedder | None = None
-_load_error: str | None = None
-_embedder_lock = threading.Lock()
-
-
-def shared_embedder() -> Embedder | None:
-    """The process's embedder, loaded once (several seconds); None without
-    the model or runtime."""
-
-    global _embedder, _load_error
-    with _embedder_lock:
-        if _embedder is None and _load_error is None and is_installed() and runtime_available():
-            try:
-                _embedder = Embedder()
-            except Exception as exc:  # a broken runtime or model file: say so instead of loading forever
-                _load_error = str(exc) or type(exc).__name__
-                return None
-        return _embedder
-
-
-def load_error() -> str | None:
-    """Why the model could not be loaded in this process, if it could not."""
-
-    return _load_error
-
-
-def loaded_embedder() -> Embedder | None:
-    """The process's embedder if it is already loaded; never waits for it."""
-
-    return _embedder
-
-
-def preload_in_background() -> bool:
-    """Load the embedder in a thread so the first search does not wait for it;
-    returns whether there is a model to load."""
-
-    if _embedder is not None or not (is_installed() and runtime_available()):
-        return _embedder is not None
-    threading.Thread(target=shared_embedder, name="kos-semantic-load", daemon=True).start()
-    return True
-
-
 # ---------------------------------------------------------------------------
 # Installing from a running core
 # ---------------------------------------------------------------------------
@@ -319,8 +280,8 @@ def install_state() -> InstallState:
 
 
 def install_in_background(after: Callable[[], None] | None = None) -> bool:
-    """Start installing ``MODEL`` in a thread (see ``install_state``), then load
-    it and call ``after``; returns whether an install is running."""
+    """Start installing ``MODEL`` in a thread (see ``install_state``), then call
+    ``after``; returns whether an install is running."""
 
     if is_installed():
         return False
@@ -342,9 +303,6 @@ def install_in_background(after: Callable[[], None] | None = None) -> bool:
             return
         with _install_lock:
             _install.running = False
-        global _load_error
-        _load_error = None
-        shared_embedder()
         if after is not None:
             after()
 
@@ -603,48 +561,6 @@ def search(workspace: Workspace, query: str, embedder: Embedder, limit: int = 20
             if len(best) >= limit:
                 break
     return list(best.values())
-
-
-# ---------------------------------------------------------------------------
-# Keeping it current in a running core
-# ---------------------------------------------------------------------------
-
-_refreshing: set[str] = set()
-_refresh_lock = threading.Lock()
-
-
-def refresh_in_background(workspace: Workspace, load_documents: Callable[[], Sequence[Document]]) -> bool:
-    """Start updating the index in a thread when it is behind the catalog;
-    returns whether an update is running. Search never waits for it."""
-
-    if not (is_installed() and runtime_available()) or is_current(workspace):
-        return False
-    key = str(workspace.root)
-    with _refresh_lock:
-        if key in _refreshing:
-            return True
-        _refreshing.add(key)
-
-    def run() -> None:
-        try:
-            embedder = shared_embedder()
-            if embedder is None:
-                return
-            stamp = catalog_stamp(workspace)
-            update_index(workspace, load_documents(), embedder, source_stamp=stamp)
-        except Exception:  # a failed refresh leaves the previous index; the next search tries again
-            pass
-        finally:
-            with _refresh_lock:
-                _refreshing.discard(key)
-
-    threading.Thread(target=run, name="kos-semantic-index", daemon=True).start()
-    return True
-
-
-def refreshing(workspace: Workspace) -> bool:
-    with _refresh_lock:
-        return str(workspace.root) in _refreshing
 
 
 # ---------------------------------------------------------------------------
