@@ -420,7 +420,9 @@ kos index
 ```
 
 Deleting both generated index files leaves canonical Markdown valid and they
-can be rebuilt with `kos index`.
+can be rebuilt with `kos index`. The reader (`kos-read` and the desktop app)
+also rebuilds a stale or missing index by itself in the background; start it
+with `--no-index-refresh` to leave the index alone.
 
 ## Scope
 

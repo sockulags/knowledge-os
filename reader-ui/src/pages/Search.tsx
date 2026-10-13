@@ -11,6 +11,9 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 const FILTER_KEYS = ["type", "status", "scope", "record_kind", "trust"] as const;
 
+/** How often to ask again while the search index is being rebuilt. */
+const INDEX_REFRESH_POLL_MS = 1500;
+
 export function Search() {
   const { nav } = useShell();
   useDocumentTitle(nav?.workspace_name, "Search");
@@ -49,6 +52,26 @@ export function Search() {
       cancelled = true;
     };
   }, [params, nav]);
+
+  // While the reader rebuilds the search index, ask again quietly (no
+  // skeleton) until search is back.
+  const refreshing = data?.index_refreshing ?? false;
+  useEffect(() => {
+    if (!refreshing) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      api
+        .search(`?${params.toString()}`)
+        .then((result) => {
+          if (!cancelled) setData(result);
+        })
+        .catch(() => {});
+    }, INDEX_REFRESH_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [refreshing, data, params]);
 
   function updateFilter(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -109,9 +132,11 @@ export function Search() {
         {!loading && !error && data && !data.search_available && (
           <Callout tone="neutral">
             <p>{data.disabled_reason}</p>
-            <code className="kos-code mt-1 inline-block">
-              kos index
-            </code>
+            {data.disabled_reason?.includes("kos index") && (
+              <code className="kos-code mt-1 inline-block">
+                kos index
+              </code>
+            )}
           </Callout>
         )}
         {!loading && !error && data && data.search_available && (

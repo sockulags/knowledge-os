@@ -48,7 +48,7 @@ from knowledge_os.agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity, pa
 from knowledge_os.context_policy import trust_label
 from knowledge_os.gitsetup import ConnectOutcome, InitOutcome, RemoteCheck, SetupStatus
 from knowledge_os.gitsync import CommitOutcome, ConflictFile, GitSyncError, ResolveOutcome, SyncOutcome, SyncStatus
-from knowledge_os.index import validate_index
+from knowledge_os.index import rebuild_indexes, validate_index
 from knowledge_os.model import (
     SHA256_PATTERN,
     Document,
@@ -240,6 +240,9 @@ class IndexHealth:
     available: bool
     stale: bool
     message: str | None  # already user-facing
+    #: Set only by ``index_refresh.IndexRefresher`` while the reader is
+    #: rebuilding the index in the background.
+    refreshing: bool = False
 
 
 @dataclass(frozen=True)
@@ -495,6 +498,16 @@ def path_index(library: Library) -> Mapping[str, str]:
     """
 
     return {record.path: record.id for record in library.records}
+
+
+def rebuild_search_index(workspace: Workspace) -> int:
+    """Rebuild the disposable search index exactly as ``kos index`` does:
+    validate the corpus and replace both index files under the workspace
+    advisory lock that ingest, discovery, and every mutation share. Raises
+    whatever ``kos index`` would (an invalid corpus, a lock that could not be
+    taken, a write error); ``index_refresh`` turns that into a reason."""
+
+    return rebuild_indexes(workspace)
 
 
 def search(workspace: Workspace, query: str, limit: int = 50) -> list[dict[str, str]]:

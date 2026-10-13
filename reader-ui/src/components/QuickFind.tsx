@@ -5,7 +5,7 @@ import type { NavPayload, SearchPayload } from "../api/types";
 import { api, ApiUnreachableError } from "../api/client";
 import { iconFor } from "../lib/icons";
 import { networkErrorMessage } from "../lib/language";
-import { buildSections, type SwitchOption } from "../lib/quickSwitch";
+import { buildSections, searchPageHref, type SwitchOption } from "../lib/quickSwitch";
 
 /** Wait this long after the last keystroke before asking the full-text search. */
 const TEXT_SEARCH_DELAY_MS = 150;
@@ -21,7 +21,10 @@ interface TextSearch {
  * after a short pause, cancelling any request a newer keystroke made stale,
  * and adds the pages found only by a word in their text. Choosing a result
  * navigates through the router, so an editor with unsaved changes asks
- * first (useUnsavedChanges) and nothing typed there is lost.
+ * first (useUnsavedChanges) and nothing typed there is lost. When nothing
+ * matches, the one option offered is the Search page for the same words,
+ * and the footer says why text matches may be missing (the search index is
+ * being rebuilt, or could not be).
  *
  * Accessibility: a modal dialog whose only focusable element is the search
  * field (an ARIA combobox); results are a listbox of grouped options
@@ -92,6 +95,10 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
     [nav, trimmed, currentText],
   );
   const options = useMemo(() => sections.flatMap((section) => section.options), [sections]);
+  // Nothing matched: offer the Search page (filters, the full result list)
+  // as the single option, so Enter still goes somewhere useful.
+  const searchPage = trimmed && options.length === 0 && !searching && language ? searchPageHref(trimmed) : null;
+  const optionCount = searchPage ? 1 : options.length;
 
   useEffect(() => setActiveIndex(0), [trimmed]);
   useEffect(() => {
@@ -99,9 +106,9 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
   }, [activeIndex, options.length]);
 
   useEffect(() => {
-    if (!open || options.length === 0) return;
+    if (!open || optionCount === 0) return;
     document.getElementById(`${baseId}-option-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
-  }, [open, activeIndex, options.length, baseId]);
+  }, [open, activeIndex, optionCount, baseId]);
 
   // Focus trap: anything that takes focus outside the dialog hands it back.
   useEffect(() => {
@@ -124,7 +131,7 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
 
   /** Close, then navigate. If an editor has unsaved changes, its own
    * confirmation holds the navigation and focus is back in the editor. */
-  function choose(option: SwitchOption | undefined) {
+  function choose(option: Pick<SwitchOption, "href"> | undefined) {
     if (!option) return;
     dismiss();
     navigate(option.href);
@@ -149,7 +156,7 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
         break;
       case "Enter":
         event.preventDefault();
-        choose(options[activeIndex]);
+        choose(searchPage ? { href: searchPage } : options[activeIndex]);
         break;
       case "Escape":
         event.preventDefault();
@@ -172,6 +179,9 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
   const textUnavailable =
     (trimmed && currentText && !currentText.search_available ? currentText.disabled_reason : null) ??
     (trimmed ? textError : null);
+  // Both lines when nothing matched and text search was unavailable: the
+  // reason is why the result may be incomplete.
+  const footer = [status, textUnavailable].filter((line): line is string => Boolean(line));
 
   let flatIndex = 0;
   return (
@@ -197,10 +207,10 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
             onKeyDown={handleKeyDown}
             role="combobox"
             aria-label={language?.quick_find_label}
-            aria-expanded={options.length > 0}
+            aria-expanded={optionCount > 0}
             aria-controls={listboxId}
             aria-autocomplete="list"
-            aria-activedescendant={options.length > 0 ? optionId(activeIndex) : undefined}
+            aria-activedescendant={optionCount > 0 ? optionId(activeIndex) : undefined}
             autoComplete="off"
             spellCheck={false}
             placeholder={language?.quick_find_placeholder}
@@ -235,11 +245,26 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
               </div>
             );
           })}
+          {searchPage && language && (
+            <div
+              id={optionId(0)}
+              role="option"
+              aria-selected={true}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choose({ href: searchPage })}
+              className="my-1 flex cursor-pointer items-center gap-2.5 rounded-(--radius-control) bg-(--color-bg-active) px-2.5 py-2 text-sm"
+            >
+              <Search size={14} className="shrink-0 text-(--color-accent-text)" aria-hidden="true" />
+              <span className="truncate">{language.quick_find_open_search.replace("{query}", trimmed)}</span>
+            </div>
+          )}
         </div>
-        {(status || textUnavailable) && (
-          <p role="status" className="border-t border-(--color-border) bg-(--color-bg-sidebar) px-4 py-2.5 text-xs text-(--color-text-faint)">
-            {status ?? textUnavailable}
-          </p>
+        {footer.length > 0 && (
+          <div role="status" className="space-y-1 border-t border-(--color-border) bg-(--color-bg-sidebar) px-4 py-2.5 text-xs text-(--color-text-faint)">
+            {footer.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
         )}
       </div>
     </div>

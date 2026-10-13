@@ -11,6 +11,9 @@ import { useShell } from "../components/Shell";
 import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
+/** How often to ask whether a background search-index rebuild has finished. */
+const INDEX_REFRESH_POLL_MS = 1500;
+
 export function Home() {
   const { nav } = useShell();
   const apiState = useApi(() => api.home(), []);
@@ -25,6 +28,20 @@ export function Home() {
       .catch(() => setHealth(null));
   }, []);
 
+  // While the reader rebuilds the search index, ask again until it is done,
+  // so the notice goes away by itself.
+  const refreshing = health?.index_refreshing ?? false;
+  useEffect(() => {
+    if (!refreshing) return;
+    const timer = window.setTimeout(() => {
+      api
+        .workspace()
+        .then((w) => setHealth(w.health))
+        .catch(() => setHealth(null));
+    }, INDEX_REFRESH_POLL_MS);
+    return () => window.clearTimeout(timer);
+  }, [refreshing, health]);
+
   if (loading) return <PageSkeleton />;
   if (apiState.error || !data)
     return <LoadError>{loadErrorMessage(apiState, nav?.language, "Could not load the home page.")}</LoadError>;
@@ -38,7 +55,8 @@ export function Home() {
 
       {somethingWrong && health && (
         <div className="mt-6">
-          <Callout tone="danger">
+          {/* A rebuild in progress is routine, not an error: neutral tone. */}
+          <Callout tone={health.lint_ok && health.index_refreshing ? "neutral" : "danger"}>
             <p>{!health.lint_ok ? health.lint_message : health.search_disabled_reason}</p>
             {health.search_disabled_reason?.includes("kos index") && (
               <code className="kos-code mt-1 inline-block">

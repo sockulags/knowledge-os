@@ -80,6 +80,10 @@ ADAPTER_WRITE_ENTRY_POINTS = {
         "update_record_text",
         "withdraw_decision",
     },
+    # The reader rebuilds a stale or missing search index in the background
+    # (index_refresh.py) through ``kos index``'s own entry point, which takes
+    # the workspace lock; only the adapter may import it.
+    "knowledge_os.index": {"rebuild_indexes"},
     "knowledge_os.structure": {
         "ChangedFile",
         "DeleteBlocker",
@@ -110,7 +114,8 @@ FORBIDDEN_WORKSPACE_NAMES = {
 #: ``sqlite3.connect``; ``rebuild_indexes``/``search_index_terms`` either
 #: write or are not what the adapter is meant to use). ``library.search``
 #: must issue its own ``mode=ro`` connection instead of importing any of
-#: these.
+#: these. The adapter alone may import ``rebuild_indexes`` (see
+#: ``ADAPTER_WRITE_ENTRY_POINTS``), for the background index refresh only.
 FORBIDDEN_INDEX_NAMES = {"search_index", "search_index_terms", "rebuild_indexes"}
 
 #: Every module the reader package's non-adapter modules are allowed to
@@ -192,7 +197,7 @@ def forbidden_write_path_violations(
     for name in workspace_names & FORBIDDEN_WORKSPACE_NAMES:
         violations.add(f"from knowledge_os.workspace import {name}")
     index_names = _names_imported_from(tree, "knowledge_os.index")
-    for name in index_names & FORBIDDEN_INDEX_NAMES:
+    for name in (index_names & FORBIDDEN_INDEX_NAMES) - allowed.get("knowledge_os.index", set()):
         violations.add(f"from knowledge_os.index import {name}")
     return violations
 
@@ -347,11 +352,13 @@ class ForbiddenWritePathTests(unittest.TestCase):
 
     def test_library_only_imports_validate_index_from_the_index_module(self) -> None:
         """The audit's specific concern: library.py must never import
-        index.search_index (bare read-write sqlite3.connect) or
-        index.rebuild_indexes; it issues its own mode=ro connection."""
+        index.search_index (bare read-write sqlite3.connect); it issues its
+        own mode=ro connection. Its one write import from this module is
+        rebuild_indexes, the ``kos index`` entry point behind the background
+        index refresh."""
 
         names = _names_imported_from(_parse(LIBRARY_MODULE), "knowledge_os.index")
-        self.assertEqual(names, {"validate_index"})
+        self.assertEqual(names, {"validate_index", "rebuild_indexes"})
 
 
 # ---------------------------------------------------------------------------

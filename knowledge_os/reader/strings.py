@@ -187,7 +187,24 @@ INDEX_HEALTH: dict[str, str] = {
     # Sec.6 "Missing index": "reported as 'search unavailable'"
     "absent": "Search is unavailable. Run `kos index` to build it.",
     "unreadable": "Search is unavailable. The search index could not be read ({detail}). Run `kos index` to rebuild it.",
+    # The reader rebuilds a stale, absent, or unreadable index by itself
+    # (index_refresh.py). The three entries above are only shown when that
+    # is switched off (``kos-read --no-index-refresh``).
+    "refreshing": "Updating the search index… Matches in page text may be missing until it finishes.",
+    # {detail} is the first line of the rebuild's error.
+    "refresh_failed": (
+        "Search may be missing recent changes: the search index could not be updated ({detail}). "
+        "It is tried again after the next change or when the app restarts; `kos index` also rebuilds it."
+    ),
+    "refresh_blocked": (
+        "Search may be missing recent changes. The search index updates by itself once the problems "
+        "with records in this workspace are fixed."
+    ),
 }
+
+#: {detail} for INDEX_HEALTH["refresh_failed"] when a rebuild finished but the
+#: index still did not match the records.
+INDEX_REFRESH_STILL_STALE = "it still does not match the records after rebuilding"
 
 # ---------------------------------------------------------------------------
 # Broken records and relations (Sec.6 "Broken record" / "Broken relation" /
@@ -337,6 +354,9 @@ QUICK_FIND_LABEL = "Quick switcher"
 QUICK_FIND_HINT = "Type a title or a word from the text. Use ↑ and ↓ to choose and Enter to open."
 QUICK_FIND_NO_MATCHES = "Nothing matches “{query}”."
 QUICK_FIND_SEARCHING = "Searching the text…"
+#: The one option the quick switcher offers when nothing matches: the full
+#: Search page for the same words, with its filters. {query} as above.
+QUICK_FIND_OPEN_SEARCH = "Open the Search page for “{query}”"
 
 #: Group headings, in the order the palette shows groups whose best match
 #: ranks equally. ``text`` holds pages found only by a word in their body.

@@ -14,6 +14,7 @@ import { LoadError, LineageCalloutRow } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { useShell } from "../components/Shell";
 import { useStructure, type TreeItem } from "../components/Structure";
+import { RowMenu } from "../components/ProjectTree";
 import { showsOutcome } from "../lib/pendingActions";
 import { decisionKey, pendingActions, useOnPendingSettled, usePendingEntries } from "../lib/pendingStore";
 import { loadErrorMessage } from "../lib/language";
@@ -104,11 +105,16 @@ export function Document() {
                 Edit
               </Link>
             )}
+            {/* Delete sits behind "More", not beside Edit, so it is never
+                hit by accident; its own confirmation dialog still follows. */}
             {deleteItem !== null && (
-              <button type="button" className="kos-btn kos-btn-ghost kos-btn-sm" onClick={() => structure.remove(deleteItem)}>
-                <Trash2 size={14} />
-                Delete…
-              </button>
+              <div className="relative">
+                <RowMenu
+                  inline
+                  label={data.title}
+                  entries={[{ label: "Delete…", icon: <Trash2 size={14} />, onSelect: () => structure.remove(deleteItem) }]}
+                />
+              </div>
             )}
           </div>
         </div>

@@ -63,6 +63,11 @@ export function rankTitles(entries: RecordIndexEntry[], query: string): Ranked[]
   );
 }
 
+/** The Search page for what was typed, offered when nothing matches. */
+export function searchPageHref(query: string): string {
+  return `/search?q=${encodeURIComponent(query.trim())}`;
+}
+
 /** Where an entry opens in the reader. */
 export function hrefFor(entry: Pick<RecordIndexEntry, "id" | "kind" | "group">): string {
   if (entry.group === "projects") return `/p/${entry.id}`;

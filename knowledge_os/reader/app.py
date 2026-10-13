@@ -36,6 +36,7 @@ from starlette.staticfiles import StaticFiles
 
 from knowledge_os.workspace import Workspace
 
+from .index_refresh import IndexRefresher
 from .library import Library, load_library
 
 #: Package-relative asset locations, shared by the app factory and by
@@ -57,11 +58,15 @@ def get_library(request: Request) -> Library:
     Starlette's per-request ``request.state`` only avoids a second
     filesystem walk if one handler needs the library more than once; the
     memo does not outlive the request.
+
+    A stale, absent, or unreadable search index starts a background rebuild
+    here (``index_refresh.IndexRefresher``); the returned library's ``index``
+    says whether one is running or why it could not help.
     """
 
     cached = getattr(request.state, "library", None)
     if cached is None:
-        cached = load_library(request.app.state.workspace)
+        cached = request.app.state.index_refresher.observe(load_library(request.app.state.workspace))
         request.state.library = cached
     return cached
 
@@ -100,14 +105,15 @@ async def _api_not_found(request: Request) -> Response:
     return not_found(f"No API route matches /api/{path}.")
 
 
-def create_app(workspace: Workspace) -> Starlette:
+def create_app(workspace: Workspace, *, refresh_index: bool = True) -> Starlette:
     """Build the reader app for one workspace.
 
     Binds nothing itself: binding to ``127.0.0.1`` only is ``cli.py``'s job
     (via ``uvicorn.run(host=...)``). This wires the JSON API, the built
     SPA's static assets and fallback, and the workspace this process
     serves — one workspace per process, matching the accepted decision's
-    boundaries.
+    boundaries. ``refresh_index=False`` leaves a stale or missing search
+    index alone and only reports it (``kos-read --no-index-refresh``).
     """
 
     from .api import build_api_routes
@@ -131,6 +137,7 @@ def create_app(workspace: Workspace) -> Starlette:
     # route.
     app = Starlette(debug=False, routes=routes, middleware=[Middleware(BaseHTTPMiddleware, dispatch=host_guard)])
     app.state.workspace = workspace
+    app.state.index_refresher = IndexRefresher(workspace, enabled=refresh_index)
     # Random per process: only a page that can read this server's own
     # responses (GET /api/session) can write through it.
     app.state.write_token = new_write_token()

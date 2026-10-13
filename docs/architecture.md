@@ -332,7 +332,12 @@ attempt to restore writes after a caught failure.
 ## Local interface write API
 
 `kos-read` (and the desktop app, which runs the same server) serves a JSON API
-on a loopback address. `GET` routes never write. The write routes call the same
+on a loopback address. `GET` routes never write canonical Markdown. When a
+request finds the search index stale, absent, or unreadable, the server starts
+one background rebuild through `kos index`'s own function, under the same
+lock; it tries once per state of the corpus, skips a corpus that fails `kos
+lint`, and reports a failure instead of retrying. `kos-read --no-index-refresh`
+turns this off. The write routes call the same
 core functions as `kos capture`, `kos update`, `kos decision accept`, `kos
 decision withdraw`, and `kos supersede`, so they share the mutation
 lock, staged whole-corpus validation, exact-revision SHA-256 guard, and index

@@ -93,15 +93,18 @@ function useDropTarget(place: Place | null): { over: boolean; handlers: Record<s
   };
 }
 
-interface MenuEntry {
+export interface MenuEntry {
   label: string;
   icon: ReactNode;
   onSelect: () => void;
 }
 
 /** The "…" button at the end of a row and its menu. Arrow keys move
- * between entries; Escape closes it. */
-function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
+ * between entries; Escape closes it. ``inline`` renders the button as an
+ * ordinary small button that is always visible (a page's own "More" menu,
+ * placed inside a ``relative`` container) instead of the tree row's hover
+ * button. */
+export function RowMenu({ label, entries, inline = false }: { label: string; entries: MenuEntry[]; inline?: boolean }) {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -156,11 +159,16 @@ function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
           event.stopPropagation();
           setOpen((value) => !value);
         }}
-        className={`absolute right-1 top-0.5 flex h-6 w-6 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text) focus-visible:opacity-100 ${
-          open ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-        }`}
+        className={
+          inline
+            ? "kos-btn kos-btn-ghost kos-btn-sm"
+            : `absolute right-1 top-0.5 flex h-6 w-6 items-center justify-center rounded-[5px] text-(--color-text-faint) transition-colors hover:bg-(--color-bg-hover) hover:text-(--color-text) focus-visible:opacity-100 ${
+                open ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+              }`
+        }
       >
         <MoreHorizontal size={14} />
+        {inline && "More"}
       </button>
       {open && (
         <div
