@@ -11,6 +11,7 @@ import {
   isQuickSwitchShortcut,
   rankTitles,
   scoreTitle,
+  searchPageHref,
   TITLE_LIMIT_PER_GROUP,
 } from "./quickSwitch.ts";
 
@@ -164,6 +165,13 @@ describe("hrefFor", () => {
     assert.equal(hrefFor({ id: "ingest", kind: "skill", group: "skills" }), "/s/ingest");
     assert.equal(hrefFor({ id: "docs/a.md", kind: "doc", group: "docs" }), "/f/docs/a.md");
     assert.equal(hrefFor({ id: "d1", kind: "decision", group: "decisions" }), "/r/d1");
+  });
+});
+
+describe("searchPageHref", () => {
+  it("opens the Search page with the typed words, trimmed and encoded", () => {
+    assert.equal(searchPageHref("  referat "), "/search?q=referat");
+    assert.equal(searchPageHref("a&b möte"), "/search?q=a%26b%20m%C3%B6te");
   });
 });
 

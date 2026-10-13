@@ -37,6 +37,8 @@ export interface HealthSummary {
   issues: { path: string; message: string; record_id: string | null }[];
   index_available: boolean;
   index_stale: boolean;
+  /** The reader is rebuilding the search index in the background. */
+  index_refreshing: boolean;
   search_disabled: boolean;
   search_disabled_reason: string | null;
 }
@@ -97,6 +99,8 @@ export interface NavPayload {
     /** Template; fill its `{query}` placeholder with what was typed. */
     quick_find_no_matches: string;
     quick_find_searching: string;
+    /** Template; fill its `{query}` placeholder with what was typed. */
+    quick_find_open_search: string;
     /** Group key -> heading; `text` heads pages found only by their body. */
     quick_find_groups: Record<string, string>;
     not_found_title: string;
@@ -611,6 +615,8 @@ export interface SearchPayload {
   filter_options: Record<string, FilterOption[]>;
   search_available: boolean;
   disabled_reason: string | null;
+  /** The reader is rebuilding the search index; ask again shortly. */
+  index_refreshing: boolean;
   results: SearchResult[];
   result_count: number;
   result_count_label: string;

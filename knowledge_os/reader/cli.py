@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="exit as soon as standard input closes (lets a parent process that dies take this server with it)",
     )
+    parser.add_argument(
+        "--no-index-refresh",
+        action="store_true",
+        help="do not rebuild a stale or missing search index in the background; only report it",
+    )
     return parser
 
 
@@ -90,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         workspace = _workspace(args)
-        app = create_app(workspace)
+        app = create_app(workspace, refresh_index=not args.no_index_refresh)
     except (WorkspaceError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

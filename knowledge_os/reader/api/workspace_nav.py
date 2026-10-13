@@ -29,6 +29,7 @@ def _health_json(library: Library) -> dict[str, object]:
         ],
         "index_available": summary.index_available,
         "index_stale": summary.index_stale,
+        "index_refreshing": summary.index_refreshing,
         "search_disabled": summary.search_disabled,
         "search_disabled_reason": summary.search_disabled_reason,
     }
@@ -159,6 +160,7 @@ async def nav_view(request: Request) -> Response:
                 "quick_find_hint": strings.QUICK_FIND_HINT,
                 "quick_find_no_matches": strings.QUICK_FIND_NO_MATCHES,
                 "quick_find_searching": strings.QUICK_FIND_SEARCHING,
+                "quick_find_open_search": strings.QUICK_FIND_OPEN_SEARCH,
                 "quick_find_groups": strings.QUICK_FIND_GROUPS,
                 "not_found_title": strings.DOCUMENT_NOT_FOUND_TITLE,
                 "not_found_body": strings.DOCUMENT_NOT_FOUND_BODY,

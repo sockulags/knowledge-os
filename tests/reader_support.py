@@ -177,7 +177,14 @@ def _poll_until_serving(base_url: str, process: subprocess.Popen, timeout: float
 
 
 @contextmanager
-def serve(root: Path, port: int, *, timeout: float = 15.0, cwd: Path | None = None) -> Iterator[str]:
+def serve(
+    root: Path,
+    port: int,
+    *,
+    timeout: float = 15.0,
+    cwd: Path | None = None,
+    refresh_index: bool = False,
+) -> Iterator[str]:
     """Start ``kos-read --root root --port port`` and yield its base URL.
 
     Polls until the port answers an HTTP request before yielding, and
@@ -187,6 +194,11 @@ def serve(root: Path, port: int, *, timeout: float = 15.0, cwd: Path | None = No
     full pipe buffer; the file is surfaced in the error message if the
     server never comes up. ``cwd`` sets the child's working directory; it
     defaults to the caller's own (see the comment below).
+
+    The server's background search-index rebuild is off unless
+    ``refresh_index`` is set: many tests serve this repository itself, and a
+    test run must not rewrite its ``indexes/`` (nor race a test that wants
+    to observe a stale or missing index).
     """
 
     environment = os.environ.copy()
@@ -204,8 +216,11 @@ def serve(root: Path, port: int, *, timeout: float = 15.0, cwd: Path | None = No
     # returned, intermittently raising PermissionError: [WinError 32] from
     # the temp directory's own removal. Leaving `cwd` at the parent's
     # default avoids taking that handle on `root` at all.
+    command = [sys.executable, "-m", "knowledge_os.reader", "--root", str(root), "--port", str(port)]
+    if not refresh_index:
+        command.append("--no-index-refresh")
     process = subprocess.Popen(
-        [sys.executable, "-m", "knowledge_os.reader", "--root", str(root), "--port", str(port)],
+        command,
         env=environment,
         cwd=cwd,
         stdout=log,

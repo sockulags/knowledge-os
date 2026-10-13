@@ -150,6 +150,7 @@ class HealthSummary:
     issues: tuple[IssueEntry, ...]
     index_available: bool
     index_stale: bool
+    index_refreshing: bool
     search_disabled: bool
     search_disabled_reason: str | None
 
@@ -208,12 +209,12 @@ def issue_entries(library: Library) -> tuple[IssueEntry, ...]:
 
 
 def _search_disabled_reason(index: IndexHealth) -> str | None:
-    if not index.available:
-        # Absent or unreadable: IndexHealth.message is already one of
-        # strings.INDEX_HEALTH["absent"] / ["unreadable"].
+    # Absent, unreadable, stale, or being rebuilt: IndexHealth.message is
+    # already the matching strings.INDEX_HEALTH entry (library.py sets the
+    # first three, index_refresh.py replaces it while it rebuilds the index
+    # or when a rebuild did not help).
+    if not index.available or index.stale:
         return index.message
-    if index.stale:
-        return strings.INDEX_HEALTH["stale"]
     return None
 
 
@@ -242,6 +243,7 @@ def build_health_summary(library: Library) -> HealthSummary:
         issues=issue_entries(library),
         index_available=library.index.available,
         index_stale=library.index.stale,
+        index_refreshing=library.index.refreshing,
         search_disabled=reason is not None,
         search_disabled_reason=reason,
     )

@@ -130,6 +130,7 @@ async def view(request: Request) -> Response:
             "filter_options": filter_options,
             "search_available": search_available,
             "disabled_reason": health.search_disabled_reason,
+            "index_refreshing": health.index_refreshing,
             "results": results,
             "result_count": len(results),
             "result_count_label": _result_count_label(len(results)),
