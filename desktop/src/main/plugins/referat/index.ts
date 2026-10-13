@@ -75,7 +75,8 @@ function resultView(result: ImportResult): ImportResultView {
       kind: record.kind,
       id: record.id,
       title: record.title,
-      commit: commitLabel(record.commit)
+      commit: commitLabel(record.commit),
+      waiting: record.proposal !== null
     })),
     failed: result.failed,
     notAttempted: result.notAttempted,
@@ -272,15 +273,17 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
         return { ok: false, error: 'Referat is still working on this meeting.' }
       try {
         const api = kos()
-        const [existing, ids] = await Promise.all([
+        const [existing, ids, template] = await Promise.all([
           findExistingImport(api, meeting.id, noteBaseIdFor(meeting)),
-          api.recordIds()
+          api.recordIds(),
+          api.meetingNotesTemplate()
         ])
         const preview = meetingPreview(
           meeting,
           typeof summaryId === 'string' ? summaryId : null,
           existing,
-          new Set(ids)
+          new Set(ids),
+          template
         )
         return { ok: true, preview }
       } catch (error) {
@@ -335,7 +338,8 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
         folder,
         includeTranscript: request.includeTranscript,
         decisions: request.decisions,
-        now: new Date()
+        now: new Date(),
+        template: await api.meetingNotesTemplate()
       })
       const result = await executePlan(api, plan)
       pending =

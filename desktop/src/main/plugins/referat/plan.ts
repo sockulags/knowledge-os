@@ -150,6 +150,11 @@ export interface PlanOptions {
   decisions: readonly number[]
   /** The import time, for provenance. */
   now: Date
+  /**
+   * The knowledge base's meeting-notes template text, which sets the order
+   * and wording of the note's sections; null or absent keeps Referat's order.
+   */
+  template?: string | null
 }
 
 function transcriptMarkdown(meeting: Meeting): string {
@@ -191,11 +196,50 @@ function draftsSentence(imported: number, listed: number): string {
   return `\n\n${which} linked to this note. Drafts govern nothing until someone accepts them.`
 }
 
+/** The `## ` headings of a template, in order, as written. */
+export function templateHeadings(template: string): string[] {
+  const headings: string[] = []
+  let fence: string | null = null
+  for (const line of template.replace(/\r\n?/g, '\n').split('\n')) {
+    const marker = /^\s*(```|~~~)/.exec(line)?.[1]
+    if (marker !== undefined) fence = fence === null ? marker : fence === marker ? null : fence
+    if (fence !== null) continue
+    const match = /^##\s+(.+?)\s*#*\s*$/.exec(line)
+    if (match) headings.push(match[1])
+  }
+  return headings
+}
+
+interface NoteSection {
+  title: string
+  content: string
+}
+
+/**
+ * The note's sections in the order of the meeting-notes template: a section
+ * whose title matches one of the template's `## ` headings (ignoring case)
+ * takes that heading's place and wording, template headings the meeting has
+ * nothing for are left out, and any other section follows in the meeting's
+ * own order. Without a template the meeting's order is kept.
+ */
+export function arrangeSections(sections: NoteSection[], template: string | null): NoteSection[] {
+  if (template === null) return sections
+  const rest = [...sections]
+  const arranged: NoteSection[] = []
+  for (const heading of templateHeadings(template)) {
+    const at = rest.findIndex((section) => section.title.toLowerCase() === heading.toLowerCase())
+    if (at === -1) continue
+    arranged.push({ title: heading, content: rest[at].content })
+    rest.splice(at, 1)
+  }
+  return [...arranged, ...rest]
+}
+
 function noteBody(
   meeting: Meeting,
   summary: MeetingSummary,
   parsed: ParsedSummary,
-  includeTranscript: boolean,
+  options: Pick<PlanOptions, 'includeTranscript' | 'template'>,
   imported: number,
   listed: number
 ): string {
@@ -207,23 +251,28 @@ function noteBody(
       `- **Referat meeting:** \`${provenanceReference(meeting.id)}\``
     ].join('\n')
   ]
+  const sections: NoteSection[] = []
   const section = (title: string, content: string): void => {
-    if (content.trim() !== '') parts.push(`## ${title}\n\n${demoteHeadings(content, 3)}`)
+    if (content.trim() !== '') sections.push({ title, content })
   }
-  const { sections, preamble, other } = parsed
-  if (sections.summary !== undefined) {
+  const { preamble, other } = parsed
+  const found = parsed.sections
+  if (found.summary !== undefined) {
     if (preamble !== '') parts.push(demoteHeadings(preamble, 3))
-    section(SECTION_TITLES.summary, sections.summary)
+    section(SECTION_TITLES.summary, found.summary)
   } else {
     section(SECTION_TITLES.summary, preamble)
   }
-  if (sections.decisions !== undefined) {
-    section(SECTION_TITLES.decisions, `${sections.decisions}${draftsSentence(imported, listed)}`)
+  if (found.decisions !== undefined) {
+    section(SECTION_TITLES.decisions, `${found.decisions}${draftsSentence(imported, listed)}`)
   }
-  section(SECTION_TITLES.actionItems, sections.actionItems ?? '')
-  section(SECTION_TITLES.openQuestions, sections.openQuestions ?? '')
+  section(SECTION_TITLES.actionItems, found.actionItems ?? '')
+  section(SECTION_TITLES.openQuestions, found.openQuestions ?? '')
   for (const item of other) section(plainText(item.heading) || 'Notes', item.content)
-  if (includeTranscript) section('Transcript', transcriptMarkdown(meeting))
+  if (options.includeTranscript) section('Transcript', transcriptMarkdown(meeting))
+  for (const { title, content } of arrangeSections(sections, options.template ?? null)) {
+    parts.push(`## ${title}\n\n${demoteHeadings(content, 3)}`)
+  }
   return `${parts.join('\n\n')}\n`
 }
 
@@ -274,14 +323,7 @@ export function buildImportPlan(meeting: Meeting, options: PlanOptions): ImportP
     baseId: noteBaseId(date, title),
     title,
     metadata: { title, type: 'project', status: 'active', scope, provenance },
-    body: noteBody(
-      meeting,
-      summary,
-      parsed,
-      options.includeTranscript,
-      chosen.length,
-      candidates.length
-    )
+    body: noteBody(meeting, summary, parsed, options, chosen.length, candidates.length)
   }
   const decisions: PlannedRecord[] = chosen.map((candidate) => ({
     kind: 'decision',

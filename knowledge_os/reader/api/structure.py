@@ -192,7 +192,12 @@ def _deletion_json(plan: DeletePlan) -> dict[str, Any]:
             notes.append(labels["decision_draft"])
         elif plan.records[0].status == "archived":
             notes.append(labels["decision_withdrawn"])
-    if other_files:
+    for files, key in ((plan.attachments, "attachments"), (plan.kept_attachments, "kept_attachments")):
+        if len(files) == 1:
+            notes.append(labels[f"{key}_one"].format(name=files[0].rsplit("/", 1)[-1]))
+        elif files:
+            notes.append(labels[key].format(count=len(files)))
+    if folder and other_files:
         other = (
             labels["folder_other_files_one"]
             if other_files == 1
@@ -216,6 +221,8 @@ def _deletion_json(plan: DeletePlan) -> dict[str, Any]:
         "deletable": plan.deletable,
         "records": [{"id": record.id, "title": record.title, "path": record.path} for record in plan.records],
         "other_files": other_files,
+        "attachments": list(plan.attachments),
+        "kept_attachments": list(plan.kept_attachments),
         "cleaned": [
             {"id": item.id, "title": item.title, "path": item.path, "fields": list(item.fields)}
             for item in plan.referrers

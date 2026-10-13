@@ -1,0 +1,33 @@
+name: Evaluate search models
+
+# Runs tooling/eval_search_models.py, which compares candidate embedding models
+# for local semantic search on a bilingual test set (issue #102). Run it by
+# hand from the Actions tab; the results are in the job log.
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: Candidate keys separated by spaces (empty runs every candidate)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install onnxruntime tokenizers numpy huggingface_hub
+      - name: Evaluate
+        env:
+          MODELS: ${{ inputs.models }}
+        run: |
+          set -euo pipefail
+          [[ "$MODELS" =~ ^[a-z0-9.\ -]*$ ]] || { echo "bad model list"; exit 1; }
+          python tooling/eval_search_models.py $MODELS

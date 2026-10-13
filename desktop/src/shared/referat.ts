@@ -104,6 +104,8 @@ export interface ImportedRecord {
   title: string
   /** Short commit hash, or why nothing was committed. */
   commit: string
+  /** It waits for review in the app's Decide inbox and does not exist yet. */
+  waiting: boolean
 }
 
 export interface NotImportedRecord {

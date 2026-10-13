@@ -27,6 +27,8 @@ DISCOVERY_TRANSITIONS = {
 CONFIDENCE_VALUES = {"low", "medium", "high"}
 DISCOVERY_ONLY_FIELDS = {"evidence", "origin", "confidence", "reviews"}
 RECORD_KIND_TYPES = {"knowledge", "project"}
+COMMIT_PATTERN = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+REPOSITORY_FIELDS = {"path", "remote", "checked", "checked_on"}
 RECORD_KINDS = {"ordinary", "decision"}
 DECISION_ACCEPTANCE_KIND = "decision-acceptance"
 DECISION_WITHDRAWAL_KIND = "decision-withdrawal"
@@ -50,6 +52,7 @@ ALLOWED_FIELDS = {
     "origin",
     "confidence",
     "reviews",
+    "repositories",
 }
 RELATION_FIELDS = ("related", "sources", "supersedes")
 
@@ -220,6 +223,35 @@ def _validate_reviews(value: Any, created: date, updated: date) -> list[date]:
     return review_dates
 
 
+def _validate_repositories(value: Any) -> None:
+    """A project overview's linked code repositories (issue #84): where each
+    one is on this computer, optionally its remote, and the commit its
+    documentation was last checked against."""
+
+    if not isinstance(value, list) or not value:
+        raise MetadataError("repositories must be a non-empty list")
+    paths: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise MetadataError(f"repositories[{index}] must be an object")
+        unknown = sorted(set(item) - REPOSITORY_FIELDS, key=str)
+        if unknown:
+            raise MetadataError(f"repositories[{index}] has unknown field(s): {', '.join(map(str, unknown))}")
+        repo_path = _string(item.get("path"), f"repositories[{index}].path")
+        if repo_path in paths:
+            raise MetadataError(f"repositories lists {repo_path!r} more than once")
+        paths.add(repo_path)
+        if "remote" in item:
+            _string(item["remote"], f"repositories[{index}].remote")
+        if "checked" in item:
+            if not isinstance(item["checked"], str) or not COMMIT_PATTERN.fullmatch(item["checked"]):
+                raise MetadataError(f"repositories[{index}].checked must be a full commit hash")
+        if "checked_on" in item:
+            _date(item["checked_on"], f"repositories[{index}].checked_on")
+        if ("checked" in item) != ("checked_on" in item):
+            raise MetadataError(f"repositories[{index}] needs both checked and checked_on, or neither")
+
+
 def validate_metadata(metadata: Any, path: Path, *, check_filename: bool = True) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         raise MetadataError("frontmatter must be a YAML object")
@@ -294,6 +326,10 @@ def validate_metadata(metadata: Any, path: Path, *, check_filename: bool = True)
             _id_list(metadata[field], field)
     if "extensions" in metadata and not isinstance(metadata["extensions"], dict):
         raise MetadataError("extensions must be an object")
+    if "repositories" in metadata:
+        if record_type != "project" or scope != f"project:{record_id}":
+            raise MetadataError("repositories is only allowed on a project overview")
+        _validate_repositories(metadata["repositories"])
 
     if record_type != "discovery":
         unexpected_discovery_fields = sorted(DISCOVERY_ONLY_FIELDS.intersection(metadata), key=str)

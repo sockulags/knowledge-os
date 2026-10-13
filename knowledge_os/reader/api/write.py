@@ -37,17 +37,19 @@ from urllib.parse import urlsplit
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .. import markdown
+from .. import markdown, strings
 from ..app import get_library, json_response
 from ..library import (
     AgentIdentity,
     CommitOutcome,
+    ProposedWrite,
     SupersedeWriteResult,
     WriteError,
     WriteResult,
     accept_record,
     create_record,
     edit_record,
+    file_resolver,
     path_index,
     supersede_record,
     withdraw_record,
@@ -184,6 +186,25 @@ def _result_json(result: WriteResult) -> dict[str, Any]:
     }
 
 
+def proposed_json(result: ProposedWrite) -> dict[str, Any]:
+    """The answer to a write the review rules held back (``202``): nothing
+    was written to the page; a proposed change waits in Decide."""
+
+    template = strings.REVIEW_WAITING_CREATE if result.action == "create" else strings.REVIEW_WAITING_EDIT
+    return {
+        "status": "proposed",
+        "proposal": {
+            "id": result.proposal_id,
+            "action": result.action,
+            "record_id": result.record_id,
+            "title": result.title,
+            "rule": result.rule,
+            "message": template.format(title=result.title),
+        },
+        "commit": _commit_json(result.commit),
+    }
+
+
 def _commit_json(commit: CommitOutcome | None) -> dict[str, Any] | None:
     if commit is None:
         return None
@@ -229,6 +250,8 @@ async def create_view(request: Request) -> Response:
         )
     except WriteError as exc:
         return _write_error_response(exc)
+    if isinstance(result, ProposedWrite):
+        return json_response(proposed_json(result), status_code=202)
     return json_response(_result_json(result), status_code=201)
 
 
@@ -254,6 +277,8 @@ async def edit_view(request: Request) -> Response:
         )
     except WriteError as exc:
         return _write_error_response(exc)
+    if isinstance(result, ProposedWrite):
+        return json_response(proposed_json(result), status_code=202)
     return json_response(_result_json(result))
 
 
@@ -327,5 +352,10 @@ async def preview_view(request: Request) -> Response:
     except WriteError as exc:
         return _write_error_response(exc)
     resolve = path_index(get_library(request)).get if source_path else None
-    html = markdown.render(strip_leading_h1(body), source_path=source_path, resolve_link=resolve)
+    html = markdown.render(
+        strip_leading_h1(body),
+        source_path=source_path,
+        resolve_link=resolve,
+        resolve_file=file_resolver(request.app.state.workspace),
+    )
     return json_response({"html": html})

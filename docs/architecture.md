@@ -73,6 +73,14 @@ a metadata-bearing `README.md` root record; ordinary files retain `<id>.md`.
 Folders created through `kos folder create` or the interface always get such a
 root record (see "Structure editing").
 
+Three kinds of files in a workspace are deliberately not records. Page
+templates live in `templates/<name>.md` at the workspace root (see "Page
+templates"), images and other files attached to pages live in an `assets/`
+folder next to the pages that link to them (see "Attachments"), and writes
+held back for review live in `proposals/<id>.md` (see "Configurable
+review"). None is indexed or linted; the workspace scan reads only Markdown below
+the managed roots, and an attachment can never be Markdown.
+
 ## Record metadata
 
 All managed records require `id`, `title`, `type`, `status`, `scope`, `created`,
@@ -116,6 +124,13 @@ Every `project:<slug>` scope present in the corpus must have exactly one usable
 overview with `type: project`, `id: <slug>`, and that same scope. The overview
 must use `draft` or `active` status. `kos lint` enforces this globally;
 context repeats the exact check when resolving its requested project.
+
+A project overview may also carry `repositories`, the code repositories the
+project describes (see "Code repositories and the documentation check"): a
+list of objects with a `path` (absolute, or relative to the knowledge base
+folder), an optional `remote`, and `checked` (a full commit hash) with
+`checked_on` (its date), always together. The field is rejected on any other
+record, and so are unknown keys and a path listed twice.
 
 Discoveries use their own workflow statuses:
 `proposed -> retained | rejected | promoted`. Retained discoveries must be
@@ -437,7 +452,9 @@ body. It writes nothing but requires the same guard and token.
 
 `GET /api/records/{id}` carries an `editing` object for the editor, apart
 from the reader's prose fields: `editable` (the record is a type the routes
-edit), `raw_body` and `metadata` (`title`, `tags`, `related`, `sources`)
+edit; a project overview and a folder's own `README.md` page are editable
+like any other page, since the filename rule's `README.md` exception is
+already checked by the workspace scan), `raw_body` and `metadata` (`title`, `tags`, `related`, `sources`)
 read from the same bytes as `content_sha256`, `path`, `project_id`,
 `folder` (the record's folder below its project directory),
 `body_change_needs_confirmation` (an accepted decision's body changes only
@@ -521,6 +538,138 @@ records only through `POST /api/records`, so the imported note and its draft
 decisions follow capture's rules and the approval policy, and each one is
 auto-committed like any other interface write. The plugin finds an earlier
 import of the same meeting by this reference.
+
+### Configurable review
+
+The accepted approval policy writes notes directly and creates decisions as
+drafts. A knowledge base may send some note writes to review instead, with
+`[[review.rule]]` tables in `knowledge-os.toml` (`knowledge_os/review.py`):
+
+```toml
+[[review.rule]]
+folder = "drafts"      # everything in a drafts/ folder is direct
+action = "direct"
+
+[[review.rule]]
+writer = "agent"       # notes agents write in project acme need review
+project = "acme"
+```
+
+A rule may name `writer` (`agent`, `agent:<client>` for one MCP client such
+as `agent:claude-code`, `referat`, `person`, or `any`, the default),
+`project` (a project id, or `general` for knowledge and memory pages),
+`folder` (a folder inside the project and every folder below it; `""` is the
+top level only), `writes` (`create`, `edit`, or `any`, the default), and
+`action` (`review`, the default, or `direct`). The first matching rule
+decides; no match is direct. A write is an agent's when it carries `agent`,
+Referat's when a create carries `referat-meeting` provenance, and otherwise a
+person's. Rules govern note creates and edits through the local API (the app,
+`kos mcp`, and the Referat import); decisions are never held back, and CLI
+commands write directly. A rule file that cannot be read refuses every write
+it could govern (`422 validation`) instead of letting it through.
+
+A held-back write is validated by applying it to a disposable staged copy of
+the workspace with the direct write's rules, so every refusal is the same as
+before, and is then stored as `proposals/<id>.md`: a frontmatter block with
+`proposal`, `action` (`create` or `edit`), `record`, `title`, `project_path`
+(create) or `base_sha256` (edit: the page's revision the change was made
+against), `proposed_by` (a provenance-shaped entry: the agent, or
+`interface-authored`), `proposed_at`, and `rule` (the sentence naming the
+rule), followed by the page's complete proposed Markdown. It is committed as
+`Propose <title>` or `Propose edit to <title>`, prefixed with the agent's name.
+`POST /api/records` and `PATCH /api/records/{id}` then answer `202` with
+`{"status": "proposed", "proposal": {"id", "action", "record_id", "title",
+"rule", "message"}, "commit"}`, and nothing else is written.
+
+- `GET /api/changes` lists proposed changes, oldest first: `{"heading",
+  "intro", "count", "items", "broken", "policy_error", "labels",
+  "notice_labels"}`. Each item is `{"id", "action", "kind_label", "title",
+  "record": {"id", "exists", "title"}, "excerpt", "project", "proposed_by",
+  "proposed_at", "proposed_display", "proposed_exact", "rule", "effect",
+  "stale", "content_sha256", "actions": {"accept", "discard"}, "outcomes"}`;
+  `stale` is an edit whose page no longer has `base_sha256`, which can only
+  be discarded. `GET /api/nav`'s `decide.count` includes them.
+- `GET /api/changes/{id}` adds `body_html` for a new page, or for an edit
+  `metadata_changes` (`title`, `tags`, `related`, `sources`) and `blocks`, a
+  paragraph diff of the page now (left) against the proposal (right).
+- `POST /api/changes/{id}/accept` and `/discard` take `{"expected_sha256":
+  <content_sha256>}` (a proposal file changed since is `409`). Accepting
+  applies the change with capture's or `kos update`'s rules (an edit whose
+  page changed answers `409 conflict`), removes the proposal, and commits both
+  as `Accept <title>` or `Accept edit to <title>`; discarding commits
+  `Discard proposed <title>`. Accepting is not crash-atomic: if the process
+  stops after the page is written, the proposal remains and accepting it
+  again is refused; discard it.
+- `GET /api/review/check?writer=&project=&folder=&writes=` answers
+  `{"review", "rule"}` without writing.
+
+Decide shows proposed changes above proposed decisions, each with Accept (not
+for a stale edit) and Discard in one click with the same Undo notice as
+decision actions, and `/c/<id>` shows one change in full. When an editor's
+save or a new page is held back, the app opens that page. The MCP tool
+`write_note` answers such a write with `"action": "waiting_for_review"`,
+`"written": false`, the proposal id, and a `next_step` saying a person
+decides in the app. The Referat import asks `review/check` first: when the
+meeting note would be held back, it creates the draft decisions first and
+the note, waiting in Decide, lists them under `related`.
+
+### Page templates
+
+*New page* starts from a template. `knowledge_os/templates.py` defines four
+built-in templates, `blank`, `meeting-notes`, `how-to`, and `decision`
+(Context / Decision / Consequences), and reads `templates/<name>.md` files in
+the workspace, where `<name>` is lowercase kebab-case. A file may start with
+frontmatter holding only `title`, `description`, and `kind` (`note` or
+`decision`; a decision template creates a draft decision); the rest is the
+page's starting text, where `{{date}}` becomes the creation day. A file with
+a built-in template's name replaces it; any other file adds a template after
+the built-in ones. `kos init` writes the three non-blank templates and a
+`README.md` into `templates/`. Templates are not records and are never
+linted, so a broken template cannot block a write: `GET /api/templates`
+answers `{"templates": [{"name", "title", "description", "kind", "body",
+"source": "built-in" | "workspace", "path", "error"}], "folder", "language"}`
+with `{{date}}` filled in and, for a file that cannot be used, the reason in
+`error`. The desktop app's Referat import orders a meeting note's sections by
+the `meeting-notes` template's `## ` headings.
+
+### Attachments
+
+An attachment is an image or other file in an `assets/` folder next to the
+page that links to it, `<page folder>/assets/<name>`, below `projects/`,
+`knowledge/`, or `memory/` (`knowledge_os/attachments.py`). It is linked
+with a relative path, `![diagram](assets/diagram.png)`, so it resolves the
+same way in any Markdown viewer and in Git hosting.
+
+- `POST /api/attachments` stores one file with the write API's guard. Body:
+  `{"filename", "data_base64", "record_id"}` for an existing page, or
+  `{"filename", "data_base64", "project", "folder"}` for a page not written
+  yet. The name is cleaned to lowercase kebab-case with its extension; an
+  identical file already in that `assets/` folder is reused (`created:
+  false`), and another file with the name gets a numeric suffix, so nothing
+  is overwritten. Markdown files and files over 25 MB are refused (`422`).
+  It answers `201` with `{"path", "link", "url", "name", "markdown",
+  "image", "created", "content_sha256", "commit"}`; `link` is relative to
+  the page's folder and `markdown` is what the editor inserts. A stored file
+  is committed as `Attach <name>`.
+- `GET /api/files/{path}` serves a file inside a page root's `assets/`
+  folder and answers `404` for any other path. Images are served inline and
+  every other type as a download; every response carries
+  `X-Content-Type-Options: nosniff` and a `sandbox` Content Security Policy,
+  so a file opened on its own, such as an SVG, cannot run script with the
+  reader's origin.
+
+The reader rewrites a relative image or link whose target is such a file to
+its `/api/files/` URL when it renders a page, an overview, or the editor
+preview.
+
+A page's attachments are the files in its own folder's `assets/` that its
+body links to. Moving a page moves those that no other page links to into
+the destination folder's `assets/` (a numeric suffix when a different file
+has the name; an identical file there is reused and the original removed),
+and deleting a page deletes them; a file another page also links to stays,
+and the moved page's link is rewritten to keep reaching it. An emptied
+`assets/` folder is removed. Moving or deleting a folder takes its `assets/`
+with everything else. `assets` is not accepted as a folder name.
 
 ## Structure editing
 
@@ -658,7 +807,10 @@ links will lead nowhere, and `dialog` the confirmation's finished words from
 `strings.py`. `POST /api/records/{id}/delete` with `{"expected_sha256",
 "expected"}` and `POST /api/projects/{project_id}/folders/delete` with
 `{"path", "expected"}` delete, answering the structure response plus
-`deleted: [path]`. With `expected` (the preview's), any file the deletion
+`deleted: [path]`. A page's preview also lists `attachments`, the files only
+it links to that are deleted with it, and `kept_attachments`, those other
+pages also use (see "Attachments"); the dialog's notes name both. With
+`expected` (the preview's), any file the deletion
 would remove or rewrite that the preview did not show, such as a page added
 to the folder since, answers `409 conflict` and nothing is deleted.
 Refusals answer `422`. The commit is `Delete <title>` or `Delete folder
@@ -692,12 +844,13 @@ into an unrelated project. `kos init` ignores `indexes/catalog.md` and the
 SQLite files; `indexes/` is never committed by the interface, and the status
 warns when generated index files are still tracked.
 
-**Auto-commit.** After each successful interface write (create, edit, accept,
-withdraw, supersede) the adapter commits exactly the paths that write touched
-(`git add --all -- PATHS` then `git commit --only -- PATHS`), so unrelated
-modified, untracked, or staged changes stay as they were. Messages are
-`Create <title>`, `Edit <title>`, `Accept decision <title>`, `Withdraw
-decision <title>`, and `Supersede decision <old title> with <new title>`, and
+**Auto-commit.** After each successful interface write (create, edit, attach,
+accept, withdraw, supersede) the adapter commits exactly the paths that write
+touched (`git add --all -- PATHS` then `git commit --only -- PATHS`), so
+unrelated modified, untracked, or staged changes stay as they were. Messages
+are `Create <title>`, `Edit <title>`, `Attach <file name>`, `Propose
+<title>`, `Accept <title>`, `Discard proposed <title>`, `Accept decision
+<title>`, `Withdraw decision <title>`, and `Supersede decision <old title> with <new title>`, and
 for structure changes `Create project <title>`, `Create folder <title>`,
 `Rename <old> to <new>`, `Move <title> to <folder>` (`<folder> in <project>`
 across projects, the project's title for its top level), `Move folder <title>
@@ -862,8 +1015,12 @@ The accepted `agent-access` decision gives agents a narrow interface: `kos
 mcp` (`knowledge_os/agent_access/`), an MCP server on stdio built on the
 official MCP Python SDK (the optional `mcp` extra, bundled in the desktop
 app's frozen core, so the installed `kos` shim runs it without Python). It
-serves seven tools: `search`, `read_page`, `list_projects`, `list_folder`,
-`write_note`, `propose_decision`, and `list_proposed_decisions`. None accepts,
+serves fourteen tools: `search`, `read_page`, `list_projects`, `list_folder`,
+`write_note`, `propose_decision`, `list_proposed_decisions`,
+`list_proposed_changes`, and `read_proposed_change`, plus the
+documentation check's `check_documentation`, `read_commit`,
+`propose_documentation_decision`, `mark_documentation_checked`, and
+`link_repository` (see "Code repositories and the documentation check"). None accepts,
 withdraws, or supersedes a decision; `write_note` refuses to edit a decision
 (or a source, synthesis, or discovery), and `propose_decision` always creates
 a `draft` decision, optionally declaring `supersedes`. No tool deletes a
@@ -914,6 +1071,82 @@ every acceptance visible. The Claude Code and Codex plugins register the
 server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
 `.codex-plugin/mcp.json`).
 
+The desktop app's own agent (decision `in-app-agent-over-acp`) is one more
+client of this server, not a second interface: the app runs a coding agent
+over the Agent Client Protocol and gives its session `kos mcp --place
+"Knowledge OS app"` as the only MCP server, with the agent's built-in tools
+turned off where the agent allows it. Its writes therefore read "Written by
+Claude Code in Knowledge OS app" and carry the same limits as any agent's. See
+"In-app agents (ACP)" in [`desktop/README.md`](../desktop/README.md).
+
+`kos mcp` for the in-app agent runs as `python -P -m knowledge_os mcp`: the
+agent's working folder is the knowledge base, and `-P` keeps a
+`knowledge_os/` folder in it from shadowing the installed package.
+
+## Code repositories and the documentation check
+
+A project can link the code repositories it describes (issue #84), so its
+pages can be kept in step with the code without rewriting anything silently.
+`knowledge_os/codedocs.py` holds the rules; the core does the deterministic
+part with Git alone, and a person or an agent writes what it suggests.
+
+**Linking.** A link is an entry in the overview's `repositories` (see "Record
+metadata"): the folder, the `origin` remote unless another is given (without
+credentials), and the repository's current commit as `checked`. Checks
+therefore start at the moment of linking. The path is kept as given; a
+relative path resolves against the knowledge base folder, so a knowledge base
+synced to another computer finds the repository when the folders are laid
+out the same, and says "not found on this computer" (with the remote to
+clone) otherwise.
+
+**The check** (`kos code check`, `GET
+/api/projects/{id}/documentation-check`, the MCP tool `check_documentation`)
+writes nothing. For each linked repository it resolves `checked..HEAD`
+(refusing when the checked commit is gone or `HEAD` does not descend from it,
+say after a rewrite or on another branch) and reads, with `git log`, `git
+diff`, `git show`, and `git ls-tree`:
+
+- the commits, oldest first (at most 200 listed);
+- dependencies and commands declared in `pyproject.toml`, `package.json`,
+  `requirements*.txt`, `Cargo.toml`, and `go.mod`, each attributed to the
+  commits whose version of the manifest added or removed it;
+- commands (`argparse` `add_parser`) and API routes (Starlette `Route`,
+  decorator routes such as `@app.get`, and Express-style `app.get`) declared
+  on changed lines of code, attributed with `git log -S`;
+- configuration files and documentation (READMEs, `docs/`, top-level
+  Markdown) added, removed, or changed;
+- modules: code files added or removed, grouped into the shallowest new or
+  removed folder. Tests and built, bundled, or vendored folders are left out.
+
+It then suggests, each with the commits it came from:
+
+- **page updates**: every page of the project (never a decision) that
+  mentions something removed or changed, and the overview when the
+  repository's README changed or when a new dependency, command, route, or
+  module folder is mentioned by no page;
+- **decisions**: a dependency added or removed, or a module folder added or
+  removed. A suggestion whose title matches an existing decision names it.
+
+**Acting on it.** `kos code propose`, `POST
+.../documentation-check/propose`, or `propose_documentation_decision` drafts
+one suggested decision in the project's `decisions/` folder: a `draft`
+decision whose body lists its commits and whose provenance has one
+`repository-commit` entry (`<remote or folder>@<full hash>`) per commit, after
+the writer's own entry. Page updates are ordinary edits under the review
+rules: in the app *Edit*, or *Update with the agent*, which sends the page's
+reasons and commits to the in-app agent; the agent reads the commits with
+`read_commit` (message, files, and diff, cut at 20,000 characters) and names
+them in what it writes. Finally `kos code mark`, `POST
+.../documentation-check/mark`, or `mark_documentation_checked` records the
+head commit the check covered as `checked` (it must descend from the previous
+one), so the next check only looks at what is new.
+
+Linking, unlinking, and recording a check edit the overview through the same
+edit path as any page (one commit each in the app, the review rules apply);
+`GET /api/projects/{id}/repositories` lists the links and whether each folder
+exists here, and `GET .../repositories/commit?repository=&commit=` reads one
+commit.
+
 ## CLI contract
 
 - `kos clone URL PATH [--json] [--cancel-on-stdin-eof]` clones a knowledge base
@@ -923,7 +1156,11 @@ server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
   SHA-256 provenance digest and stable ID; identical input is idempotent.
 - `kos lint` validates workspace version, all managed records, cross-record
   invariants, and all skills.
-- `kos index` validates the corpus and rebuilds `catalog.md` and SQLite FTS5.
+- `kos index` validates the corpus and rebuilds `catalog.md` and SQLite FTS5,
+  and `indexes/semantic.sqlite3` when the search model is installed (see
+  "Search by meaning").
+- `kos model install|status|remove` downloads, reports, or deletes the
+  optional search model; it needs no knowledge base.
 - `kos search QUERY` reads the existing cache for compact audit results,
   including type, record kind, status, scope, path, and snippet.
 - `kos inspect ID` provides compact record metadata and exact content SHA-256;
@@ -957,9 +1194,56 @@ server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
   guidance and the global workspace location after direct authorization.
 - `kos documentation init-repo --repo PATH --project ID[=RELATIVE_PATH]`
   writes one portable repository binding for one or more project scopes.
+- `kos code link PROJECT PATH [--remote URL]`, `kos code unlink PROJECT
+  PATH`, `kos code check PROJECT [--repository PATH] [--since COMMIT]`, `kos
+  code propose PROJECT KEY`, and `kos code mark PROJECT [--commit HASH]` link
+  code repositories and run the documentation check (see "Code repositories
+  and the documentation check"); each takes `--json`.
 - `kos mcp [--place LABEL]` serves the agent tools over MCP on stdio through
   the running desktop app (see "Agent access over MCP"); it ignores `--root`.
 
 Read-only context and review require a current SQLite cache and never rebuild
 it implicitly. `kos index` is always safe to run as the derived-state repair
 step after canonical Markdown has been repaired or a cache has been removed.
+
+## Search by meaning
+
+Decision `local-semantic-search` (issue #102). `knowledge_os/semantic.py` owns
+the optional model and the semantic index:
+
+- **Model.** `semantic.MODEL` pins bge-m3 (quantized ONNX): the Hugging Face
+  revision, the pre-release of this repository that mirrors it
+  (`.github/workflows/mirror-model.yml`), and each file's sha256. `kos model
+  install` or `POST /api/semantic/install` downloads over https into a staging
+  folder, checks every hash, and renames the folder into place under
+  `models_root()` (`KOS_MODELS_DIR`, else `%LOCALAPPDATA%\knowledge-os\models`
+  or `~/.cache/knowledge-os/models`). The runtime is the `search` extra
+  (`onnxruntime`, `tokenizers`, `numpy`), frozen into the desktop core.
+- **Index.** `indexes/semantic.sqlite3` holds one row per passage (at most
+  1,500 characters, starting with the page title and heading; sources are
+  left out) with its text hash and vector, plus the model key and the catalog
+  build it follows. It is disposable and ignored by Git; a rebuild reuses
+  every vector whose passage text did not change and replaces the file
+  atomically. It is written by `kos index` and by the app's background
+  refresh, never while serving a GET.
+- **Search.** A passage matches when its score is at least `min_margin`
+  (0.11) above the median of all passage scores for the query; each page's
+  best passage counts. `library.search_with_meaning` merges these pages with
+  the full-text hits by reciprocal rank fusion (a full-text hit wins a tie)
+  and marks each row `match: text | meaning | both`. `GET /api/search` uses it
+  and reports `semantic.state` (`unavailable`, `off`, `installing`,
+  `failed`, `loading`, `indexing`, `stale`, `ready`); `GET /api/semantic` reports the
+  same with download progress. When a search reports `stale`, the Search page
+  and the MCP `search` tool ask `POST /api/semantic/refresh`, which updates
+  the index in a background thread; searches meanwhile use the older index.
+- **Its own process.** The model never loads in the reader, the MCP server,
+  or `kos index`: loading the native runtime hung a whole process on a
+  Windows work computer. `knowledge_os/semantic_worker.py` starts `kos model
+  serve` (the same program with `-m knowledge_os model serve`, so the frozen
+  core works too), which loads the model and answers JSON lines (`search`,
+  `refresh`) on stdin/stdout. The reader starts it at start when the model is
+  installed; if it has not loaded within 180 seconds, stops, or crashes, it
+  is stopped and `semantic.state` is `failed` with the reason, and search is
+  full-text only. A search waits at most 15 seconds for it. Asking to
+  download the model again (`POST /api/semantic/install`) retries a failed
+  worker. The worker exits when its stdin closes, that is, with the app.

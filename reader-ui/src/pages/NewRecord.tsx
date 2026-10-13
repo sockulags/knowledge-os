@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { api } from "../api/client";
-import type { WriteFailure } from "../api/types";
-import { interfaceReference, write } from "../api/write";
+import type { PageTemplate, TemplatesPayload, WriteFailure } from "../api/types";
+import { interfaceReference, isProposed, write } from "../api/write";
 import { useApi } from "../hooks/useApi";
 import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { useShell } from "../components/Shell";
@@ -14,6 +14,10 @@ import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { WriteFailureCallout } from "../components/WriteFailureCallout";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Bot, Loader2 } from "lucide-react";
+import { agentBridge } from "../lib/agentBridge";
+import { agentStore, useAgent } from "../lib/agentStore";
 import {
   Field,
   PrimaryButton,
@@ -43,7 +47,8 @@ function cleanFolder(folder: string): string {
 }
 
 /** Create a page in a project: an ordinary note (written directly, in force)
- * or a decision (always a proposal until someone accepts it). Opened with
+ * or a decision (always a proposal until someone accepts it), started from a
+ * template (`?template=<name>` picks one). Opened with
  * `?kind=decision&supersedes=<id>` it proposes a replacement for that
  * decision. */
 export function NewRecord() {
@@ -66,7 +71,8 @@ export function NewRecord() {
       projectTitle={data.title}
       breadcrumb={[...data.breadcrumb, { label: data.title, href: `/p/${data.id}` }]}
       initialFolder={params.get("folder") ?? ""}
-      isDecision={params.get("kind") === "decision"}
+      askedForDecision={params.get("kind") === "decision"}
+      initialTemplate={params.get("template")}
       supersedes={params.get("supersedes")}
     />
   );
@@ -77,18 +83,20 @@ function NewRecordForm({
   projectTitle,
   breadcrumb,
   initialFolder,
-  isDecision,
+  askedForDecision,
+  initialTemplate,
   supersedes,
 }: {
   projectId: string;
   projectTitle: string;
   breadcrumb: { label: string; href: string }[];
   initialFolder: string;
-  isDecision: boolean;
+  askedForDecision: boolean;
+  initialTemplate: string | null;
   supersedes: string | null;
 }) {
   const navigate = useNavigate();
-  const { refreshNav } = useShell();
+  const { refreshNav, nav } = useShell();
   const [title, setTitle] = useState("");
   const [id, setId] = useState("");
   const [idEdited, setIdEdited] = useState(false);
@@ -98,10 +106,52 @@ function NewRecordForm({
   const [body, setBody] = useState("");
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<WriteFailure | null>(null);
+  // Attached files are stored next to the page, so once one is linked the
+  // folder cannot change without breaking the link.
+  const [folderLocked, setFolderLocked] = useState(false);
+  const templates = useApi(() => api.templates(), []);
+  const [template, setTemplate] = useState<PageTemplate | null>(null);
+  const [pendingTemplate, setPendingTemplate] = useState<PageTemplate | null>(null);
+
+  // A replacement is always a decision; otherwise the template decides, and
+  // until templates load, `?kind=decision` does.
+  const isDecision = supersedes !== null || (template ? template.kind === "decision" : askedForDecision);
+  const templateText = template?.body ?? "";
+
+  // Start from the requested template, the decision template for
+  // `?kind=decision`, or the blank page, once the list has loaded.
+  useEffect(() => {
+    if (!templates.data || template) return;
+    const usable = usableTemplates(templates.data, supersedes !== null);
+    const wanted = initialTemplate ?? (askedForDecision || supersedes ? "decision" : "blank");
+    const chosen =
+      usable.find((item) => item.name === wanted) ??
+      (askedForDecision || supersedes ? usable.find((item) => item.kind === "decision") : undefined) ??
+      usable[0];
+    if (!chosen) return;
+    setTemplate(chosen);
+    setBody((current) => (current.trim() === "" ? chosen.body : current));
+  }, [templates.data, template, initialTemplate, askedForDecision, supersedes]);
+
+  function chooseTemplate(next: PageTemplate) {
+    if (next.name === template?.name) return;
+    // Replacing text the person wrote needs a yes; the untouched text of the
+    // previous template does not.
+    if (body.trim() !== "" && body !== templateText) {
+      setPendingTemplate(next);
+      return;
+    }
+    setTemplate(next);
+    setBody(next.body);
+  }
 
   const replaced = useApi(() => (supersedes ? api.record(supersedes) : Promise.resolve(null)), [supersedes]);
   const effectiveId = idEdited ? id : slugify(title);
-  const dirty = title.trim() !== "" || body.trim() !== "" || tags.trim() !== "" || related.trim() !== "";
+  const dirty =
+    title.trim() !== "" ||
+    (body.trim() !== "" && body !== templateText) ||
+    tags.trim() !== "" ||
+    related.trim() !== "";
   const { blocker, allowNextNavigation } = useUnsavedChanges(dirty && !saving);
   const canSave = title.trim() !== "" && effectiveId !== "" && body.trim() !== "" && !saving;
 
@@ -140,7 +190,8 @@ function NewRecordForm({
     if (outcome.ok) {
       allowNextNavigation();
       refreshNav();
-      navigate(`/r/${outcome.data.id}`);
+      // Held back by the review rules: show the proposed change instead.
+      navigate(isProposed(outcome.data) ? `/c/${outcome.data.proposal.id}` : `/r/${outcome.data.id}`);
     } else {
       setSaving(false);
       setFailure(outcome.failure);
@@ -177,6 +228,30 @@ function NewRecordForm({
       {failure && <WriteFailureCallout failure={failure} />}
 
       <div className="space-y-4">
+        {!supersedes && agentBridge() !== null && (
+          <StartWithAgent
+            context={{
+              workspaceName: nav?.workspace_name ?? null,
+              page: null,
+              project: { id: projectId, title: projectTitle },
+            }}
+            replacesText={body.trim() !== "" && body !== templateText}
+            onDraft={(draft) => {
+              if (draft.title) {
+                setTitle(draft.title);
+              }
+              if (draft.body) setBody(draft.body);
+            }}
+          />
+        )}
+        {templates.data && (
+          <TemplatePicker
+            payload={templates.data}
+            chosen={template}
+            decisionsOnly={supersedes !== null}
+            onChoose={chooseTemplate}
+          />
+        )}
         <Field label="Title">
           <input
             className={`${inputClass} font-serif text-[18px] font-semibold`}
@@ -197,8 +272,20 @@ function NewRecordForm({
               }}
             />
           </Field>
-          <Field label="Folder" hint={`Inside ${projectTitle}. Leave empty for the top level.`}>
-            <input className={`${inputClass} font-mono`} value={folder} onChange={(event) => setFolder(event.target.value)} />
+          <Field
+            label="Folder"
+            hint={
+              folderLocked
+                ? "Files are attached in this folder, so the page is created here."
+                : `Inside ${projectTitle}. Leave empty for the top level.`
+            }
+          >
+            <input
+              className={`${inputClass} font-mono`}
+              value={folder}
+              readOnly={folderLocked}
+              onChange={(event) => setFolder(event.target.value)}
+            />
           </Field>
           <Field label="Tags" hint="Comma separated">
             <input className={inputClass} value={tags} onChange={(event) => setTags(event.target.value)} />
@@ -207,10 +294,160 @@ function NewRecordForm({
             <input className={inputClass} value={related} onChange={(event) => setRelated(event.target.value)} />
           </Field>
         </div>
-        <MarkdownEditor value={body} onChange={setBody} />
+        <MarkdownEditor
+          value={body}
+          onChange={(next) => {
+            // A link into this folder's assets/ ties the page to the folder.
+            if (!folderLocked && /\]\(assets\//.test(next)) setFolderLocked(true);
+            setBody(next);
+          }}
+          path={`projects/${projectId}/${cleanFolder(folder) ? `${cleanFolder(folder)}/` : ""}${effectiveId || "new-page"}.md`}
+          attachTo={{ project: projectId, folder: cleanFolder(folder) }}
+        />
       </div>
 
       <UnsavedChangesDialog blocker={blocker} />
+      {pendingTemplate && templates.data && (
+        <ConfirmDialog
+          title={templates.data.language.replace_title}
+          confirmLabel={templates.data.language.replace_confirm}
+          cancelLabel={templates.data.language.replace_cancel}
+          onConfirm={() => {
+            setTemplate(pendingTemplate);
+            setBody(pendingTemplate.body);
+            setPendingTemplate(null);
+          }}
+          onCancel={() => setPendingTemplate(null)}
+        >
+          {templates.data.language.replace_body.replace("{title}", pendingTemplate.title)}
+        </ConfirmDialog>
+      )}
     </div>
+  );
+}
+
+/** The templates a page can start from: every one that can be used, and only
+ * decision templates for a proposed replacement. */
+function usableTemplates(payload: TemplatesPayload, decisionsOnly: boolean): PageTemplate[] {
+  return payload.templates.filter((item) => item.error === null && (!decisionsOnly || item.kind === "decision"));
+}
+
+/** Ctrl+N's agent start: one line in, a drafted title and body out, which the
+ * person then reviews and saves. The agent writes nothing itself. */
+function StartWithAgent({
+  context,
+  replacesText,
+  onDraft,
+}: {
+  context: Parameters<typeof agentStore.compose>[1];
+  replacesText: boolean;
+  onDraft: (draft: { title: string; body: string }) => void;
+}) {
+  const agent = useAgent();
+  const [request, setRequest] = useState("");
+  const [working, setWorking] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void agentStore.refresh();
+  }, []);
+
+  const chosen = agent.providers?.find((item) => item.id === agent.providerId) ?? null;
+  const ready = chosen !== null && chosen.state === "ready" && chosen.adapterInstalled;
+
+  async function draft() {
+    if (request.trim() === "" || working) return;
+    if (replacesText && !window.confirm("Replace the text you have written with the agent's draft?")) return;
+    setWorking(true);
+    setMessage(null);
+    const result = await agentStore.compose(request, context);
+    setWorking(false);
+    if (result === null || (result.title === "" && result.body === "")) {
+      setMessage(agentStore.snapshot().error ?? "The agent did not return a draft. Open the agent panel (Ctrl+J) to see why.");
+      return;
+    }
+    onDraft(result);
+  }
+
+  return (
+    <div className="kos-card px-4 py-3">
+      <label className="block">
+        <span className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-(--color-text-muted)">
+          <Bot size={14} />
+          Start with the agent
+        </span>
+        <div className="flex gap-2">
+          <input
+            className={`${inputClass} min-w-0 flex-1`}
+            value={request}
+            onChange={(event) => setRequest(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void draft();
+              }
+            }}
+            placeholder={ready ? "Describe the page in one line" : "Set up the agent in the agent panel (Ctrl+J) first"}
+            disabled={!ready || working}
+          />
+          <SecondaryButton onClick={() => void draft()}>
+            {working ? <Loader2 size={14} className="animate-spin" /> : "Draft"}
+          </SecondaryButton>
+        </div>
+      </label>
+      <p className="mt-1.5 text-xs text-(--color-text-faint)">
+        {message ?? "The agent drafts the title and text from the knowledge base; nothing is saved until you create the page."}
+      </p>
+    </div>
+  );
+}
+
+function TemplatePicker({
+  payload,
+  chosen,
+  decisionsOnly,
+  onChoose,
+}: {
+  payload: TemplatesPayload;
+  chosen: PageTemplate | null;
+  decisionsOnly: boolean;
+  onChoose: (template: PageTemplate) => void;
+}) {
+  const { language } = payload;
+  const shown = payload.templates.filter((item) => !decisionsOnly || item.kind === "decision");
+  if (shown.length < 2) return null;
+  return (
+    <fieldset>
+      <legend className="mb-1.5 block text-[13px] font-medium text-(--color-text-muted)">{language.label}</legend>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4" role="radiogroup" aria-label={language.label}>
+        {shown.map((item) => {
+          const selected = chosen?.name === item.name;
+          const unusable = item.error !== null;
+          const origin = item.path ? language.own.replace("{path}", item.path) : language.built_in;
+          return (
+            <button
+              key={item.name}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={unusable}
+              title={unusable ? language.unusable.replace("{error}", item.error ?? "") : origin}
+              onClick={() => onChoose(item)}
+              className={`flex flex-col items-start justify-start rounded-md border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55 ${
+                selected
+                  ? "border-(--color-accent) bg-(--color-accent-ink-bg)"
+                  : "border-(--color-border) hover:border-(--color-border-strong)"
+              }`}
+            >
+              <span className="block text-sm font-medium text-(--color-text)">{item.title}</span>
+              <span className="mt-0.5 block text-xs leading-snug text-(--color-text-faint)">
+                {unusable ? language.unusable.replace("{error}", item.error ?? "") : item.description}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-1.5 text-xs text-(--color-text-faint)">{language.hint}</p>
+    </fieldset>
   );
 }

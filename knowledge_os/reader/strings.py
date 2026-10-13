@@ -367,6 +367,7 @@ QUICK_FIND_GROUPS: dict[str, str] = {
     "skills": "Skills",
     "docs": "Repository documents",
     "text": "Found in the text",
+    "meaning": "Similar in meaning",
 }
 
 #: What each palette row is, next to its title. Decisions say their state
@@ -582,6 +583,26 @@ SEARCH_CLEAR_LABEL = "Clear filters"
 #: pluralized, not a bare "(s)".
 SEARCH_RESULT_COUNT_SINGULAR = "1 matching record"
 SEARCH_RESULT_COUNT_PLURAL = "{count} matching records"
+
+#: Search by meaning (issue #102): the label on a result found only because
+#: its content is close in meaning, not because the words match.
+SEARCH_MATCH_MEANING_LABEL = "Similar in meaning"
+SEARCH_MATCH_MEANING_HINT = "Found by meaning: the page does not contain these exact words."
+#: The Search page's note on search by meaning, per ``library.SemanticStatus.state``.
+SEMANTIC_STATE_MESSAGES: dict[str, str] = {
+    "unavailable": "",
+    "off": "Search also finds pages by meaning, in any language, once a search model is downloaded ({size}, stays on this computer).",
+    "installing": "Downloading the search model...",
+    "failed": "Search by meaning could not start; search finds exact words only.",
+    "loading": "Loading the search model...",
+    "indexing": "Reading your pages for search by meaning...",
+    "stale": "Search by meaning is catching up with recent changes.",
+    "ready": "Search also finds pages by meaning.",
+}
+SEMANTIC_INSTALL_LABEL = "Download search model"
+SEMANTIC_INSTALL_FAILED = "The search model could not be downloaded: {error}"
+SEMANTIC_LOAD_FAILED = "The search model could not be loaded: {error}"
+SEMANTIC_RETRY_LABEL = "Try again"
 
 #: The type dimension: the six record types the contract allows in the FTS
 #: index (skills are never indexed, so no seventh option is offered here).
@@ -1154,6 +1175,10 @@ DELETE_LABELS: dict[str, str] = {
     "folder_other_files": "and {count} other files",
     "decision_draft": "It is a proposed decision that was never in force.",
     "decision_withdrawn": "It is a withdrawn proposal that was never in force.",
+    "attachments_one": "Its attached file {name} is deleted with it.",
+    "attachments": "Its {count} attached files are deleted with it.",
+    "kept_attachments_one": "The attached file {name} stays, because another page uses it too.",
+    "kept_attachments": "{count} attached files stay, because other pages use them too.",
     "cleaned_heading": "These pages list it under Related or Sources. The reference is removed from them:",
     "linked_heading": "These pages link to it in their text. The links stay but will lead nowhere:",
     "nothing_refers": "No other page refers to it.",
@@ -1183,4 +1208,54 @@ DELETE_BLOCKERS: dict[str, str] = {
     "evidence": "The observation “{other}” cites “{title}” as evidence.",
     "promoted": "“{title}” was started from the observation “{other}”, which points at it.",
     "raw_reference": "The raw material “{other}” refers to “{title}”, and raw material is never changed.",
+}
+
+# ---------------------------------------------------------------------------
+# Page templates (issue #85)
+# ---------------------------------------------------------------------------
+
+#: The template picker on New page. ``{folder}`` is the templates folder.
+TEMPLATES_LANGUAGE: dict[str, str] = {
+    "label": "Start from",
+    "hint": "Templates are Markdown files in the knowledge base's {folder}/ folder; add your own there.",
+    "built_in": "Built in",
+    "own": "From {path}",
+    "unusable": "Cannot be used: {error}",
+    "replace_title": "Replace what you have written?",
+    "replace_body": "Starting from “{title}” replaces the text in the editor with the template's text.",
+    "replace_confirm": "Use template",
+    "replace_cancel": "Keep my text",
+}
+
+# ---------------------------------------------------------------------------
+# Configurable review (issue #86): proposed changes in Decide.
+# ---------------------------------------------------------------------------
+
+REVIEW_WAITING_CREATE = "“{title}” was not written yet: the review rules send it to Decide, where a person accepts or discards it."
+REVIEW_WAITING_EDIT = "The edit to “{title}” was not applied yet: the review rules send it to Decide, where a person accepts or discards it."
+CHANGES_HEADING = "Proposed changes"
+CHANGES_INTRO = "Notes the review rules held back. Accepting writes them; discarding drops them."
+CHANGES_NEW_PAGE = "New page"
+CHANGES_EDIT = "Edit"
+CHANGES_EFFECT_CREATE = "Accepting creates the page in {place}."
+CHANGES_EFFECT_EDIT = "Accepting replaces the current text of “{title}”."
+CHANGES_STALE = "“{title}” changed after this edit was proposed, so it can only be discarded."
+CHANGES_POLICY_ERROR = "The review rules in knowledge-os.toml cannot be used: {error}. Until they are fixed, writes they would govern are refused."
+CHANGES_BROKEN = "{path} cannot be read: {error}"
+
+#: Words for the proposed-change actions and their Undo notices.
+CHANGE_LABELS: dict[str, str] = {
+    "accept": "Accept",
+    "discard": "Discard",
+    "show": "Show the change",
+    "accepted_create": "Created “{title}”.",
+    "accepted_edit": "Applied the edit to “{title}”.",
+    "discarded": "Discarded the proposed change to “{title}”.",
+    "stale": "The page changed after this edit was proposed. Discard it; it can be proposed again.",
+    "rule": "Held back by",
+    "metadata_heading": "Changed fields",
+    "body_heading": "Text",
+    "no_body_change": "The text is unchanged.",
+    "current": "Now",
+    "proposed": "Proposed",
 }

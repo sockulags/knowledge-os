@@ -33,6 +33,8 @@ describe('buildMenus', () => {
     expect(menus.map((menu) => menu.label)).toEqual(['File', 'View', 'Referat', 'Help'])
     const file = menus[0].items.map((item) => item.label ?? '—')
     expect(file).toEqual([
+      'New Page',
+      '—',
       'Open Knowledge Base…',
       'New Knowledge Base…',
       'Clone Knowledge Base…',
@@ -55,9 +57,9 @@ describe('buildMenus', () => {
   })
 
   it('lists recent knowledge bases, or says there are none', () => {
-    const recent = buildMenus(base)[0].items[3].submenu ?? []
+    const recent = buildMenus(base)[0].items[5].submenu ?? []
     expect(recent).toEqual([{ command: 'file:recent:0', label: 'kb  (D:\\kb)' }])
-    const none = buildMenus({ ...base, recent: [] })[0].items[3].submenu ?? []
+    const none = buildMenus({ ...base, recent: [] })[0].items[5].submenu ?? []
     expect(none).toEqual([{ label: 'No recent knowledge bases', enabled: false }])
     expect(recentIndex('file:recent:0')).toBe(0)
     expect(recentIndex('file:open')).toBeNull()
@@ -78,10 +80,16 @@ describe('buildMenus', () => {
 describe('menuViews', () => {
   it('shows shortcuts the Windows way and marks checkboxes and submenus', () => {
     const [file, view] = menuViews(buildMenus(base))
-    expect(file.items[0]).toMatchObject({ id: COMMAND.open, accelerator: 'Ctrl+O', enabled: true })
-    expect(file.items[3]).toMatchObject({ type: 'submenu', id: '' })
-    expect(file.items[4]).toMatchObject({ type: 'checkbox', checked: true })
-    expect(file.items[5].type).toBe('separator')
+    expect(file.items[0]).toMatchObject({
+      id: COMMAND.newPage,
+      accelerator: 'Ctrl+N',
+      enabled: false
+    })
+    expect(file.items[2]).toMatchObject({ id: COMMAND.open, accelerator: 'Ctrl+O', enabled: true })
+    expect(file.items[3]).toMatchObject({ id: COMMAND.create, accelerator: 'Ctrl+Shift+N' })
+    expect(file.items[5]).toMatchObject({ type: 'submenu', id: '' })
+    expect(file.items[6]).toMatchObject({ type: 'checkbox', checked: true })
+    expect(file.items[7].type).toBe('separator')
     expect(view.items.find((item) => item.id === COMMAND.zoomIn)?.accelerator).toBe('Ctrl++')
   })
 })
@@ -103,6 +111,14 @@ describe('matchAccelerator', () => {
       COMMAND.devTools
     )
     expect(matchAccelerator(press('F11'), menus)).toBe(COMMAND.fullScreen)
+  })
+
+  it('makes Ctrl+N a new page and Ctrl+J the agent only while a knowledge base is open', () => {
+    expect(matchAccelerator(press('n', { control: true }), menus)).toBeNull()
+    expect(matchAccelerator(press('N', { control: true, shift: true }), menus)).toBe(COMMAND.create)
+    const open = buildMenus({ ...base, workspaceOpen: true })
+    expect(matchAccelerator(press('n', { control: true }), open)).toBe(COMMAND.newPage)
+    expect(matchAccelerator(press('j', { control: true }), open)).toBe(COMMAND.agent)
   })
 
   it('accepts both = and + for zoom in', () => {
@@ -128,8 +144,8 @@ describe('nativeTemplate', () => {
     const ran: string[] = []
     const template = nativeTemplate(buildMenus(base), (command) => ran.push(command))
     const file = template[0].submenu as Electron.MenuItemConstructorOptions[]
-    expect(file[0]).toMatchObject({ label: 'Open Knowledge Base…', accelerator: 'CmdOrCtrl+O' })
-    file[0].click?.({} as never, undefined, {} as never)
+    expect(file[2]).toMatchObject({ label: 'Open Knowledge Base…', accelerator: 'CmdOrCtrl+O' })
+    file[2].click?.({} as never, undefined, {} as never)
     expect(ran).toEqual([COMMAND.open])
   })
 })

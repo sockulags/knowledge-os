@@ -187,6 +187,33 @@ class WriteApiTests(unittest.TestCase):
         self.assertEqual(status, 200, second)
         self.assertNotIn("tags:", (self.root / "knowledge" / "edited-note.md").read_text(encoding="utf-8"))
 
+    def test_folder_and_overview_pages_are_editable(self) -> None:
+        # A README.md page is not named after its ID; that must not make the
+        # folder's own page or the project overview read as not editable.
+        status, created = self.write(
+            "POST", f"/api/projects/{FIXTURE_PROJECT_ID}/folders", {"path": "editable-folder", "title": "Editable folder"}
+        )
+        self.assertEqual(status, 201, created)
+        for record_id in (created["id"], FIXTURE_PROJECT_ID):
+            status, page = _request(self.base_url, "GET", f"/api/records/{record_id}")
+            self.assertEqual(status, 200, page)
+            editing = page["editing"]
+            self.assertTrue(editing["editable"], record_id)
+            self.assertIsNotNone(editing["raw_body"])
+            self.assertEqual(editing["content_sha256"], self.sha(editing["path"]))
+
+        relative = f"projects/{FIXTURE_PROJECT_ID}/editable-folder/README.md"
+        status, result = self.write(
+            "PATCH",
+            f"/api/records/{created['id']}",
+            {"expected_sha256": self.sha(relative), "metadata": {"title": "Renamed folder"}, "body": "Folder page.\n"},
+        )
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["path"], relative)
+        text = (self.root / relative).read_text(encoding="utf-8")
+        self.assertIn("title: Renamed folder", text)
+        self.assertTrue(text.endswith("Folder page.\n"))
+
     def test_stale_hash_is_a_conflict_and_writes_nothing(self) -> None:
         self.assertEqual(self.create(_note("stale-note"))[0], 201)
         stale = self.sha("knowledge/stale-note.md")

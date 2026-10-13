@@ -29,12 +29,14 @@ edited while the server is running is visible on the next request
 from __future__ import annotations
 
 import hashlib
+import posixpath
 import re
 import sqlite3
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
+from urllib.parse import quote
 
 from knowledge_os.capture import (
     CAPTURE_DIRECTORIES,
@@ -43,7 +45,13 @@ from knowledge_os.capture import (
     DuplicateRecordError,
     capture_record_text,
 )
-from knowledge_os import gitsetup, gitsync
+from knowledge_os import codedocs, gitsetup, gitsync, semantic, semantic_worker
+from knowledge_os.attachments import (
+    MAX_ATTACHMENT_BYTES,
+    AttachmentError,
+    add_attachment,
+    is_attachment_path,
+)
 from knowledge_os.agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity, parse_agent_reference
 from knowledge_os.context_policy import trust_label
 from knowledge_os.gitsetup import ConnectOutcome, InitOutcome, RemoteCheck, SetupStatus
@@ -69,7 +77,23 @@ from knowledge_os.mutations import (
     update_record_text,
     withdraw_decision,
 )
+from knowledge_os.review import (
+    BrokenProposal,
+    Proposal,
+    ProposalNotFoundError,
+    ReviewError,
+    ReviewRule,
+    Writer,
+    accept_proposal,
+    discard_proposal,
+    list_proposals,
+    load_policy,
+    load_proposal,
+    needs_review,
+    propose,
+)
 from knowledge_os.skills import Skill, load_skills
+from knowledge_os.templates import Template, fill as fill_template, list_templates
 from knowledge_os.structure import (
     ChangedFile,
     DeleteBlocker,
@@ -152,6 +176,25 @@ __all__ = [
     "folder_deletion_plan",
     "delete_page",
     "delete_folder",
+    # Page templates and attachments (issue #85).
+    "Template",
+    "page_templates",
+    # Configurable review (issue #86).
+    "Proposal",
+    "BrokenProposal",
+    "ProposedWrite",
+    "ReviewRule",
+    "review_policy",
+    "review_check",
+    "proposed_changes",
+    "proposed_change",
+    "accept_change",
+    "discard_change",
+    "AttachResult",
+    "attach_file",
+    "attachment_file",
+    "file_resolver",
+    "MAX_ATTACHMENT_BYTES",
     # Agent writes (the MCP server, issue #59): the identity the write API
     # accepts and the parser the reader uses to name the agent.
     "AgentIdentity",
@@ -410,7 +453,7 @@ def _broken_records(
             continue
         message = issue.message
         try:
-            parse_document(issue.path)
+            parse_document(issue.path, check_filename=issue.path.name != "README.md")
         except MetadataError as exc:
             message = str(exc)
         except OSError:
@@ -565,6 +608,125 @@ def search(workspace: Workspace, query: str, limit: int = 50) -> list[dict[str, 
     return results
 
 
+@dataclass(frozen=True)
+class SemanticStatus:
+    """Where search by meaning stands for this process and workspace.
+
+    ``state`` is one of ``"unavailable"`` (this build has no search runtime),
+    ``"off"`` (the model is not installed), ``"installing"``, ``"failed"``
+    (installed but could not be loaded; ``error`` says why), ``"loading"``
+    (installed, being loaded into memory), ``"indexing"`` (pages are being
+    embedded), ``"stale"`` (the index is behind the pages; search by meaning
+    uses the older index until it is refreshed), or ``"ready"``."""
+
+    state: str
+    size: str
+    done_bytes: int
+    total_bytes: int
+    error: str | None
+
+
+def semantic_status(workspace: Workspace) -> SemanticStatus:
+    spec = semantic.MODEL
+    install = semantic.install_state()
+    worker_state, worker_error = semantic_worker.status()
+    if not semantic.runtime_available():
+        state = "unavailable"
+    elif install.running:
+        state = "installing"
+    elif not semantic.is_installed():
+        state = "off"
+    elif worker_state == "failed":
+        state = "failed"
+    elif semantic_worker.refreshing(workspace):
+        state = "indexing"
+    elif not semantic.is_current(workspace):
+        state = "stale"
+    elif worker_state != "ready":
+        state = "loading"
+    else:
+        state = "ready"
+    error = worker_error if state == "failed" else install.error
+    return SemanticStatus(state, spec.size, install.done_bytes, spec.total_bytes, error)
+
+
+def preload_semantic() -> None:
+    """Start the search model's own process when the model is installed, so
+    the first search by meaning does not wait for it. The model never loads
+    in this process (see ``knowledge_os.semantic_worker``)."""
+
+    semantic_worker.start_in_background()
+
+
+def refresh_semantic_index(workspace: Workspace) -> SemanticStatus:
+    """Start bringing ``indexes/semantic.sqlite3`` up to date in the
+    background. It is a disposable index like the catalog; only the write
+    API calls this, so serving pages never writes to the workspace. A worker
+    that failed is tried again only by ``install_semantic_model``."""
+
+    semantic_worker.start_in_background()
+    semantic_worker.refresh_in_background(workspace)
+    return semantic_status(workspace)
+
+
+def install_semantic_model(workspace: Workspace) -> SemanticStatus:
+    """Start downloading the search model (see ``semantic.MODEL``) in the
+    background, then index this workspace with it. With the model already
+    installed, this tries a worker that failed again."""
+
+    if semantic.is_installed():
+        semantic_worker.start_in_background(retry=True)
+        semantic_worker.refresh_in_background(workspace, retry=True)
+    else:
+        semantic.install_in_background(after=lambda: semantic_worker.refresh_in_background(workspace, retry=True))
+    return semantic_status(workspace)
+
+
+def remove_semantic_model() -> None:
+    semantic.remove_model()
+
+
+def search_with_meaning(workspace: Workspace, library: Library, query: str, limit: int = 50) -> list[dict[str, str]]:
+    """Full-text hits (``search``) merged with pages that match ``query`` by
+    meaning, best first. Every row has the keys of a ``search`` row plus
+    ``match``: ``"text"``, ``"meaning"``, or ``"both"``. A row found only by
+    meaning carries the matched passage as ``snippet``, with no ``[match]``
+    markers, and ``snippet_is_passage`` set. Without the model, its runtime,
+    or an index, this is exactly ``search``. It never writes; a stale index
+    is used as it is (see ``refresh_semantic_index``)."""
+
+    rows = search(workspace, query, limit)
+    matches = semantic_worker.search(workspace, query, limit)
+    if not matches:
+        return [{**row, "match": "text"} for row in rows]
+    by_id = {row["id"]: row for row in rows}
+    passage_by_id = {match.record_id: match.passage for match in matches}
+    records = {record.id: record for record in library.records}
+    results: list[dict[str, str]] = []
+    for record_id, how in semantic.fuse([row["id"] for row in rows], matches, limit):
+        if record_id in by_id:
+            results.append({**by_id[record_id], "match": how})
+            continue
+        record = records.get(record_id)
+        if record is None or record.type == "source":
+            continue  # gone since the index was built, or raw material
+        results.append(
+            {
+                "id": record.id,
+                "title": record.title,
+                "type": record.type,
+                "record_kind": record.record_kind or "",
+                "status": record.status,
+                "scope": record.scope,
+                "path": record.path,
+                "snippet": semantic.passage_snippet(passage_by_id[record_id]),
+                "snippet_is_passage": "yes",
+                "match": how,
+            }
+        )
+    return results
+
+
 def _first_heading(text: str) -> str | None:
     for line in text.splitlines():
         match = _HEADING_PATTERN.match(line.strip())
@@ -670,7 +832,7 @@ def create_record(
     body: str,
     project_path: str | None = None,
     agent: AgentIdentity | None = None,
-) -> WriteResult:
+) -> WriteResult | ProposedWrite:
     """Create one knowledge, project, or memory record with ``kos capture``'s
     rules: create-only, draft or active (decisions draft only), and for a
     project record an optional ``project_path`` relative to
@@ -688,6 +850,15 @@ def create_record(
         given = candidate.get("provenance")
         candidate["provenance"] = [agent.provenance_entry(), *(given if isinstance(given, list) else [])]
     text = render_document(candidate, body).decode("utf-8")
+    if candidate.get("record_kind") != "decision":
+        scope = str(candidate.get("scope", ""))
+        project = scope.removeprefix("project:") if scope.startswith("project:") else None
+        folder = posixpath.dirname(project_path.replace("\\", "/").strip("/")) if project_path and project else ""
+        rule = _review_rule(workspace, _writer_of(candidate, agent), project, folder, "create")
+        if rule is not None:
+            provenance = candidate.get("provenance")
+            first = provenance[0] if isinstance(provenance, list) and provenance and isinstance(provenance[0], dict) else {}
+            return _proposed(workspace, "create", text, first, rule, agent, project_path=project_path)
     try:
         result = capture_record_text(
             workspace,
@@ -714,7 +885,8 @@ def edit_record(
     confirm_non_material: bool = False,
     change_reference: str | None = None,
     agent: AgentIdentity | None = None,
-) -> WriteResult:
+    verb: str = "Edit",
+) -> WriteResult | ProposedWrite:
     """Edit one record's body and metadata with ``kos update``'s rules.
 
     ``changes`` replaces top-level metadata fields (``None`` removes one) on
@@ -759,7 +931,9 @@ def edit_record(
             current_sha256=actual,
         )
     try:
-        base = parse_document_text(current.path, raw.decode("utf-8"))
+        # ``validate_workspace`` already placed the record (a README.md page is
+        # not named after its ID), so only the content is parsed here.
+        base = parse_document_text(current.path, raw.decode("utf-8"), check_filename=False)
     except (MetadataError, UnicodeDecodeError) as exc:
         raise WriteError("validation", f"current record cannot be parsed: {exc}") from exc
 
@@ -781,6 +955,16 @@ def edit_record(
         ):
             metadata["provenance"] = [*provenance, agent.provenance_entry()]
     text = render_document(metadata, base.body if body is None else body).decode("utf-8")
+    if base.metadata.get("record_kind") != "decision":
+        relative = workspace.relative(current.path)
+        scope = str(base.metadata["scope"])
+        project = scope.removeprefix("project:") if scope.startswith("project:") else None
+        prefix = f"projects/{project}/"
+        folder = posixpath.dirname(relative[len(prefix) :]) if project and relative.startswith(prefix) else ""
+        rule = _review_rule(workspace, _writer_of(metadata, agent, edit=True), project, folder, "edit")
+        if rule is not None:
+            proposer = agent.provenance_entry() if agent is not None else _interface_provenance("edit")[0]
+            return _proposed(workspace, "edit", text, proposer, rule, agent, base_sha256=expected_sha256)
 
     try:
         result = update_record_text(
@@ -797,7 +981,7 @@ def edit_record(
         raise _write_error(exc) from exc
     else:
         outcome = WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
-    return _with_commit(workspace, outcome, "Edit", agent)
+    return _with_commit(workspace, outcome, verb, agent)
 
 
 # ---------------------------------------------------------------------------
@@ -851,7 +1035,11 @@ def editable_source(record: Record) -> EditableSource:
     raw = record.abs_path.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     try:
-        document = parse_document_text(record.abs_path, raw.decode("utf-8"))
+        # The workspace scan already checked where the record lives, including
+        # the ``README.md`` exception for a project overview or a folder's own
+        # page, so the filename is not checked again: checking it here made
+        # every README page read as not editable.
+        document = parse_document_text(record.abs_path, raw.decode("utf-8"), check_filename=False)
     except (MetadataError, UnicodeDecodeError) as exc:
         raise LibraryError(f"record {record.id!r} cannot be parsed for editing: {exc}") from exc
     metadata = document.metadata
@@ -1372,3 +1560,426 @@ def sync_connect_remote(workspace: Workspace, url: str | None) -> ConnectOutcome
             "conflict", outcome.sync.detail or "the pull stopped on conflicts", conflicts=outcome.sync.conflicts
         )
     return outcome
+
+
+# ---------------------------------------------------------------------------
+# Page templates (issue #85)
+# ---------------------------------------------------------------------------
+
+
+def page_templates(workspace: Workspace, today: str | None = None) -> list[tuple[Template, str]]:
+    """Every template *New page* offers, each with its starting text for a
+    page created ``today`` (ISO, default this computer's date): ``{{date}}``
+    filled in. A template file that cannot be used carries its ``error``."""
+
+    day = today or date.today().isoformat()
+    return [(template, fill_template(template.body, day)) for template in list_templates(workspace)]
+
+
+# ---------------------------------------------------------------------------
+# Images and files attached to pages (issue #85)
+# ---------------------------------------------------------------------------
+
+#: Where the reader serves an attachment; the rest of the URL is its
+#: workspace-relative path.
+FILES_ROUTE = "/api/files/"
+
+
+@dataclass(frozen=True)
+class AttachResult:
+    path: str  # workspace-relative
+    link: str  # relative to the page's folder, for the Markdown link
+    url: str  # where the reader serves it
+    name: str
+    content_sha256: str
+    created: bool  # False when an identical file was already attached there
+    commit: CommitOutcome | None
+
+
+def attach_file(
+    workspace: Workspace,
+    *,
+    filename: str,
+    data: bytes,
+    record_id: str | None = None,
+    project_id: str | None = None,
+    folder: str = "",
+) -> AttachResult:
+    """Store one file in the ``assets/`` folder next to a page and commit it.
+
+    The page is ``record_id`` (an existing page), or for a page not written
+    yet, ``folder`` inside ``project_id`` (``""`` is the project's top level).
+    """
+
+    if record_id is not None:
+        documents, _issues = validate_workspace(workspace)
+        current = next((document for document in documents if document.metadata["id"] == record_id), None)
+        if current is None:
+            raise WriteError("not_found", f"record not found: {record_id}")
+        if current.metadata["type"] not in CAPTURE_DIRECTORIES:
+            raise WriteError("validation", f"files can be attached only to pages the interface edits, not to {record_id!r}")
+        directory = workspace.relative(current.path).rsplit("/", 1)[0]
+    elif project_id is not None:
+        cleaned = "/".join(part for part in folder.replace("\\", "/").split("/") if part)
+        directory = f"projects/{project_id}/{cleaned}" if cleaned else f"projects/{project_id}"
+        if not (workspace.root / f"projects/{project_id}/README.md").is_file():
+            raise WriteError("not_found", f"project not found: {project_id}")
+    else:
+        raise WriteError("bad_request", "name the page (record_id) or the project and folder the file belongs to")
+    try:
+        attachment = add_attachment(workspace, directory, filename, data)
+    except AttachmentError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    except WorkspaceError as exc:
+        raise _write_error(exc) from exc
+    name = attachment.path.rsplit("/", 1)[-1]
+    commit = gitsync.auto_commit(workspace, [attachment.path], f"Attach {name}") if attachment.created else None
+    return AttachResult(
+        path=attachment.path,
+        link=attachment.link,
+        url=FILES_ROUTE + quote(attachment.path),
+        name=name,
+        content_sha256=attachment.sha256,
+        created=attachment.created,
+        commit=commit,
+    )
+
+
+def attachment_file(workspace: Workspace, rel_path: str) -> Path | None:
+    """The file behind ``GET /api/files/<rel_path>``: an attachment inside a
+    page root's ``assets/`` folder, or ``None`` for anything else."""
+
+    if not is_attachment_path(rel_path):
+        return None
+    path = workspace.root / rel_path
+    try:
+        workspace.assert_safe_path(path)
+    except WorkspaceError:
+        return None
+    return path if path.is_file() else None
+
+
+def file_resolver(workspace: Workspace) -> Callable[[str], str | None]:
+    """For Markdown rendering: the URL of the attachment at a resolved,
+    workspace-relative link target, or ``None`` when there is none."""
+
+    def resolve(target: str) -> str | None:
+        return FILES_ROUTE + quote(target) if attachment_file(workspace, target) is not None else None
+
+    return resolve
+
+
+# ---------------------------------------------------------------------------
+# Configurable review: proposed changes (issue #86)
+# ---------------------------------------------------------------------------
+
+#: The provenance kind the Referat plugin's imports carry.
+_REFERAT_KIND = "referat-meeting"
+
+
+@dataclass(frozen=True)
+class ProposedWrite:
+    """A write the review rules held back: it is stored as a proposed change
+    that waits in Decide, and nothing else was written."""
+
+    proposal_id: str
+    action: str  # "create" or "edit"
+    record_id: str
+    title: str
+    rule: str
+    commit: CommitOutcome | None = None
+
+
+def _writer_of(metadata: Mapping[str, Any], agent: AgentIdentity | None, *, edit: bool = False) -> Writer:
+    if agent is not None:
+        return Writer("agent", agent.client)
+    if not edit:
+        provenance = metadata.get("provenance")
+        if isinstance(provenance, list) and any(
+            isinstance(entry, dict) and entry.get("kind") == _REFERAT_KIND for entry in provenance
+        ):
+            return Writer("referat")
+    return Writer("person")
+
+
+def review_policy(workspace: Workspace) -> tuple[ReviewRule, ...]:
+    """The review rules; a policy that cannot be read refuses every governed
+    write rather than letting it through unreviewed."""
+
+    try:
+        return load_policy(workspace)
+    except ReviewError as exc:
+        raise WriteError("validation", f"the review rules cannot be used, so nothing was written: {exc}") from exc
+
+
+def _review_rule(
+    workspace: Workspace, writer: Writer, project: str | None, folder: str, write: str
+) -> ReviewRule | None:
+    return needs_review(review_policy(workspace), writer=writer, project=project, folder=folder, write=write)
+
+
+def review_check(workspace: Workspace, *, writer: str, project: str | None, folder: str, write: str) -> ReviewRule | None:
+    """Whether a write would go to review, without writing: for a caller such
+    as the Referat import that orders its writes around the answer."""
+
+    kind, _, client = writer.partition(":")
+    return _review_rule(workspace, Writer(kind, client or None), project, folder, write)
+
+
+def _proposal_message(verb: str, proposal: Proposal) -> str:
+    what = proposal.title if proposal.action == "create" else f"edit to {proposal.title}"
+    return f"{verb} {what}"
+
+
+def _proposed(
+    workspace: Workspace,
+    action: str,
+    text: str,
+    proposer: Mapping[str, Any],
+    rule: ReviewRule,
+    agent: AgentIdentity | None,
+    *,
+    project_path: str | None = None,
+    base_sha256: str | None = None,
+) -> ProposedWrite:
+    try:
+        proposal = propose(
+            workspace,
+            action=action,
+            text=text,
+            proposed_by=proposer,
+            rule=rule.describe(),
+            project_path=project_path,
+            base_sha256=base_sha256,
+        )
+    except ReviewError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    except (CaptureError, MutationError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+    message = _proposal_message("Propose", proposal)
+    if agent is not None:
+        message = f"{agent.display_name}: {message}"
+    commit = gitsync.auto_commit(workspace, [proposal.path], message)
+    return ProposedWrite(proposal.id, proposal.action, proposal.record_id, proposal.title, proposal.rule, commit)
+
+
+def proposed_changes(workspace: Workspace) -> tuple[list[Proposal], list[BrokenProposal]]:
+    return list_proposals(workspace)
+
+
+def proposed_change(workspace: Workspace, proposal_id: str) -> Proposal:
+    try:
+        return load_proposal(workspace, proposal_id)
+    except ProposalNotFoundError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+    except ReviewError as exc:
+        raise WriteError("validation", str(exc)) from exc
+
+
+def accept_change(workspace: Workspace, proposal_id: str, *, expected_sha256: str | None = None) -> WriteResult:
+    """Apply one proposed change and commit the page with the removed proposal."""
+
+    proposal = proposed_change(workspace, proposal_id)
+    try:
+        result = accept_proposal(workspace, proposal_id, expected_sha256=expected_sha256)
+    except MutationIndexError as exc:
+        written = exc.result
+        outcome = WriteResult(written.id, written.status, written.path, written.sha256, False, None, str(exc))
+    except ProposalNotFoundError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+    except StaleRevisionError as exc:
+        if proposal.action == "edit" and exc.expected == proposal.base_sha256:
+            raise WriteError(
+                "conflict",
+                f"“{proposal.title}” changed after this edit was proposed, so it was not applied. "
+                "Discard the proposed edit; it can be proposed again against the current page.",
+                current_sha256=exc.actual,
+            ) from exc
+        raise _write_error(exc) from exc
+    except ReviewError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    except (CaptureError, MutationError, MetadataError, WorkspaceError) as exc:
+        raise _write_error(exc) from exc
+    else:
+        outcome = WriteResult(result.id, result.status, result.path, result.sha256, True, result.index_count, None)
+    commit = gitsync.auto_commit(workspace, [outcome.path, proposal.path], _proposal_message("Accept", proposal))
+    return replace(outcome, commit=commit)
+
+
+def discard_change(workspace: Workspace, proposal_id: str, *, expected_sha256: str | None = None) -> ProposedWrite:
+    try:
+        proposal = discard_proposal(workspace, proposal_id, expected_sha256=expected_sha256)
+    except ProposalNotFoundError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+    except StaleRevisionError as exc:
+        raise _write_error(exc) from exc
+    except (ReviewError, WorkspaceError) as exc:
+        raise WriteError("validation", str(exc)) from exc
+    commit = gitsync.auto_commit(workspace, [proposal.path], _proposal_message("Discard proposed", proposal))
+    return ProposedWrite(proposal.id, proposal.action, proposal.record_id, proposal.title, proposal.rule, commit)
+
+
+# ---------------------------------------------------------------------------
+# Code repositories and documentation checks (issue #84)
+# ---------------------------------------------------------------------------
+
+
+def _project_overview(workspace: Workspace, project_id: str) -> tuple[list[Document], Document]:
+    documents, _issues = validate_workspace(workspace)
+    overview = next(
+        (
+            document
+            for document in documents
+            if document.metadata["type"] == "project"
+            and document.metadata["id"] == project_id
+            and document.metadata["scope"] == f"project:{project_id}"
+        ),
+        None,
+    )
+    if overview is None:
+        raise WriteError("not_found", f"project not found: {project_id}")
+    return documents, overview
+
+
+def repository_links(workspace: Workspace, project_id: str) -> list[dict[str, Any]]:
+    """The repositories a project links, and whether each is on this computer."""
+
+    _documents, overview = _project_overview(workspace, project_id)
+    links = []
+    for link in codedocs.repository_links(overview.metadata):
+        folder = codedocs.resolve(workspace.root, link.path)
+        links.append(
+            {
+                **link.as_metadata(),
+                "label": codedocs.label(link),
+                "folder": str(folder),
+                "found": folder.is_dir(),
+            }
+        )
+    return links
+
+
+def documentation_check(
+    workspace: Workspace, project_id: str, *, since: Mapping[str, str] | None = None
+) -> dict[str, Any]:
+    """What changed in a project's repositories since their last check, and
+    what that suggests for its pages and decisions. Writes nothing."""
+
+    documents, _overview = _project_overview(workspace, project_id)
+    try:
+        check = codedocs.check_documentation(workspace.root, project_id, documents, workspace.relative, since=since)
+    except codedocs.CodeDocsError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+    return check.as_json()
+
+
+def repository_commit(workspace: Workspace, project_id: str, *, path: str, commit: str) -> dict[str, Any]:
+    """One commit of a repository the project links, with its diff."""
+
+    _documents, overview = _project_overview(workspace, project_id)
+    link = next((item for item in codedocs.repository_links(overview.metadata) if item.path == path), None)
+    if link is None:
+        raise WriteError("not_found", f"{path} is not linked to project {project_id!r}")
+    try:
+        return codedocs.commit_details(codedocs.resolve(workspace.root, link.path), commit)
+    except codedocs.CodeDocsError as exc:
+        raise WriteError("not_found", str(exc)) from exc
+
+
+def _edit_links(
+    workspace: Workspace,
+    project_id: str,
+    change: Callable[[list[codedocs.RepositoryLink]], list[codedocs.RepositoryLink]],
+    verb: str,
+    agent: AgentIdentity | None,
+) -> WriteResult | ProposedWrite:
+    _documents, overview = _project_overview(workspace, project_id)
+    try:
+        links = change(codedocs.repository_links(overview.metadata))
+    except codedocs.CodeDocsError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    return edit_record(
+        workspace,
+        project_id,
+        expected_sha256=hashlib.sha256(overview.path.read_bytes()).hexdigest(),
+        changes={"repositories": codedocs.links_metadata(links)},
+        agent=agent,
+        verb=verb,
+    )
+
+
+def link_repository(
+    workspace: Workspace, project_id: str, *, path: str, remote: str | None = None, agent: AgentIdentity | None = None
+) -> WriteResult | ProposedWrite:
+    """Link a code repository to a project, starting its checks at its current commit."""
+
+    return _edit_links(
+        workspace,
+        project_id,
+        lambda links: codedocs.with_link(workspace.root, links, path, remote=remote)[0],
+        "Link a repository to",
+        agent,
+    )
+
+
+def unlink_repository(
+    workspace: Workspace, project_id: str, *, path: str, agent: AgentIdentity | None = None
+) -> WriteResult | ProposedWrite:
+    return _edit_links(
+        workspace,
+        project_id,
+        lambda links: codedocs.without_link(workspace.root, links, path),
+        "Unlink a repository from",
+        agent,
+    )
+
+
+def mark_documentation_checked(
+    workspace: Workspace, project_id: str, *, path: str, commit: str, agent: AgentIdentity | None = None
+) -> WriteResult | ProposedWrite:
+    """Record that a project's documentation was checked against ``commit``."""
+
+    return _edit_links(
+        workspace,
+        project_id,
+        lambda links: codedocs.with_checked(workspace.root, links, path, commit),
+        "Record a documentation check in",
+        agent,
+    )
+
+
+def _free_id(documents: list[Document], wanted: str) -> str:
+    taken = {document.metadata["id"] for document in documents}
+    candidate, number = wanted, 2
+    while candidate in taken:
+        candidate = f"{wanted}-{number}"
+        number += 1
+    return candidate
+
+
+def propose_documentation_decision(
+    workspace: Workspace, project_id: str, *, path: str, key: str, agent: AgentIdentity | None = None
+) -> WriteResult | ProposedWrite:
+    """Draft the decision a documentation check suggests, in the project's
+    ``decisions`` folder, with provenance naming the commits it came from."""
+
+    documents, _overview = _project_overview(workspace, project_id)
+    try:
+        check = codedocs.check_documentation(workspace.root, project_id, documents, workspace.relative)
+        title, body, provenance = codedocs.decision_draft(check.repository(path), key)
+    except codedocs.CodeDocsError as exc:
+        raise WriteError("validation", str(exc)) from exc
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80].rstrip("-") or "decision"
+    record_id = _free_id(documents, slug)
+    metadata: dict[str, Any] = {
+        "id": record_id,
+        "title": title,
+        "type": "project",
+        "record_kind": "decision",
+        "status": "draft",
+        "scope": f"project:{project_id}",
+        "provenance": provenance if agent is not None else [*_interface_provenance("create"), *provenance],
+    }
+    return create_record(
+        workspace, metadata=metadata, body=body, project_path=f"decisions/{record_id}.md", agent=agent
+    )

@@ -340,6 +340,9 @@ export interface DeletePreview {
   deletable: boolean;
   records: { id: string; title: string; path: string }[];
   other_files: number;
+  /** A page's attached files deleted with it, and those kept because other pages use them. */
+  attachments: string[];
+  kept_attachments: string[];
   cleaned: { id: string; title: string; path: string; fields: string[] }[];
   linked: { id: string; title: string; path: string }[];
   blockers: string[];
@@ -582,6 +585,22 @@ export interface SearchResult {
   project: string | null;
   project_id: string | null;
   snippet_html: string;
+  /** How it was found: the words themselves, closeness in meaning, or both. */
+  match: "text" | "meaning" | "both";
+  /** Set for a result found only by meaning. */
+  match_label: string;
+}
+
+/** Search by meaning (GET /api/semantic, and `semantic` on a search). */
+export interface SemanticStatus {
+  state: "unavailable" | "off" | "installing" | "failed" | "loading" | "indexing" | "stale" | "ready";
+  message: string;
+  size: string;
+  done_bytes: number;
+  total_bytes: number;
+  error: string | null;
+  install_label: string;
+  match_hint: string;
 }
 
 export interface FilterOption {
@@ -601,6 +620,7 @@ export interface SearchPayload {
   results: SearchResult[];
   result_count: number;
   result_count_label: string;
+  semantic: SemanticStatus;
 }
 
 export interface EverythingEntry extends RecordSummary {
@@ -625,4 +645,182 @@ export interface EverythingPayload {
 
 export interface ApiError {
   detail: string;
+}
+
+/** One template on New page (GET /api/templates). */
+export interface PageTemplate {
+  name: string;
+  title: string;
+  description: string;
+  /** "decision" starts a proposed decision. */
+  kind: "note" | "decision";
+  /** The starting text, with {{date}} already filled in. */
+  body: string;
+  source: "built-in" | "workspace";
+  path: string | null;
+  /** Why a template file cannot be used; null when it can. */
+  error: string | null;
+}
+
+export interface TemplatesPayload {
+  templates: PageTemplate[];
+  folder: string;
+  language: Record<
+    | "label"
+    | "hint"
+    | "built_in"
+    | "own"
+    | "unusable"
+    | "replace_title"
+    | "replace_body"
+    | "replace_confirm"
+    | "replace_cancel",
+    string
+  >;
+}
+
+/** One write the review rules held back (GET /api/changes). */
+export interface ProposedChange {
+  id: string;
+  action: "create" | "edit";
+  kind_label: string;
+  title: string;
+  record: { id: string; exists: boolean; title: string | null };
+  excerpt: string;
+  project: { id: string; title: string };
+  proposed_by: { source: string; label: string; kind: string | null };
+  proposed_at: string;
+  proposed_display: string | null;
+  proposed_exact: string | null;
+  rule: string;
+  effect: string;
+  /** An edit made against a revision the page no longer has: discard only. */
+  stale: boolean;
+  /** The proposal file's hash, sent back with accept and discard. */
+  content_sha256: string;
+  actions: { accept: boolean; discard: boolean };
+  outcomes: { accept: string; discard: string };
+}
+
+export type ChangeLabels = Record<
+  | "accept"
+  | "discard"
+  | "show"
+  | "accepted_create"
+  | "accepted_edit"
+  | "discarded"
+  | "stale"
+  | "rule"
+  | "metadata_heading"
+  | "body_heading"
+  | "no_body_change"
+  | "current"
+  | "proposed",
+  string
+>;
+
+export interface ChangesPayload {
+  heading: string;
+  intro: string;
+  count: number;
+  items: ProposedChange[];
+  broken: string[];
+  policy_error: string | null;
+  labels: ChangeLabels;
+  notice_labels: DecisionLanguage["labels"];
+}
+
+export interface ChangeDetail extends ProposedChange {
+  /** A new page, rendered. */
+  body_html: string | null;
+  /** An edit: fields that change, and the text as a paragraph diff (current left, proposed right). */
+  metadata_changes: { field: string; before: unknown; after: unknown }[];
+  blocks: DiffBlock[];
+  summary: string | null;
+  labels: ChangeLabels;
+  notice_labels: DecisionLanguage["labels"];
+}
+
+/** A write the review rules held back (202 from create or edit). */
+export interface ProposedWriteResult {
+  status: "proposed";
+  proposal: { id: string; action: "create" | "edit"; record_id: string; title: string; rule: string; message: string };
+  commit: CommitInfo | null;
+}
+
+/** A code repository a project links (issue #84): `found` says whether its
+ * folder exists on this computer. */
+export interface RepositoryLink {
+  path: string;
+  remote?: string;
+  checked?: string;
+  checked_on?: string;
+  label: string;
+  folder: string;
+  found: boolean;
+}
+
+export interface RepositoriesPayload {
+  project: string;
+  repositories: RepositoryLink[];
+}
+
+export interface CheckCommit {
+  sha: string;
+  short: string;
+  author: string;
+  date: string;
+  subject: string;
+}
+
+export interface CheckChange {
+  key: string;
+  kind: "dependency" | "command" | "route" | "configuration" | "module" | "documentation";
+  action: "added" | "removed" | "changed";
+  name: string;
+  detail: string;
+  summary: string;
+  files: string[];
+  commits: string[];
+}
+
+export interface PageUpdateSuggestion {
+  page: string;
+  title: string;
+  path: string;
+  reasons: { text: string; changes: string[]; commits: string[] }[];
+  commits: string[];
+}
+
+export interface DecisionSuggestion {
+  key: string;
+  title: string;
+  summary: string;
+  commits: string[];
+  /** A decision with this title that already exists in the project. */
+  existing: string | null;
+}
+
+/** One repository in GET /api/projects/{id}/documentation-check. */
+export interface RepositoryCheck {
+  path: string;
+  remote: string | null;
+  label: string;
+  folder: string;
+  state: "changed" | "up-to-date" | "unavailable";
+  message: string;
+  checked: string | null;
+  checked_on: string | null;
+  base: string | null;
+  head: string | null;
+  commits: CheckCommit[];
+  commits_truncated: boolean;
+  changes: CheckChange[];
+  pages: PageUpdateSuggestion[];
+  decisions: DecisionSuggestion[];
+}
+
+export interface DocumentationCheckPayload {
+  project: string;
+  repositories: RepositoryCheck[];
 }

@@ -4,6 +4,11 @@ The desktop shell starts the core as ``PYTHON -m knowledge_os.reader ARGS`` and
 creates workspaces with ``PYTHON -m knowledge_os init ARGS``. This executable
 accepts exactly those two forms, so the shell runs the bundled core with the
 same arguments it passes to a Python interpreter in development.
+
+A leading ``-P`` is accepted and ignored: the shell passes it so that a
+development interpreter never imports ``knowledge_os`` from its working folder
+(the in-app agent's ``kos mcp`` runs in the knowledge base), and this frozen
+executable only ever imports from its own bundle.
 """
 
 from __future__ import annotations
@@ -14,6 +19,8 @@ USAGE = "usage: kos-core -m {knowledge_os | knowledge_os.reader} [ARGS...]"
 
 
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["-P"]:
+        argv = argv[1:]
     if len(argv) < 2 or argv[0] != "-m":
         print(USAGE, file=sys.stderr)
         return 2

@@ -1,6 +1,6 @@
 # Knowledge OS
 
-Knowledge OS `0.7.0` is a local-first durable knowledge system for Markdown
+Knowledge OS `0.8.6` is a local-first durable knowledge system for Markdown
 and text. Markdown is canonical truth. Sources and external-agent discoveries
 remain separate trust boundaries, while SQLite and the catalog are disposable
 indexes. Its root Codex plugin provides automatic, approval-gated conversational
@@ -66,6 +66,59 @@ changes scope and needs `--allow-scope-change`. In the app, use "New project"
 in the sidebar, each row's menu, or drag pages and folders in the project tree.
 See "Structure editing" in [`docs/architecture.md`](docs/architecture.md).
 
+## Write pages: templates, images, and files
+
+*New page* starts from a template: blank, meeting notes, how-to, decision
+(Context / Decision / Alternatives considered / Consequences, which creates a
+proposed decision), requirement, or plan.
+Templates are ordinary Markdown files in the knowledge base's `templates/`
+folder, which `kos init` fills with the built-in ones; edit them, or add
+`templates/<name>.md` with optional `title`, `description`, and `kind: note`
+or `kind: decision` frontmatter. `{{date}}` becomes the day the page is
+created. A file named like a built-in template replaces it, and a knowledge
+base without `templates/` gets the built-in templates. A template that cannot
+be read is shown with the reason instead of being offered.
+
+In the editor, paste or drop an image or a file into the text, or use
+*Attach file*. It is stored in an `assets/` folder next to the page (for
+example `projects/acme/notes/assets/diagram.png`), linked with a relative
+path such as `![diagram](assets/diagram.png)`, shown in the preview and on
+the page, and committed like any other change. Moving a page moves the files
+only it links to; deleting a page deletes them, and the confirmation says so.
+A file another page also links to stays where it is. Files up to 25 MB can
+be attached; Markdown files cannot. A folder cannot be named `assets`. See
+"Attachments" in [`docs/architecture.md`](docs/architecture.md).
+
+A folder's own page (its `README.md`) and a project's overview are edited
+like any other page.
+
+## Review before writes land
+
+Notes are written directly by default and decisions are always drafts. To
+look at some writes first, add rules to `knowledge-os.toml`:
+
+```toml
+[[review.rule]]
+folder = "drafts"      # everything in a drafts/ folder is direct
+action = "direct"
+
+[[review.rule]]
+writer = "agent"       # notes agents write in project acme need review
+project = "acme"
+
+[[review.rule]]
+writer = "referat"     # Referat imports go to review
+```
+
+A rule may name `writer` (`agent`, `agent:claude-code`, `referat`, `person`,
+`any`), `project` (or `general`), `folder`, `writes` (`create`, `edit`,
+`any`), and `action` (`review` or `direct`); the first match decides. A held
+back write is stored in `proposals/` and waits in **Decide** next to proposed
+decisions, where Accept writes it and Discard drops it, each in one click with
+Undo. An edit whose page changed in the meantime can only be discarded.
+Agents are told in the tool result that their write waits for review. See
+"Configurable review" in [`docs/architecture.md`](docs/architecture.md).
+
 ## Sync a knowledge base with Git
 
 The knowledge base folder must be its own Git repository with an upstream
@@ -93,6 +146,19 @@ and the sync finishes only when the result passes `kos lint`. Git must be on
 `PATH` and uses your own identity, credential helper, and SSH agent; the app
 never asks for credentials. CLI commands do not commit. See "Git versioning and
 sync" in [`docs/architecture.md`](docs/architecture.md).
+
+## Search by meaning
+
+Search finds exact words out of the box. The Search page also offers to
+download a search model (about 590 MB, bge-m3, stays on this computer), after
+which search also finds pages close in meaning, in Swedish or English, even
+when they use other words; such results are labeled "Similar in meaning".
+Nothing is sent anywhere: the model runs locally and its files are checked
+against pinned hashes. From the command line, `kos model install` downloads it
+(a Python install needs `pip install -e ".[search]"` for the runtime) and `kos
+index` then builds `indexes/semantic.sqlite3`. See the decision
+`local-semantic-search` and "Search by meaning" in
+[`docs/architecture.md`](docs/architecture.md).
 
 ## Command line
 
@@ -125,13 +191,20 @@ nothing is written.
 
 | Tool | What it does |
 | --- | --- |
-| `search` | Full-text search (`query`, optional `project`, `limit`). |
+| `search` | Search by words and, with the search model installed, by meaning (`query`, optional `project`, `limit`). |
 | `read_page` | One page by `id`: Markdown content, state, project, folder, links, provenance, and `content_sha256`. |
 | `list_projects` | Project ids, titles, and top-level folders. |
 | `list_folder` | A project folder's overview, pages, and subfolders (`project`, optional `folder`). |
-| `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. |
+| `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. A write the review rules hold back answers `waiting_for_review` and writes nothing yet. |
 | `propose_decision` | Create a decision as a draft (`title`, `content`, optional `project`, `folder`, `supersedes`, `related`). |
 | `list_proposed_decisions` | The Decide inbox: drafts waiting for a person, with who proposed them. |
+| `list_proposed_changes` | Writes the review rules held back, waiting in Decide: new pages and edits, with the rule and who proposed them. |
+| `read_proposed_change` | One proposed change: a new page's Markdown, or an edit as a diff against the page as it is now. |
+| `check_documentation` | What changed in a project's linked code repositories since the last check, and the page updates and decisions that suggests, with their commits. Read-only. |
+| `read_commit` | One commit of a linked repository: message, files, and diff. |
+| `propose_documentation_decision` | Draft a decision the check suggests (`key`), with its commits as provenance. |
+| `mark_documentation_checked` | Record the commit a check covered, so the next check starts there. |
+| `link_repository` | Link a Git repository (absolute `path`) to a project. |
 
 There is no tool to accept, withdraw, or supersede a decision; those stay yours, in the app or the
 command line. Failures come back as structured results with an `error` kind (`app_not_open`,
@@ -145,6 +218,24 @@ the directory the agent started the server in. The app shows it as "Proposed by 
 my-repo", and the commit reads `Claude Code: Create <title>`. This is a guardrail, not a lock: an
 agent with shell access can still run `kos` or edit files; provenance and Git history make its
 writes visible.
+
+**Inside the app.** The desktop app has its own agent panel (Ctrl+J, or the robot button in the
+reader): it runs the Claude Code or Codex you installed over the Agent Client Protocol with
+`kos mcp` as its only tools, so it has exactly these limits. *Ask* answers with links to the pages
+it read; *Draft* writes notes and proposes decisions, shown as written or proposed by the agent "in
+Knowledge OS app". File → New Page (Ctrl+N) can start a page from one line with the agent. See
+"In-app agents (ACP)" in [`desktop/README.md`](desktop/README.md).
+
+**Keeping documentation in step with code.** A project can link the code repositories it
+describes (the *Code* section of the project page, or `kos code link PROJECT PATH`). *Check
+documentation* then lists what changed in them since the last check (commits, dependencies,
+commands and API routes, configuration, modules, READMEs), which pages to update and why, and
+which decisions to propose (a new or removed dependency or module), each with the commits it came
+from. Nothing is rewritten: a suggested decision is proposed as a draft with its commits as
+provenance, pages are updated by you or by the agent (`read_commit` lets it read the commits), and
+*Mark as checked* records the commit covered, so the next check starts there. Agents get the same
+through `check_documentation`, `read_commit`, `propose_documentation_decision`,
+`mark_documentation_checked`, and `link_repository`.
 
 **Setup.** Install the desktop app (it puts `kos` on PATH with the MCP server built in) or, in a
 checkout, `pip install -e ".[reader,mcp]"`. Then:

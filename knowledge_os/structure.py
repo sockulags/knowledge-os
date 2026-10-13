@@ -48,6 +48,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .attachments import ATTACHMENTS_DIR, split_by_use
 from .capture import CaptureIndexError, DuplicateRecordError, capture_record_text
 from .links import relative_links, rewrite_links
 from .model import ID_PATTERN, SHA256_PATTERN, Document, MetadataError, content_sha256, parse_document_text, render_document
@@ -154,6 +155,10 @@ def _folder_name(name: str) -> str:
     if not ID_PATTERN.fullmatch(cleaned):
         raise StructureError(
             f"folder name {name!r} must be lowercase letters and digits joined by hyphens, like 'meeting-notes'"
+        )
+    if cleaned == ATTACHMENTS_DIR:
+        raise StructureError(
+            f"folder name {ATTACHMENTS_DIR!r} is kept for the images and files attached to a folder's pages"
         )
     return cleaned
 
@@ -643,25 +648,41 @@ def move_record(
             )
         _check_expected(workspace, expected)
 
+        # The page's own attachments go with it; one another page also links
+        # to stays, and the moved page's link is rewritten to reach it there.
+        own_attachments, _shared = split_by_use(workspace, documents, [current])
+        attachment_moves, attachment_drops = _attachment_destinations(
+            workspace, own_attachments, f"{target_directory}/{ATTACHMENTS_DIR}"
+        )
+        relocated = {old_path: new_path, **attachment_moves, **attachment_drops}
+
         def relocate(target: str) -> str | None:
-            return new_path if target == old_path else None
+            return relocated.get(target)
 
         writes = _link_rewrites(workspace, documents, relocate)
         content = writes.get(new_path, current.path.read_bytes())
         if scope_changed:
             content = _with_metadata(content, {"scope": f"project:{target_project}"})
         writes[new_path] = content
+        for old_asset, new_asset in attachment_moves.items():
+            writes[new_asset] = (workspace.root / old_asset).read_bytes()
+        old_directory = posixpath.dirname(old_path)
         plan = _Plan(
-            file_moves=[(old_path, new_path)],
+            file_moves=[(old_path, new_path), *attachment_moves.items()],
             writes=writes,
-            prune=[(posixpath.dirname(old_path), f"projects/{source_project}")],
+            deletes=list(attachment_drops),
+            prune=[
+                (f"{old_directory}/{ATTACHMENTS_DIR}", old_directory),
+                (old_directory, f"projects/{source_project}"),
+            ],
         )
         _execute(workspace, plan, "move a page")
 
         by_path = {workspace.relative(document.path): document.metadata["id"] for document in documents}
+        origin = {new: old for old, new in relocated.items() if old not in attachment_drops}
         changed = tuple(
             ChangedFile(
-                old_path if path == new_path else path,
+                origin.get(path, path),
                 path,
                 record_id if path == new_path else by_path.get(path),
                 content_sha256(workspace.root / path),
@@ -677,10 +698,51 @@ def move_record(
             project=target_project,
             folder=folder,
             changed=changed,
-            touched=tuple(sorted({old_path, *writes})),
+            touched=tuple(sorted({old_path, *attachment_moves, *attachment_drops, *writes})),
             scope_changed=scope_changed,
         )
         return _finish(workspace, result)
+
+
+def _attachment_destinations(
+    workspace: Workspace, attachments: list[str], target_assets: str
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Where each moving attachment goes in ``target_assets``: ``moves`` maps
+    a file to its new path (a numeric suffix when a different file has its
+    name), and ``drops`` maps a file to an identical one already there, so
+    the original is removed and links point at the existing copy."""
+
+    moves: dict[str, str] = {}
+    drops: dict[str, str] = {}
+    claimed: set[str] = set()
+    for old in attachments:
+        if posixpath.dirname(old) == target_assets:
+            continue
+        data = (workspace.root / old).read_bytes()
+        name = posixpath.basename(old)
+        stem, dot, extension = name.rpartition(".")
+        if not dot:
+            stem, extension = name, ""
+        counter = 1
+        while True:
+            candidate = f"{target_assets}/{name}" if counter == 1 else (
+                f"{target_assets}/{stem}-{counter}.{extension}" if extension else f"{target_assets}/{stem}-{counter}"
+            )
+            path = workspace.root / candidate
+            workspace.assert_safe_path(path)
+            if candidate in claimed:
+                counter += 1
+                continue
+            if path.is_symlink() or path.exists():
+                if path.is_file() and not path.is_symlink() and path.read_bytes() == data:
+                    drops[old] = candidate
+                    break
+                counter += 1
+                continue
+            moves[old] = candidate
+            claimed.add(candidate)
+            break
+    return moves, drops
 
 
 # ---------------------------------------------------------------------------
@@ -937,6 +999,10 @@ class DeletePlan:
     referrers: tuple[Referrer, ...]
     blockers: tuple[DeleteBlocker, ...]
     expected: Mapping[str, str]
+    #: A page's attachments deleted with it (also in ``files``), and those
+    #: that stay because another page links to them too.
+    attachments: tuple[str, ...] = ()
+    kept_attachments: tuple[str, ...] = ()
 
     @property
     def deletable(self) -> bool:
@@ -960,6 +1026,8 @@ def _plan_deletion(
     folder: str,
     removed: list[Document],
     files: list[str],
+    attachments: tuple[str, ...] = (),
+    kept_attachments: tuple[str, ...] = (),
 ) -> DeletePlan:
     removed_ids = {document.metadata["id"] for document in removed}
     titles = {document.metadata["id"]: document.metadata["title"] for document in documents}
@@ -1051,6 +1119,8 @@ def _plan_deletion(
         referrers=tuple(sorted(referrers, key=lambda item: item.path)),
         blockers=tuple(blockers),
         expected=expected,
+        attachments=attachments,
+        kept_attachments=kept_attachments,
     )
 
 
@@ -1062,6 +1132,7 @@ def _page_plan(
         raise RecordNotFoundError(f"record not found: {record_id}")
     relative = workspace.relative(current.path)
     project = _project_of(current)
+    own_attachments, shared = split_by_use(workspace, documents, [current])
     return _plan_deletion(
         workspace,
         documents,
@@ -1072,7 +1143,9 @@ def _page_plan(
         project=project,
         folder=_folder_of(relative, project) if project else "",
         removed=[current],
-        files=[relative],
+        files=[relative, *own_attachments],
+        attachments=tuple(own_attachments),
+        kept_attachments=tuple(shared),
     )
 
 
@@ -1170,8 +1243,11 @@ def _execute_deletion(
             remove_dirs.append(Path(current).relative_to(workspace.root).as_posix())
         remove_dirs.sort(key=lambda item: item.count("/"), reverse=True)
     prune = []
+    if plan.attachments:
+        directory = posixpath.dirname(plan.path)
+        prune.append((f"{directory}/{ATTACHMENTS_DIR}", directory))
     if plan.project and plan.path.startswith(f"projects/{plan.project}/"):
-        prune = [(posixpath.dirname(plan.path), f"projects/{plan.project}")]
+        prune.append((posixpath.dirname(plan.path), f"projects/{plan.project}"))
     _execute(
         workspace,
         _Plan(writes=writes, deletes=list(plan.files), remove_dirs=remove_dirs, prune=prune),

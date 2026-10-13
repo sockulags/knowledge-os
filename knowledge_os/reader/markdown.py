@@ -58,6 +58,11 @@ from . import strings
 #: ``.get`` method already satisfies this signature.
 ResolveLink = Callable[[str], "str | None"]
 
+#: A caller-supplied lookup from the same kind of resolved path to the URL
+#: that serves an attached file (an image or a document in a page's
+#: ``assets/`` folder), or ``None`` when no such file exists there.
+ResolveFile = Callable[[str], "str | None"]
+
 _ANCHOR_STRIP = re.compile(r"[^a-z0-9]+")
 
 #: A link is left untouched (never looked up as a relative record path) when
@@ -110,7 +115,13 @@ _md.renderer.rules["table_open"] = _render_table_open
 _md.renderer.rules["table_close"] = _render_table_close
 
 
-def render(md: str, *, source_path: str | None = None, resolve_link: ResolveLink | None = None) -> str:
+def render(
+    md: str,
+    *,
+    source_path: str | None = None,
+    resolve_link: ResolveLink | None = None,
+    resolve_file: ResolveFile | None = None,
+) -> str:
     """Render Markdown to an HTML fragment.
 
     ``source_path`` (the rendered record's own workspace-relative POSIX
@@ -119,12 +130,14 @@ def render(md: str, *, source_path: str | None = None, resolve_link: ResolveLink
     ``resolve_link`` recognises the link's target path once resolved
     against ``source_path``'s directory; passing neither (the default)
     leaves links exactly as authored, matching the original baseline.
+    ``resolve_file`` additionally points a relative link or image at an
+    attached file (``assets/diagram.png``) to the URL that serves it.
     """
 
     tokens = _md.parse(md)
     _assign_heading_ids(tokens)
     if source_path is not None and resolve_link is not None:
-        _rewrite_relative_links(tokens, source_path, resolve_link)
+        _rewrite_relative_links(tokens, source_path, resolve_link, resolve_file)
     return _md.renderer.render(tokens, _md.options, {})
 
 
@@ -206,7 +219,20 @@ def _resolve_link_target(source_path: str, href: str) -> tuple[str, str]:
     return target, fragment
 
 
-def _demote_unresolved_link(token: Token, source_path: str, resolve_link: ResolveLink) -> bool:
+def _safe_lookup(lookup: Callable[[str], "str | None"] | None, target: str) -> str | None:
+    if lookup is None:
+        return None
+    try:
+        return lookup(target)
+    except Exception:
+        # A caller-supplied lookup must never turn a rendering pass into a
+        # 500; treat any failure the same as "nothing lives there".
+        return None
+
+
+def _demote_unresolved_link(
+    token: Token, source_path: str, resolve_link: ResolveLink, resolve_file: ResolveFile | None = None
+) -> bool:
     """Rewrite one ``link_open`` token in place; return whether it was
     demoted to a non-link ``span`` (so its matching ``link_close`` must be
     demoted too)."""
@@ -215,15 +241,14 @@ def _demote_unresolved_link(token: Token, source_path: str, resolve_link: Resolv
     if not href or _EXTERNAL_LINK.match(href):
         return False
     target, fragment = _resolve_link_target(source_path, href)
-    try:
-        record_id = resolve_link(target)
-    except Exception:
-        # A caller-supplied lookup must never turn a rendering pass into a
-        # 500; treat any failure the same as "nothing lives there".
-        record_id = None
+    record_id = _safe_lookup(resolve_link, target)
     if record_id:
         new_href = f"/r/{record_id}" + (f"#{fragment}" if fragment else "")
         token.attrSet("href", new_href)
+        return False
+    file_url = _safe_lookup(resolve_file, target)
+    if file_url:
+        token.attrSet("href", file_url)
         return False
     # No record resolves: degrade to plain, visibly non-broken text rather
     # than a link that would 404 (the bare-directory case, or a relative
@@ -241,8 +266,24 @@ def _inline_children(tokens: list[Token]) -> Iterator[Token]:
             yield from token.children
 
 
-def _rewrite_relative_links(tokens: list[Token], source_path: str, resolve_link: ResolveLink) -> None:
-    """Rewrite every relative record-to-record link in place.
+def _rewrite_image(token: Token, source_path: str, resolve_file: ResolveFile | None) -> None:
+    """Point a relative image at the URL that serves the attached file; an
+    image nothing serves keeps its source (and shows its alt text)."""
+
+    src = token.attrGet("src") or ""
+    if not src or _EXTERNAL_LINK.match(src) or src.startswith("/"):
+        return
+    target, _fragment = _resolve_link_target(source_path, src)
+    file_url = _safe_lookup(resolve_file, target)
+    if file_url:
+        token.attrSet("src", file_url)
+
+
+def _rewrite_relative_links(
+    tokens: list[Token], source_path: str, resolve_link: ResolveLink, resolve_file: ResolveFile | None = None
+) -> None:
+    """Rewrite every relative record-to-record link, attachment link, and
+    attached image in place.
 
     CommonMark never nests a link inside another link, so a single flag
     tracking "the most recently opened link_open became a span" is enough
@@ -252,7 +293,9 @@ def _rewrite_relative_links(tokens: list[Token], source_path: str, resolve_link:
     demoted = False
     for token in _inline_children(tokens):
         if token.type == "link_open":
-            demoted = _demote_unresolved_link(token, source_path, resolve_link)
+            demoted = _demote_unresolved_link(token, source_path, resolve_link, resolve_file)
         elif token.type == "link_close" and demoted:
             token.tag = "span"
             demoted = False
+        elif token.type == "image":
+            _rewrite_image(token, source_path, resolve_file)

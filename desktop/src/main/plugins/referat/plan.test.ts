@@ -123,3 +123,37 @@ describe('formatDuration', () => {
     expect(formatDuration(120 * 60)).toBe('2 h')
   })
 })
+
+describe('the meeting-notes template', () => {
+  const TEMPLATE = [
+    '- **Date:** 2026-09-27',
+    '- **Attendees:** ',
+    '',
+    '## Action items',
+    '',
+    '## Summary',
+    '',
+    '```',
+    '## Not a heading',
+    '```',
+    '',
+    '## Risks',
+    '',
+    '## Open Questions'
+  ].join('\n')
+
+  it('orders the note by the template and drops headings the meeting has nothing for', () => {
+    const body = buildImportPlan(meeting(), options({ template: TEMPLATE })).note.body
+    const order = [...body.matchAll(/^## (.+)$/gm)].map((match) => match[1])
+    expect(order).toEqual(['Action items', 'Summary', 'Open Questions', 'Decisions'])
+    expect(body).not.toContain('Attendees')
+    expect(body).not.toContain('## Risks')
+    expect(body.startsWith('- **Held:**')).toBe(true)
+  })
+
+  it('keeps Referat order without a template', () => {
+    const body = buildImportPlan(meeting(), options({ template: null })).note.body
+    const order = [...body.matchAll(/^## (.+)$/gm)].map((match) => match[1])
+    expect(order).toEqual(['Summary', 'Decisions', 'Action items', 'Open questions'])
+  })
+})

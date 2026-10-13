@@ -387,9 +387,17 @@ def proposed_by(library: Library, record: Record) -> dict[str, str | None]:
     """
 
     entry = next((e for e in record.provenance if e.kind not in _LIFECYCLE_PROVENANCE_KINDS), None)
+    return proposer_sentence(library, entry, record.created)
+
+
+def proposer_sentence(library: Library, entry: ProvenanceEntry | None, fallback_when: str) -> dict[str, str | None]:
+    """``proposed_by`` for one provenance entry: who or what it names, and
+    when (its ``captured`` time, else ``fallback_when``). Also used for a
+    proposed change, whose proposer is stored as one such entry."""
+
     if entry is None:
-        return {"source": "other", "label": strings.PROPOSED_BY_FALLBACK, "kind": None, "when": record.created}
-    when = entry.captured or record.created
+        return {"source": "other", "label": strings.PROPOSED_BY_FALLBACK, "kind": None, "when": fallback_when}
+    when = entry.captured or fallback_when
     template = strings.PROPOSED_BY.get(entry.kind)
     if template is None:
         label = strings.PROPOSED_BY_FALLBACK

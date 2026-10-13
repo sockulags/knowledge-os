@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider } from "react-router";
 import { Shell } from "./components/Shell";
 import { Home } from "./pages/Home";
 import { Project } from "./pages/Project";
+import { DocumentationCheck } from "./pages/DocumentationCheck";
 import { Document } from "./pages/Document";
 import { EditRecord } from "./pages/EditRecord";
 import { NewRecord } from "./pages/NewRecord";
@@ -13,6 +14,7 @@ import { RepoDoc } from "./pages/RepoDoc";
 import { NotFound } from "./pages/NotFound";
 import { Sync } from "./pages/Sync";
 import { Decide } from "./pages/Decide";
+import { ChangeDetail } from "./pages/ChangeDetail";
 
 // A data router (rather than <BrowserRouter>) because the editor's
 // unsaved-changes guard needs useBlocker, which only data routers support.
@@ -22,8 +24,10 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Home /> },
       { path: "decide", element: <Decide /> },
+      { path: "c/:changeId", element: <ChangeDetail /> },
       { path: "p/:projectId", element: <Project /> },
       { path: "p/:projectId/new", element: <NewRecord /> },
+      { path: "p/:projectId/code", element: <DocumentationCheck /> },
       { path: "r/:recordId", element: <Document /> },
       { path: "r/:recordId/edit", element: <EditRecord /> },
       { path: "r/:recordId/compare", element: <Compare /> },

@@ -5,7 +5,9 @@
 // page can show a conflict, lint issues, or a refusal in place.
 
 import type {
+  ProposedWriteResult,
   ResolveResult,
+  SemanticStatus,
   StructureResult,
   SupersedeResult,
   SyncConnectResult,
@@ -112,6 +114,8 @@ export interface CreateRequest {
   metadata: Record<string, unknown>;
   body: string;
   project_path?: string;
+  /** Marks the page as the agent's: `agent-authored` provenance and commit. */
+  agent?: { client: string; place: string };
 }
 
 export interface EditRequest {
@@ -123,8 +127,10 @@ export interface EditRequest {
 }
 
 export const write = {
-  create: (request: CreateRequest) => send<WriteResult>("POST", "/api/records", request),
-  edit: (id: string, request: EditRequest) => send<WriteResult>("PATCH", recordPath(id), request),
+  /** A 202 answer (`status: "proposed"`) means the review rules held the write back. */
+  create: (request: CreateRequest) => send<WriteResult | ProposedWriteResult>("POST", "/api/records", request),
+  edit: (id: string, request: EditRequest) =>
+    send<WriteResult | ProposedWriteResult>("PATCH", recordPath(id), request),
   accept: (id: string, expectedSha256: string, options?: SendOptions) =>
     send<WriteResult>("POST", `${recordPath(id)}/accept`, { expected_sha256: expectedSha256 }, false, options),
   /** `reason` is optional; without one the core records a neutral reference. */
@@ -145,7 +151,29 @@ export const write = {
       options,
     ),
   preview: (body: string, path?: string) => send<{ html: string }>("POST", "/api/preview", { body, path }),
+  /** Store one file in the `assets/` folder next to a page (see `AttachTarget`). */
+  attach: (target: AttachTarget, filename: string, dataBase64: string) =>
+    send<AttachResult>("POST", "/api/attachments", { ...target, filename, data_base64: dataBase64 }),
 };
+
+/** Which page a file is attached to: an existing page, or the project folder
+ * a page not written yet will be created in. */
+export type AttachTarget = { record_id: string } | { project: string; folder: string };
+
+export interface AttachResult {
+  path: string;
+  /** Relative to the page's folder, e.g. `assets/diagram.png`. */
+  link: string;
+  url: string;
+  name: string;
+  /** What the editor inserts: an image or a link. */
+  markdown: string;
+  image: boolean;
+  /** False when an identical file was already attached there. */
+  created: boolean;
+  content_sha256: string;
+  commit: WriteResult["commit"];
+}
 
 const projectPath = (id: string) => `/api/projects/${encodeURIComponent(id)}`;
 
@@ -156,6 +184,29 @@ export interface FolderMoveRequest {
   name?: string;
   title?: string;
   allow_scope_change?: boolean;
+}
+
+const changePath = (id: string) => `/api/changes/${encodeURIComponent(id)}`;
+
+/** Proposed changes the review rules held back (issue #86). `expected` is
+ * the proposal file's hash as shown, so a change edited since is refused. */
+/** Search by meaning: download the model, or bring its index up to date.
+ * Both only start work in the core; poll GET /api/semantic for progress. */
+export const semanticSearch = {
+  install: () => send<SemanticStatus>("POST", "/api/semantic/install", {}),
+  refresh: () => send<SemanticStatus>("POST", "/api/semantic/refresh", {}),
+};
+
+export const changes = {
+  accept: (id: string, expected: string, options?: SendOptions) =>
+    send<WriteResult>("POST", `${changePath(id)}/accept`, { expected_sha256: expected }, false, options),
+  discard: (id: string, expected: string, options?: SendOptions) =>
+    send<{ discarded: string }>("POST", `${changePath(id)}/discard`, { expected_sha256: expected }, false, options),
+};
+
+/** A 202 write answer: held back for review, nothing written yet. */
+export function isProposed(data: unknown): data is ProposedWriteResult {
+  return typeof data === "object" && data !== null && (data as { status?: unknown }).status === "proposed";
 }
 
 /** Projects, folders, moves, and renames (see "Structure editing" in
@@ -181,6 +232,20 @@ export const structure = {
     send<StructureResult>("POST", `${recordPath(id)}/delete`, { expected_sha256: expectedSha256, expected }),
   deleteFolder: (projectId: string, path: string, expected: Record<string, string>) =>
     send<StructureResult>("POST", `${projectPath(projectId)}/folders/delete`, { path, expected }),
+};
+
+/** A project's code repositories and its documentation check (issue #84).
+ * Linking, unlinking, and recording a check edit the project overview; a
+ * proposed decision is a draft whose provenance names its commits. */
+export const code = {
+  link: (projectId: string, path: string, remote?: string) =>
+    send<WriteResult | ProposedWriteResult>("POST", `${projectPath(projectId)}/repositories`, remote ? { path, remote } : { path }),
+  unlink: (projectId: string, path: string) =>
+    send<WriteResult | ProposedWriteResult>("POST", `${projectPath(projectId)}/repositories/unlink`, { path }),
+  propose: (projectId: string, repository: string, key: string) =>
+    send<WriteResult | ProposedWriteResult>("POST", `${projectPath(projectId)}/documentation-check/propose`, { repository, key }),
+  mark: (projectId: string, repository: string, commit: string) =>
+    send<WriteResult | ProposedWriteResult>("POST", `${projectPath(projectId)}/documentation-check/mark`, { repository, commit }),
 };
 
 /** Git sync (see "Git sync API" in docs/architecture.md). A failed sync

@@ -217,6 +217,172 @@ report that the app is not open. On macOS and Linux the file is created with
 mode `0600`. Run `icacls "%APPDATA%\knowledge-os-desktop\runtime.json"` to see
 its access list.
 
+## In-app agents (ACP)
+
+The agent inside the app (issue #83) talks to a coding agent over the
+[Agent Client Protocol](https://agentclientprotocol.com) (ACP): JSON-RPC over
+the agent process's stdin and stdout, through `@agentclientprotocol/sdk` in the
+main process (`src/main/agents/`). The accepted decision is
+`projects/knowledge-os/decisions/in-app-agent-over-acp.md`.
+
+**Providers.** Each agent is a provider implementing `AgentProvider`
+(`src/main/agents/contract.ts`); nothing outside its module knows which agent
+it is. A provider says:
+
+- who it is (`id`, `displayName`, and `mcpClientName`, the name its writes
+  appear under: "Written by Claude Code in Knowledge OS app");
+- its adapter (`adapter`: a lock of the exact version tested and every npm
+  package it needs, with integrity hashes, installed on demand);
+- how to find the agent on this computer (`detect()`, which never throws: a
+  missing agent is `not-installed` with a sentence saying how to install it);
+- how to start the adapter (`launchSpec()`);
+- how to limit a session to the MCP servers it is given (`sessionMeta()`);
+- how to explain sign-in (`authHelp()`);
+- small per-adapter corrections (`dialect`), and what it supports
+  (`capabilities`).
+
+| Provider | Adapter (pinned) | Runs | Limits |
+| --- | --- | --- | --- |
+| Claude Code | `@agentclientprotocol/claude-agent-acp` 0.81.2 (104 packages) | your `claude` (`CLAUDE_CODE_EXECUTABLE`) | no built-in tools (`tools: []`), none of your MCP servers, hooks, or settings (`strictMcpConfig`, `settingSources: []`), and no permission-skipping mode (`allowDangerouslySkipPermissions: false`) |
+| Codex | `@agentclientprotocol/codex-acp` 1.13.1 (19 packages) | your `codex` (`CODEX_PATH`) | starts in `read-only` mode: editing files and network access need your permission; it can still read files in the knowledge base folder, and MCP servers in your own `~/.codex/config.toml` also load |
+
+**Adapters are installed on demand**, not shipped: the Claude adapter depends
+on Anthropic's proprietary Claude Agent SDK, which you fetch yourself this
+way, as `npx` would. Each provider's adapter is a lock in
+`src/main/agents/adapters/*.lock.json`, written by
+`node scripts/lock-adapter.mjs <package>@<version> <entry>`: every package in
+its dependency tree at the exact version tested, with its tarball URL on
+`registry.npmjs.org` and its `sha512` integrity hash. Optional dependencies,
+which include the agents' own platform binaries of hundreds of MB, are left
+out: the adapters run the `claude` or `codex` you installed and signed in to.
+On Windows a native `claude.exe` is preferred over an npm `claude.cmd` shim.
+
+`installer.ts` installs a lock into `agents\<adapter>@<version>` in the
+app's user-data folder: it accepts only https tarballs from the npm registry,
+downloads through Electron's `net.fetch` (so the system proxy applies), checks
+every tarball against its hash before writing it, extracts it without running
+any install script and refusing any path outside the package, writes
+everything to a staging folder, and renames that into place with a marker
+last, so a folder that exists is a whole install. A failed or interrupted
+install leaves nothing behind; earlier versions are removed after an update.
+No Node or npm is needed on the computer: the adapter then runs with
+Electron's own binary as Node (`ELECTRON_RUN_AS_NODE=1`). A new adapter
+version reaches you with an app release, after it passed the conformance
+suite.
+
+**The shared client** (`acpSession.ts`, `AcpAgentSession`) owns everything
+else, the same for every provider: starting and stopping the adapter,
+`initialize` without any file-system or terminal capability, `session/new`
+with `kos mcp --place "Knowledge OS app"` as the only MCP server,
+`session/prompt`, `session/cancel`, `session/load` after a restart when the
+provider supports it, and turning `session/update` into plain `AgentEvent`s
+(message and thought text, tool calls, plans, the end of a turn). Every
+`session/request_permission` becomes a `permission` event that waits for the
+person's answer, except for the knowledge base's own read tools
+(`KOS_READ_TOOLS`: `search`, `read_page`, `list_projects`, `list_folder`,
+`list_proposed_decisions`, `check_documentation`, `read_commit` on the
+`knowledge-os` server), which are allowed without asking. Writes, the
+agent's own tools, and any other MCP server's tools always ask. When the agent
+needs sign-in the session is `auth-required` with the provider's help (for
+example "Run `claude /login` in a terminal"), also when a sign-in expires
+during the session and the agent fails a prompt with a sign-in error instead
+of ACP's `auth_required`; a process that stops is `crashed`, and
+`restart()` starts it again. Because the only tools are those of `kos mcp`,
+the in-app agent has exactly the limits of any external agent: it cannot
+accept, withdraw, supersede, or delete, its writes carry `agent-authored`
+provenance, and they follow the knowledge base's review rules.
+
+`AgentService` (`service.ts`) holds at most one session, in the open knowledge
+base, and closes it when the knowledge base closes or the app quits. The main
+process exposes it to the reader UI only, as `window.kosDesktop.agent`
+(`list`, which says whether each adapter is installed, `installAdapter`, with
+`install` progress events, `start`, which refuses with `adapter-missing` until
+the adapter is installed, `prompt`, `cancel`, `respondPermission`, `restart`,
+`close`, `onEvent`).
+
+**The agent panel** (#83) is part of the reader UI
+(`reader-ui/src/components/AgentPanel.tsx`, state in `lib/agentStore.ts`, the
+prompts in `lib/agentPrompt.ts`). It opens from the robot button in the
+reader's header or View → Agent (Ctrl+J), and is offered only in the desktop
+app, where `window.kosDesktop.agent` exists. The first time, it lists the
+providers and offers to install the chosen one's adapter. A request is about
+the open knowledge base and the page or project in view ("About: Retry
+policy"), and goes in one of two modes:
+
+- **Ask** answers from pages the agent searched and read, and writes nothing;
+  the answer links the pages, and "Pages used" lists every page it read.
+- **Draft** writes a note or proposes a decision with `write_note` and
+  `propose_decision`; "Written" links what it wrote, which shows as written or
+  proposed by the agent in Knowledge OS app, and a write held back by the
+  review rules waits in Decide.
+
+The mode only steers the words of the prompt; what the agent can do is fixed
+by `kos mcp`. Reading the knowledge base needs no permission; every write
+asks, inside the answer where the agent waits, and once answered the tool's
+row says "allowed" or "refused". Sign-in
+trouble shows the command to run and *Try again*; a crashed agent offers
+*Restart*; *New conversation* ends the session.
+
+**Review** (#99), the third mode next to Ask and Draft, has the agent go
+through what waits in Decide (Enter with an empty request goes through
+everything): it reads the proposed decisions and the proposed changes the review
+rules held back (`list_proposed_changes`, `read_proposed_change`, both read tools
+that need no permission), compares them with what is in force, and writes one
+section per item ending in a recommendation (accept, withdraw, discard, or
+leave for now). Under the answer each item it recommended on gets its
+recommendation and the same one-click actions as Decide, with Undo
+(`AgentReview.tsx`); the agent itself still cannot accept, withdraw, or discard
+anything.
+
+**Conversations** (#100) are kept on this computer after every answer, in
+`conversations/<hash of the knowledge base path>/<id>.json` in the app's
+user-data folder (`src/main/agents/conversations.ts`): not in the knowledge
+base, and not synced. The panel's history button lists them, newest first,
+with when and what they were about; one can be opened, renamed, or deleted,
+and the newest 200 per knowledge base are kept. A conversation opened from the
+list continues in a new agent session, whose first prompt repeats the latest
+earlier turns (at most 12,000 characters). *Save as note*, for the whole
+conversation or one answer, writes a draft note in the project in view (general
+knowledge without one) with the agent's `agent-authored` provenance: each
+request as a heading, its answer, and the pages it used as links; the editor
+opens on it. Review rules apply as to any write.
+
+File → New Page (Ctrl+N) opens a new page in the current project (the first
+project when none is in view). In the app it has *Start with the agent*: one
+line, and the agent drafts the title and body from the knowledge base without
+writing anything, for the person to edit and save. New Knowledge Base moved
+to Ctrl+Shift+N. The reader receives these menu commands over
+`reader:command` (`new-page`, `toggle-agent`).
+
+**Adding a provider.** Write its adapter lock with
+`scripts/lock-adapter.mjs`, add a module under `src/main/agents/providers/`
+that imports it, and list the provider in `providers/index.ts`. It is done
+when it passes the conformance suite (`testing/conformance.ts`), which every
+provider runs in `npm test` against a scripted mock ACP agent
+(`testing/mockAgent.mjs`): launching the installed adapter with Node, a lock of
+hashed npm packages without platform binaries, a session with `kos mcp` as the only MCP
+server and no file or terminal access, streamed text, tool calls, permission
+questions reaching the person, cancel, sign-in reported as a state, and a
+crash followed by a restart. Its own detection and session options get a small
+test next to it (`providers.test.ts`).
+
+**Trying a real agent.** `src/main/agents/e2e.test.ts` runs a real provider
+end to end and is skipped unless asked for. With the agent installed and
+signed in, a running core, and its runtime file:
+
+```powershell
+$env:KOS_AGENT_E2E = "claude"
+$env:KOS_E2E_ROOT = "D:\notes\test-kb"            # has a project "demo"
+$env:KOS_E2E_CORE = "..\.venv\Scripts\python.exe"
+$env:KOS_RUNTIME_FILE = "$env:APPDATA\knowledge-os-desktop\runtime.json"
+npx vitest run src/main/agents/e2e.test.ts
+```
+
+It installs the adapter from the npm registry into a temporary folder the way
+the app does, asks the agent to write one note through `kos mcp`, and checks
+that the note carries the agent's provenance; it needs the network and uses
+the agent's model.
+
 ## Updates
 
 The installed app updates itself from the
@@ -286,7 +452,14 @@ release is made by hand:
    `desktop/package.json`.
 2. Commit, merge, and build from a clean checkout of that commit in a shell
    where `MAIN_VITE_KOS_UPDATE_TEST_FEED` is not set: `npm ci`, then
-   `npm run dist`.
+   `npm run dist`. Or let GitHub Actions do steps 2 and 3: run the
+   **Release** workflow (`.github/workflows/release.yml`) on `main` from the
+   Actions tab. It builds the same way on `windows-latest`, uploads the three
+   files as a workflow artifact after `node scripts/check-packaged.mjs`
+   confirmed the packaged app can load every run-time dependency of its main
+   process (run it after a local `npm run dist` too), and with *publish* checked creates and
+   publishes the release `vX.Y.Z` from `desktop/package.json` with them
+   attached. Run it once without *publish* to try the installer first.
 3. Create a GitHub release with the tag `vX.Y.Z` (for example
    `gh release create vX.Y.Z --title "X.Y.Z" --notes "…"`) and attach these
    three files from `desktop/dist/`:
@@ -541,9 +714,17 @@ default. Importing creates:
   meeting reference, then the minutes' sections under Summary, Decisions,
   Action items, and Open questions. Sections with other headings are kept
   under their own heading; the transcript is added only when ticked. Voice
-  embeddings are never read.
+  embeddings are never read. The knowledge base's `meeting-notes` template
+  (see "Write pages" in the [main README](../README.md)) sets the order and
+  wording of those sections: a section whose name matches one of the
+  template's `## ` headings, ignoring case, takes that heading's place, the
+  template's headings the meeting has nothing for are left out, and other
+  sections follow. Without a usable template the order above is kept.
 - One draft decision per ticked item under the decisions heading, linked to
-  the note with `related`. Decisions are drafts because of the approval
+  the note with `related`. When the knowledge base's review rules send
+  Referat notes to review (see "Review before writes land" in the
+  [main README](../README.md)), the decisions are created first and the note,
+  which then waits in Decide, lists them under `related` instead. Decisions are drafts because of the approval
   policy; they govern nothing until someone accepts them.
 
 The minutes are Markdown written by a language model, so sections are found

@@ -9,7 +9,24 @@ export const IPC = {
   showStart: 'workspace:show-start',
   retry: 'workspace:retry',
   getSidebarWidth: 'reader:get-sidebar-width',
-  setSidebarWidth: 'reader:set-sidebar-width'
+  setSidebarWidth: 'reader:set-sidebar-width',
+  // The in-app agent (issue #90); only the reader UI may use these.
+  agentList: 'agent:list',
+  agentInstall: 'agent:install',
+  agentStart: 'agent:start',
+  agentPrompt: 'agent:prompt',
+  agentCancel: 'agent:cancel',
+  agentPermission: 'agent:permission',
+  agentRestart: 'agent:restart',
+  agentClose: 'agent:close',
+  agentEvent: 'agent:event',
+  // Past conversations (issue #100), kept in the app's user-data folder.
+  agentConversations: 'agent:conversations',
+  agentConversationGet: 'agent:conversation-get',
+  agentConversationSave: 'agent:conversation-save',
+  agentConversationDelete: 'agent:conversation-delete',
+  /** A menu command for the reader UI: 'new-page' or 'toggle-agent'. */
+  readerCommand: 'reader:command'
 } as const
 
 export interface RecentWorkspace {
@@ -66,4 +83,27 @@ export interface DesktopApi {
   showStart: () => Promise<void>
   /** Retries the failed action shown on the error screen, re-checking Python first. */
   retry: () => Promise<void>
+  /**
+   * The in-app agent (issue #90). Only the reader UI gets answers; a call from
+   * any other page is refused. Events are the shared ACP client's AgentEvent.
+   */
+  agent: {
+    list: () => Promise<unknown[]>
+    /** Install a provider's adapter on demand; progress arrives as `install` events. */
+    installAdapter: (providerId: string) => Promise<void>
+    start: (providerId: string) => Promise<{ state: string }>
+    prompt: (text: string) => Promise<string>
+    cancel: () => Promise<void>
+    respondPermission: (requestId: string, optionId: string | null) => Promise<boolean>
+    restart: () => Promise<void>
+    close: () => Promise<void>
+    onEvent: (callback: (event: unknown) => void) => () => void
+    /** The open knowledge base's past conversations, newest first (issue #100). */
+    conversations: () => Promise<unknown[]>
+    conversation: (id: string) => Promise<unknown>
+    saveConversation: (conversation: unknown) => Promise<unknown>
+    deleteConversation: (id: string) => Promise<void>
+  }
+  /** Menu commands meant for the reader UI (New Page, Agent). */
+  onReaderCommand: (callback: (command: string) => void) => () => void
 }

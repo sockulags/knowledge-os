@@ -422,21 +422,33 @@ function renderResult(result: ImportResultView): void {
       const text = element('span', undefined, 'record-title')
       text.append(
         element('strong', record.title),
-        element('span', `${record.id} · commit ${record.commit}`, 'muted')
+        element(
+          'span',
+          record.waiting
+            ? `${record.id} · waits for review in Decide · commit ${record.commit}`
+            : `${record.id} · commit ${record.commit}`,
+          'muted'
+        )
       )
-      item.append(
-        element('span', record.kind === 'note' ? 'Note' : 'Draft decision', 'kind'),
-        text,
-        recordButton(record)
-      )
+      item.append(element('span', record.kind === 'note' ? 'Note' : 'Draft decision', 'kind'), text)
+      // A record that waits for review does not exist yet, so there is nothing to open.
+      if (!record.waiting) item.append(recordButton(record))
       list.append(item)
     }
     nodes.push(element('h2', 'Created'), list)
+    if (result.created.some((record) => record.waiting)) {
+      nodes.push(
+        element(
+          'p',
+          "The knowledge base's review rules send the meeting note to review: it waits in the Decide inbox and is written when you accept it there. It lists the imported decisions under related records."
+        )
+      )
+    }
   }
   nodes.push(...notImportedList('Not created', result.failed))
   nodes.push(...notImportedList('Not attempted', result.notAttempted))
   const buttons: HTMLElement[] = []
-  const note = result.created.find((record) => record.kind === 'note')
+  const note = result.created.find((record) => record.kind === 'note' && !record.waiting)
   if (note) buttons.push(button('Open the note', () => void api.openRecord(note.id), true))
   if (result.canRetry) buttons.push(button('Try the failed decisions again', () => void retry()))
   buttons.push(button('Close', () => void api.close()))

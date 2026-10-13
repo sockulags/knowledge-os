@@ -3,20 +3,26 @@
 // there is no base URL to configure and no CORS handling needed.
 
 import type {
+  ChangeDetail,
+  ChangesPayload,
   ComparePayload,
   DecidePayload,
   DeletePreview,
   DocPayload,
+  DocumentationCheckPayload,
   EverythingPayload,
   HomePayload,
   NavPayload,
   ProjectPayload,
+  RepositoriesPayload,
   RecordPayload,
   SearchPayload,
+  SemanticStatus,
   SkillPayload,
   ConflictsPayload,
   SyncSetup,
   SyncStatus,
+  TemplatesPayload,
   WorkspacePayload,
 } from "./types";
 
@@ -69,11 +75,19 @@ export const api = {
   skill: (name: string) => request<SkillPayload>(`/api/skills/${encodeURIComponent(name)}`),
   doc: (path: string) => request<DocPayload>(`/api/docs/${path}`),
   search: (query: string, signal?: AbortSignal) => request<SearchPayload>(`/api/search${query}`, signal),
+  semantic: (signal?: AbortSignal) => request<SemanticStatus>("/api/semantic", signal),
   everything: (query: string) => request<EverythingPayload>(`/api/everything${query}`),
   syncStatus: () => request<SyncStatus>("/api/sync/status"),
   syncConflicts: () => request<ConflictsPayload>("/api/sync/conflicts"),
   syncSetup: () => request<SyncSetup>("/api/sync/setup"),
+  templates: () => request<TemplatesPayload>("/api/templates"),
+  changes: () => request<ChangesPayload>("/api/changes"),
+  change: (id: string) => request<ChangeDetail>(`/api/changes/${encodeURIComponent(id)}`),
   pageDeletion: (id: string) => request<DeletePreview>(`/api/records/${encodeURIComponent(id)}/delete-preview`),
+  repositories: (projectId: string) =>
+    request<RepositoriesPayload>(`/api/projects/${encodeURIComponent(projectId)}/repositories`),
+  documentationCheck: (projectId: string) =>
+    request<DocumentationCheckPayload>(`/api/projects/${encodeURIComponent(projectId)}/documentation-check`),
   folderDeletion: (projectId: string, path: string) =>
     request<DeletePreview>(
       `/api/projects/${encodeURIComponent(projectId)}/folders/delete-preview?path=${encodeURIComponent(path)}`,

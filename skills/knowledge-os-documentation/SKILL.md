@@ -38,6 +38,11 @@ under this agent's name:
   read it again and reapply the change, never overwrite blindly.
 - `propose_decision` for a decision; it is always a draft that the person accepts or withdraws in
   the app. `list_proposed_decisions` shows what is already waiting. No tool accepts decisions.
+- To keep a project's pages in step with its code: `link_repository` once (the repository's
+  absolute path), then after new commits `check_documentation`. For each suggested page update,
+  `read_commit` for what changed, `read_page`, and `write_note`, naming the commits you used; for
+  each suggested decision not already there, `propose_documentation_decision` with its `key`. Call
+  `mark_documentation_checked` with the check's head commit only when the pages are up to date.
 
 If a tool reports `app_not_open` or `app_not_responding`, tell the person to open the Knowledge OS
 app with the knowledge base, and wait; do not switch to the CLI to write behind the app's back.

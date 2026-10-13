@@ -13,7 +13,9 @@ export interface CommitInfo {
 }
 
 export type CreateOutcome =
-  | { ok: true; id: string; commit: CommitInfo | null }
+  /** `proposal` is set when the review rules held the record back (202): it
+   * waits in Decide and does not exist yet. */
+  | { ok: true; id: string; commit: CommitInfo | null; proposal?: string }
   | { ok: false; status: number; error: string; detail: string }
 
 export interface RecordInfo {
@@ -31,6 +33,11 @@ export interface KosApi {
   search(query: string): Promise<string[]>
   /** One record, or null when it does not exist. */
   record(id: string): Promise<RecordInfo | null>
+  /**
+   * Whether the knowledge base's review rules send a Referat note in this
+   * project folder to review. Optional: without it, notes are written directly.
+   */
+  noteNeedsReview?(projectId: string, folder: string): Promise<boolean>
   /** `POST /api/records`. */
   createRecord(payload: {
     metadata: Record<string, unknown>
@@ -44,6 +51,8 @@ export interface CreatedRecord {
   id: string
   title: string
   commit: CommitInfo | null
+  /** Set when the record waits for review in Decide instead of being written. */
+  proposal: string | null
 }
 
 export interface FailedRecord {
@@ -76,7 +85,7 @@ async function createOne(
   folder: string,
   taken: Set<string>,
   extra: Record<string, unknown>
-): Promise<{ ok: true; id: string; commit: CommitInfo | null } | FailedRecord> {
+): Promise<{ ok: true; id: string; commit: CommitInfo | null; proposal?: string } | FailedRecord> {
   let last: CreateOutcome | null = null
   for (let attempt = 0; attempt <= MAX_DUPLICATE_RETRIES; attempt++) {
     const id = uniqueId(record.baseId, taken)
@@ -86,7 +95,7 @@ async function createOne(
       project_path: projectPath(folder, id)
     })
     taken.add(id)
-    if (outcome.ok) return { ok: true, id: outcome.id, commit: outcome.commit }
+    if (outcome.ok) return outcome
     last = outcome
     // Someone else took the id or the file name since the ids were read:
     // move on to the next suffix, never overwrite.
@@ -104,10 +113,15 @@ async function createOne(
  * Creates the note first, then each decision linked to it. When the note
  * fails nothing else is written, so a decision never points at a missing
  * note. `existingNoteId` retries decisions for a note created earlier.
+ *
+ * When the review rules send the note to review it will not exist until a
+ * person accepts it, so a decision cannot name it: the decisions (always
+ * drafts, never held back) are created first, and the note, which waits in
+ * Decide, names them under `related` instead.
  */
 export async function executePlan(
   api: KosApi,
-  plan: Pick<ImportPlan, 'folder' | 'note' | 'decisions'>,
+  plan: Pick<ImportPlan, 'folder' | 'note' | 'decisions'> & Partial<Pick<ImportPlan, 'projectId'>>,
   existingNoteId: string | null = null
 ): Promise<ImportResult> {
   const taken = new Set(await api.recordIds())
@@ -117,6 +131,50 @@ export async function executePlan(
     failed: [],
     notAttempted: [],
     pending: []
+  }
+
+  const review =
+    existingNoteId === null &&
+    plan.projectId !== undefined &&
+    api.noteNeedsReview !== undefined &&
+    (await api.noteNeedsReview(plan.projectId, plan.folder))
+  if (review) {
+    const decisionIds: string[] = []
+    for (const decision of plan.decisions) {
+      const outcome = await createOne(api, decision, plan.folder, taken, {})
+      if ('ok' in outcome) {
+        decisionIds.push(outcome.id)
+        result.created.push({
+          kind: 'decision',
+          id: outcome.id,
+          title: decision.title,
+          commit: outcome.commit,
+          proposal: outcome.proposal ?? null
+        })
+      } else {
+        result.failed.push(outcome)
+      }
+    }
+    const note = await createOne(
+      api,
+      plan.note,
+      plan.folder,
+      taken,
+      decisionIds.length > 0 ? { related: decisionIds } : {}
+    )
+    if ('ok' in note) {
+      result.noteId = note.id
+      result.created.unshift({
+        kind: 'note',
+        id: note.id,
+        title: plan.note.title,
+        commit: note.commit,
+        proposal: note.proposal ?? null
+      })
+    } else {
+      result.failed.unshift(note)
+    }
+    return result
   }
 
   if (existingNoteId === null) {
@@ -132,7 +190,13 @@ export async function executePlan(
       return result
     }
     result.noteId = note.id
-    result.created.push({ kind: 'note', id: note.id, title: plan.note.title, commit: note.commit })
+    result.created.push({
+      kind: 'note',
+      id: note.id,
+      title: plan.note.title,
+      commit: note.commit,
+      proposal: note.proposal ?? null
+    })
   }
 
   for (const decision of plan.decisions) {
@@ -144,7 +208,8 @@ export async function executePlan(
         kind: 'decision',
         id: outcome.id,
         title: decision.title,
-        commit: outcome.commit
+        commit: outcome.commit,
+        proposal: outcome.proposal ?? null
       })
     } else {
       result.failed.push(outcome)

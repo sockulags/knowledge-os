@@ -22,6 +22,7 @@ from .. import language, markdown, strings
 from ..app import get_library, json_response, not_found
 from ..library import (
     EditableSource,
+    file_resolver,
     Library,
     LibraryError,
     Record,
@@ -58,7 +59,12 @@ async def view(request: Request) -> Response:
 
     body = strip_leading_h1(record.body)
     headings = [h for h in markdown.headings(body) if h[0] <= 3]
-    body_html = markdown.render(body, source_path=record.path, resolve_link=path_index(library).get)
+    body_html = markdown.render(
+        body,
+        source_path=record.path,
+        resolve_link=path_index(library).get,
+        resolve_file=file_resolver(request.app.state.workspace),
+    )
     try:
         source = editable_source(record)
     except (LibraryError, OSError):

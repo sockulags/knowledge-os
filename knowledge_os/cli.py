@@ -7,7 +7,8 @@ import json
 import sys
 from pathlib import Path
 
-from .capture import capture_record
+from . import codedocs
+from .capture import capture_record, capture_record_text
 from .context import ContextRequest, build_context
 from .context_policy import trust_label
 from .context_verify import verify_context_package
@@ -23,12 +24,13 @@ from .discovery import (
 )
 from .index import rebuild_indexes, search_index
 from .ingest import ingest_source
-from .model import MetadataError, content_sha256
+from .model import Document, MetadataError, content_sha256, render_document
 from .mutations import (
     accept_decision,
     neutral_withdrawal_reference,
     supersede_decision,
     update_record,
+    update_record_text,
     withdraw_decision,
 )
 from .structure import (
@@ -47,6 +49,8 @@ from .structure import (
 )
 from .version_info import path_warning, version_lines
 from .workspace import Workspace, WorkspaceError, validate_workspace
+from . import semantic
+from .semantic import SemanticError
 
 
 def _root_option(parser: argparse.ArgumentParser) -> None:
@@ -89,6 +93,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     index = commands.add_parser("index", help="validate and rebuild the indexes")
     _root_option(index)
+
+    model = commands.add_parser("model", help="download, check, or remove the model for search by meaning")
+    model_commands = model.add_subparsers(dest="model_command", required=True)
+    model_commands.add_parser("install", help="download the search model (checked against pinned hashes)")
+    model_commands.add_parser("status", help="show whether the search model and its runtime are installed")
+    model_commands.add_parser("remove", help="delete the downloaded search model")
+    # The search model's own process, started by the app and `kos index`; not for people.
+    model_commands.add_parser("serve")
 
     lint = commands.add_parser("lint", help="validate all managed records")
     _root_option(lint)
@@ -202,6 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
     _root_option(discovery_promote)
 
     _structure_commands(commands)
+    _code_commands(commands)
 
     documentation = commands.add_parser("documentation", help="initialize Knowledge OS documentation integration")
     documentation_commands = documentation.add_subparsers(dest="documentation_command", required=True)
@@ -225,7 +238,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="serve the agent tools over MCP (stdio) through the running Knowledge OS app",
         description=(
             "Serve the agent tools (search, read_page, list_projects, list_folder, write_note, "
-            "propose_decision, list_proposed_decisions) over MCP on stdin/stdout. Every call goes through "
+            "propose_decision, list_proposed_decisions, and the documentation check's check_documentation, "
+            "read_commit, propose_documentation_decision, mark_documentation_checked, link_repository) over "
+            "MCP on stdin/stdout. Every call goes through "
             "the local API of the Knowledge OS desktop app and the knowledge base open there; --root is "
             "ignored and nothing works while the app is closed."
         ),
@@ -449,6 +464,157 @@ def _print_structure(result: StructureResult, as_json: bool) -> None:
     print(f"Index refreshed: {result.index_count} record(s)")
 
 
+def _code_commands(commands: argparse._SubParsersAction) -> None:
+    """``kos code``: a project's code repositories and its documentation check (issue #84)."""
+
+    code = commands.add_parser("code", help="link code repositories to a project and check its documentation")
+    _root_option(code)
+    code_commands = code.add_subparsers(dest="code_command", required=True)
+    link = code_commands.add_parser("link", help="link a Git repository; checks start at its current commit")
+    link.add_argument("project")
+    link.add_argument("path", help="the repository folder, absolute or relative to the knowledge base")
+    link.add_argument("--remote", help="its remote URL (default: its origin remote)")
+    unlink = code_commands.add_parser("unlink", help="remove a linked repository")
+    unlink.add_argument("project")
+    unlink.add_argument("path", help="the path as linked")
+    check = code_commands.add_parser("check", help="compare the project's pages with what changed since the last check")
+    check.add_argument("project")
+    check.add_argument("--repository", help="only this linked path")
+    check.add_argument("--since", help="start at this commit instead of the checked one (needs --repository with several)")
+    propose = code_commands.add_parser("propose", help="draft a decision the check suggests")
+    propose.add_argument("project")
+    propose.add_argument("key", help="the suggestion's key, e.g. dependency-added:httpx")
+    propose.add_argument("--repository", help="the linked path (needed when the project links several)")
+    mark = code_commands.add_parser("mark", help="record that the documentation was checked against a commit")
+    mark.add_argument("project")
+    mark.add_argument("--repository", help="the linked path (needed when the project links several)")
+    mark.add_argument("--commit", help="the commit covered (default: the repository's current commit)")
+    for parser in (link, unlink, check, propose, mark):
+        parser.add_argument("--json", action="store_true", dest="as_json")
+        _root_option(parser)
+
+
+def _code_overview(workspace: Workspace, project_id: str) -> tuple[list[Document], Document]:
+    documents, issues = validate_workspace(workspace)
+    if issues:
+        raise ValueError(f"the workspace has {len(issues)} lint issue(s); run 'kos lint'")
+    overview = next(
+        (
+            document
+            for document in documents
+            if document.metadata["type"] == "project"
+            and document.metadata["id"] == project_id
+            and document.metadata["scope"] == f"project:{project_id}"
+        ),
+        None,
+    )
+    if overview is None:
+        raise ValueError(f"project not found: {project_id}")
+    return documents, overview
+
+
+def _one_repository(links: list[codedocs.RepositoryLink], wanted: str | None) -> codedocs.RepositoryLink:
+    if wanted is not None:
+        found = next((link for link in links if link.path == wanted), None)
+        if found is None:
+            raise ValueError(f"{wanted} is not linked to this project")
+        return found
+    if len(links) != 1:
+        raise ValueError("the project links " + ("no repository" if not links else "several repositories; pass --repository"))
+    return links[0]
+
+
+def _print_check(report: dict[str, object]) -> None:
+    for repo in report["repositories"]:  # type: ignore[union-attr]
+        print(f"{repo['label']} ({repo['folder']}): {repo['message']}")
+        for commit in repo["commits"]:
+            print(f"  {commit['short']} {commit['subject']}")
+        for change in repo["changes"]:
+            print(f"  {change['kind']}: {change['summary']}")
+        for page in repo["pages"]:
+            print(f"Update {page['title']} ({page['path']}):")
+            for reason in page["reasons"]:
+                commits = ", ".join(sha[:7] for sha in reason["commits"])
+                print(f"  - {reason['text']} [{commits}]")
+        for decision in repo["decisions"]:
+            state = f" (exists: {decision['existing']})" if decision["existing"] else ""
+            commits = ", ".join(sha[:7] for sha in decision["commits"])
+            print(f"Propose decision: {decision['title']}{state} [{commits}]  key: {decision['key']}")
+        if repo["state"] == "changed":
+            print(f"When the pages are up to date: kos code mark {report['project']} --commit {str(repo['head'])[:12]}")
+
+
+def _run_code(workspace: Workspace, args: argparse.Namespace) -> int:
+    documents, overview = _code_overview(workspace, args.project)
+    links = codedocs.repository_links(overview.metadata)
+    if args.code_command == "check":
+        since = None
+        if args.since:
+            since = {_one_repository(links, args.repository).path: args.since}
+        check = codedocs.check_documentation(workspace.root, args.project, documents, workspace.relative, since=since)
+        report = check.as_json()
+        if args.repository:
+            report["repositories"] = [repo for repo in report["repositories"] if repo["path"] == args.repository]
+        if args.as_json:
+            print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+        else:
+            _print_check(report)
+        return 0
+    if args.code_command == "propose":
+        link = _one_repository(links, args.repository)
+        check = codedocs.check_documentation(workspace.root, args.project, documents, workspace.relative)
+        title, body, provenance = codedocs.decision_draft(check.repository(link.path), args.key)
+        taken = {document.metadata["id"] for document in documents}
+        base = "-".join(part for part in "".join(c if c.isalnum() else " " for c in title.lower()).split())[:80] or "decision"
+        record_id, number = base, 2
+        while record_id in taken:
+            record_id, number = f"{base}-{number}", number + 1
+        metadata = {
+            "id": record_id,
+            "title": title,
+            "type": "project",
+            "record_kind": "decision",
+            "status": "draft",
+            "scope": f"project:{args.project}",
+            "created": codedocs._today(),
+            "updated": codedocs._today(),
+            "provenance": [cli_provenance("propose-from-documentation-check"), *provenance],
+        }
+        result = capture_record_text(
+            workspace, render_document(metadata, body).decode("utf-8"), project_path=Path("decisions") / f"{record_id}.md"
+        )
+        payload = {"id": result.id, "path": result.path, "sha256": result.sha256, "status": result.status}
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True) if args.as_json else f"Proposed decision {result.id} ({result.path})")
+        return 0
+    if args.code_command == "link":
+        links, _link = codedocs.with_link(workspace.root, links, args.path, remote=args.remote)
+    elif args.code_command == "unlink":
+        links = codedocs.without_link(workspace.root, links, args.path)
+    else:  # mark
+        link = _one_repository(links, args.repository)
+        commit = args.commit or codedocs.head_commit(codedocs.resolve(workspace.root, link.path))
+        links = codedocs.with_checked(workspace.root, links, link.path, commit)
+    metadata = dict(overview.metadata)
+    value = codedocs.links_metadata(links)
+    if value is None:
+        metadata.pop("repositories", None)
+    else:
+        metadata["repositories"] = value
+    metadata["updated"] = max(str(metadata["updated"]), codedocs._today())
+    result = update_record_text(
+        workspace, render_document(metadata, overview.body).decode("utf-8"), expected_sha256=content_sha256(overview.path)
+    )
+    if args.as_json:
+        print(json.dumps({"id": result.id, "path": result.path, "sha256": result.sha256, "repositories": value or []}, ensure_ascii=False, sort_keys=True))
+    else:
+        for link in links:
+            checked = f"checked {link.checked[:12]} on {link.checked_on}" if link.checked else "not checked"
+            print(f"{link.path}: {checked}")
+        if not links:
+            print("No repositories linked")
+    return 0
+
+
 def _workspace(args: argparse.Namespace) -> Workspace:
     return Workspace.discover(getattr(args, "root", None))
 
@@ -500,6 +666,61 @@ def _inspect(workspace: Workspace, record_id: str, full: bool) -> int:
         result["content"] = document.body
     print(json.dumps(result, ensure_ascii=False, indent=2, default=lambda value: value.isoformat()))
     return 0
+
+
+def _model(command: str) -> int:
+    spec = semantic.MODEL
+    if command == "status":
+        print(f"model: {spec.name} ({spec.source}, revision {spec.revision[:12]})")
+        print(f"folder: {semantic.model_dir()}")
+        print(f"installed: {'yes' if semantic.is_installed() else 'no'} ({spec.size})")
+        if not semantic.runtime_available():
+            print("runtime: no; install the search extra")
+            return 0
+        # Here, unlike in the app, the runtime is really imported, so a broken install shows.
+        try:
+            import numpy
+            import onnxruntime
+            import tokenizers
+        except Exception as exc:
+            print(f"runtime: installed but cannot be loaded: {exc}")
+            return 1
+        print(f"runtime: yes (onnxruntime {onnxruntime.__version__}, tokenizers {tokenizers.__version__}, numpy {numpy.__version__})")
+        return 0
+    if command == "serve":
+        from . import semantic_worker
+
+        return semantic_worker.serve()
+    if command == "remove":
+        semantic.remove_model()
+        print(f"Removed {semantic.model_dir()}")
+        return 0
+    if semantic.is_installed():
+        print(f"Already installed in {semantic.model_dir()}")
+        return 0
+    done = 0
+    shown = -1
+
+    def progress(count: int) -> None:
+        nonlocal done, shown
+        done += count
+        percent = done * 100 // max(spec.total_bytes, 1)
+        if percent // 10 != shown:
+            shown = percent // 10
+            print(f"Downloading {spec.name}: {percent}%", flush=True)
+
+    folder = semantic.install_model(progress=progress)
+    print(f"Installed {spec.name} in {folder}; run 'kos index' in a knowledge base to use it")
+    return 0
+
+
+def _refresh_semantic_index(workspace: Workspace) -> None:
+    """Update indexes/semantic.sqlite3 when the search model is installed."""
+
+    from . import semantic_worker
+
+    if semantic_worker.usable():
+        semantic_worker.refresh_now(workspace)
 
 
 def _clone(args: argparse.Namespace) -> int:
@@ -613,12 +834,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "clone":
             return _clone(args)
+        if args.command == "model":
+            return _model(args.model_command)
         workspace = _workspace(args)
         if args.command == "lint":
             return _lint(workspace)
         if args.command == "index":
             count = rebuild_indexes(workspace)
             print(f"Index refreshed: {count} record(s); catalog.md and catalog.sqlite3 rebuilt")
+            _refresh_semantic_index(workspace)
             return 0
         if args.command == "ingest":
             record_id, created, count = ingest_source(workspace, args.path)
@@ -645,6 +869,8 @@ def main(argv: list[str] | None = None) -> int:
         deleted = _run_delete(workspace, args)
         if deleted is not None:
             return deleted
+        if args.command == "code":
+            return _run_code(workspace, args)
         structure_result = _run_structure(workspace, args)
         if structure_result is not None:
             _print_structure(structure_result, args.as_json)
@@ -836,7 +1062,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Acknowledged related records: {', '.join(related_ids)}")
                 print(f"Index refreshed: {count} record(s)")
                 return 0
-    except (DocumentationInitError, MetadataError, WorkspaceError, ValueError) as exc:
+    except (DocumentationInitError, MetadataError, WorkspaceError, ValueError, codedocs.CodeDocsError, SemanticError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     return 2
