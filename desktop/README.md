@@ -30,6 +30,7 @@ Run these in `desktop/`:
 | --- | --- |
 | `npm install` | Installs dependencies and downloads Electron. |
 | `npm run dev` | Starts the app with the start page served by Vite. |
+| `npm run check:deps` | Checks that every dependency in `package.json` is installed as `package-lock.json` records it (version, and commit for `github:` dependencies) and names any that are not. `npm run dev`, `npm start`, and `npm run build` run it first, so a missing package stops them with "run `npm install`" instead of a bundler error. |
 | `npm run typecheck` | Type-checks the main, preload, and start-page code. |
 | `npm run lint` | Runs ESLint with the Prettier rules. |
 | `npm test` | Runs the Vitest unit tests. |

@@ -155,7 +155,8 @@ button.primary:hover {
   border-color: var(--accent-hover);
 }
 
-ul.recent {
+ul.recent,
+ul.choices {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -166,27 +167,69 @@ ul.recent {
   overflow: hidden;
 }
 
-ul.recent li + li {
+ul.recent li + li,
+ul.choices li + li {
   border-top: 1px solid var(--border);
 }
 
-ul.recent button {
+ul.recent button,
+ul.choices button {
   display: block;
   width: 100%;
   text-align: left;
   border: 0;
   border-radius: 0;
   background: transparent;
+  color: var(--text);
   padding: 11px 16px;
   font-weight: 500;
 }
 
-ul.recent button:hover {
+ul.recent button:hover,
+ul.choices button:hover {
   background: var(--hover);
 }
 
-ul.recent button:focus-visible {
+ul.recent button:focus-visible,
+ul.choices button:focus-visible {
   outline-offset: -2px;
+}
+
+/* The first-run choices: a title (with its shortcut) over one sentence on
+   when to pick it. The suggested first choice gets the accent colour. */
+ul.choices button {
+  padding: 14px 18px;
+}
+
+ul.choices .title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+ul.choices button.primary .title {
+  color: var(--accent-text);
+}
+
+ul.choices .description {
+  display: block;
+  margin-top: 2px;
+  font-size: 13.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--faint);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
 }
 
 .path {

@@ -58,6 +58,58 @@ function mainActions(): HTMLElement {
   return actions
 }
 
+/** One of the three ways to start, with a sentence on when to pick it. */
+interface Choice {
+  label: string
+  description: string
+  shortcut?: string
+  action: () => Promise<void>
+}
+
+const CHOICES: Choice[] = [
+  {
+    label: 'Open knowledge base…',
+    description:
+      'Pick a folder that already is a knowledge base, such as one you created ' +
+      'earlier or copied from another computer.',
+    shortcut: 'Ctrl+O',
+    action: api.openWorkspace
+  },
+  {
+    label: 'Create new knowledge base…',
+    description:
+      'Start from nothing: choose an empty folder and Knowledge OS sets it up, ' +
+      'ready for your first notes.',
+    shortcut: 'Ctrl+N',
+    action: api.createWorkspace
+  },
+  {
+    label: CLONE_TEXT.startButton,
+    description:
+      'Copy a knowledge base that lives in a Git repository, such as one on GitHub, ' +
+      'to this computer and open it.',
+    action: api.cloneWorkspace
+  }
+]
+
+/**
+ * The first-run version of the actions: each choice with what it does, so
+ * someone who has never opened a knowledge base knows which one to pick.
+ */
+function choiceList(): HTMLElement[] {
+  const list = element('ul', undefined, 'choices')
+  CHOICES.forEach((choice, index) => {
+    const title = element('span', choice.label, 'title')
+    if (choice.shortcut !== undefined) title.append(element('kbd', choice.shortcut))
+    const entry = button('', choice.action, index === 0)
+    entry.replaceChildren(title, element('span', choice.description, 'description'))
+    const row = element('li')
+    row.append(entry)
+    list.append(row)
+  })
+  return [element('h2', 'Get started'), list]
+}
+
 function recentList(recent: RecentWorkspace[]): HTMLElement[] {
   if (recent.length === 0) return []
   const list = element('ul', undefined, 'recent')
@@ -74,12 +126,18 @@ function recentList(recent: RecentWorkspace[]): HTMLElement[] {
 function render(state: ShellState): void {
   const nodes: HTMLElement[] = []
   switch (state.kind) {
-    case 'start':
+    case 'start': {
+      const firstRun = state.recent.length === 0
       nodes.push(
         brand(),
         element(
           'p',
-          'Open a knowledge base folder, create a new, empty one, or clone one from a Git repository.'
+          firstRun
+            ? 'A knowledge base is a folder of Markdown files on this computer. ' +
+                'Knowledge OS reads and indexes the folder so you can browse, search, ' +
+                'and follow links between your notes; the files stay plain text that ' +
+                'any editor can open.'
+            : 'Open a knowledge base folder, create a new, empty one, or clone one from a Git repository.'
         )
       )
       if (state.notice) {
@@ -87,8 +145,10 @@ function render(state: ShellState): void {
         notice.setAttribute('role', 'status')
         nodes.push(notice)
       }
-      nodes.push(mainActions(), ...recentList(state.recent))
+      if (firstRun) nodes.push(...choiceList())
+      else nodes.push(mainActions(), ...recentList(state.recent))
       break
+    }
     case 'starting':
       nodes.push(element('h1', 'Opening knowledge base…'), element('p', state.root, 'path'))
       break
