@@ -264,6 +264,10 @@ existing diagrams are fenced `text` blocks that render correctly as code.
 
 1. `kos-read --root .` serves the library and the workspace is byte-identical
    afterwards; `git status` stays clean and no file mtime changes.
+   Amended 2026-10-13 by the draft decision `reader-index-refresh`: this holds
+   for canonical files only. When the index is stale the reader may rebuild the
+   files under `indexes/`; with `--no-index-refresh` the original criterion
+   holds in full.
 2. The start page lists every record in the corpus, the skills, and the
    repo-document tier.
 3. The `knowledge-os` project view reproduces the directory tree under
