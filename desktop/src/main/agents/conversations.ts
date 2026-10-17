@@ -5,16 +5,9 @@
 // store only checks its shape, its size, and where it goes.
 
 import { createHash } from 'crypto'
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'fs'
+import { existsSync, readdirSync, readFileSync, rmSync } from 'fs'
 import { join, resolve } from 'path'
+import { writeFileAtomic } from '../atomicFile'
 
 /** How many conversations a knowledge base keeps; the oldest go first. */
 export const MAX_CONVERSATIONS = 200
@@ -136,12 +129,7 @@ export class ConversationStore {
     if (Buffer.byteLength(body) > MAX_CONVERSATION_BYTES) {
       throw new ConversationError('the conversation is too long to keep')
     }
-    const folder = this.folder(workspaceRoot)
-    mkdirSync(folder, { recursive: true })
-    const path = this.file(workspaceRoot, conversation.id)
-    const staging = `${path}.tmp`
-    writeFileSync(staging, body, 'utf8')
-    renameSync(staging, path)
+    writeFileAtomic(this.file(workspaceRoot, conversation.id), body)
     for (const old of this.readAll(workspaceRoot).slice(MAX_CONVERSATIONS)) {
       rmSync(this.file(workspaceRoot, old.id), { force: true })
     }

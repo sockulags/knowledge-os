@@ -24,7 +24,7 @@ export const codexProvider: AgentProvider = {
   displayName: 'Codex',
   mcpClientName: 'codex-mcp-client',
   adapter: CODEX_ADAPTER,
-  capabilities: { sessionResume: true, images: true },
+  capabilities: { sessionResume: true },
 
   async detect(env, platform): Promise<ProviderStatus> {
     const explicit = env['CODEX_PATH']?.trim()

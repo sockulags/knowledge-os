@@ -5,7 +5,7 @@
 // JSON-RPC over the agent process's stdin and stdout. A provider says only
 // what differs between agents: how to find the agent on this computer, how to
 // start its ACP adapter, how to restrict it to the knowledge base's own MCP
-// tools, how to explain its sign-in, and any small quirks of its adapter.
+// tools, and how to explain its sign-in.
 // Everything else (the process, the ACP session, streamed updates, and
 // permission requests) belongs to the shared client in acpSession.ts, which
 // never asks which agent it is talking to.
@@ -14,7 +14,7 @@
 // testing/conformance.ts. Only Node built-ins and ACP types are imported, so
 // providers are unit-testable outside Electron.
 
-import type { AuthMethod, SessionNotification } from '@agentclientprotocol/sdk'
+import type { AuthMethod } from '@agentclientprotocol/sdk'
 import type { AdapterLock } from './installer'
 
 /** Whether the agent can be used on this computer, and why not. */
@@ -69,17 +69,6 @@ export interface AuthHelp {
 export interface ProviderCapabilities {
   /** Continue an earlier session after a restart (`session/load`). */
   sessionResume: boolean
-  /** Images in prompts. */
-  images: boolean
-}
-
-/**
- * Small, pure corrections for one adapter's known quirks. Each hook is
- * optional; kandev keeps the same kind of per-agent "dialect".
- */
-export interface ProviderDialect {
-  /** Rewrite or drop (`null`) one session update before the app sees it. */
-  normalizeUpdate?(notification: SessionNotification): SessionNotification | null
 }
 
 export interface AgentProvider {
@@ -112,7 +101,6 @@ export interface AgentProvider {
   sessionMeta(): Record<string, unknown> | undefined
   /** Explain the adapter's `authMethods` when a session needs sign-in. */
   authHelp(methods: readonly AuthMethod[]): AuthHelp
-  readonly dialect?: ProviderDialect
 }
 
 /** The knowledge base's own MCP server, the only one a session gets. */
