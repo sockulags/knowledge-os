@@ -130,6 +130,10 @@ export class ConversationStore {
       throw new ConversationError('the conversation is too long to keep')
     }
     writeFileAtomic(this.file(workspaceRoot, conversation.id), body)
+    // Counting names is cheap; reading every file to find the oldest is not,
+    // so that only happens once there are more files than the store keeps.
+    const files = readdirSync(this.folder(workspaceRoot)).filter((name) => name.endsWith('.json'))
+    if (files.length <= MAX_CONVERSATIONS) return summary(conversation)
     for (const old of this.readAll(workspaceRoot).slice(MAX_CONVERSATIONS)) {
       rmSync(this.file(workspaceRoot, old.id), { force: true })
     }
