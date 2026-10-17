@@ -4,6 +4,7 @@ import { CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { api } from "../api/client";
 import type { DeletePreview, NavPayload, StructureResult, TreeNode, WriteFailure } from "../api/types";
 import { structure, type Outcome } from "../api/write";
+import { useApi } from "../hooks/useApi";
 import { hasUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { pendingActions } from "../lib/pendingStore";
 import { folderDisplayName } from "../lib/text";
@@ -657,21 +658,13 @@ function DeleteDialog({
   onCancel: () => void;
   onConfirm: (preview: DeletePreview) => Promise<Outcome<StructureResult>>;
 }) {
-  const [preview, setPreview] = useState<DeletePreview | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const previewState = useApi(
+    () => (item.kind === "folder" ? api.folderDeletion(item.projectId, item.path) : api.pageDeletion(item.kind === "page" ? item.id : "")),
+    [item],
+  );
+  const preview = previewState.data;
+  const loadError = previewState.error;
   const [failure, setFailure] = useState<WriteFailure | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load =
-      item.kind === "folder" ? api.folderDeletion(item.projectId, item.path) : api.pageDeletion(item.kind === "page" ? item.id : "");
-    load
-      .then((data) => !cancelled && setPreview(data))
-      .catch((error: unknown) => !cancelled && setLoadError(error instanceof Error ? error.message : String(error)));
-    return () => {
-      cancelled = true;
-    };
-  }, [item]);
 
   const title = preview?.dialog.title ?? `Delete “${item.title}”?`;
   if (preview === null) {

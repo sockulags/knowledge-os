@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Check, GitBranch, UserRound } from "lucide-react";
-import { api, ApiUnreachableError } from "../api/client";
+import { api } from "../api/client";
 import type { SyncRemoteCheck, SyncSetup as SetupPayload, WriteFailure } from "../api/types";
 import { syncSetup } from "../api/write";
+import { useApi } from "../hooks/useApi";
 import { networkErrorMessage } from "../lib/language";
 import { Callout } from "./Callout";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -290,34 +291,19 @@ function RemoteStep({ setup, onDone }: { setup: SetupPayload; onDone: (message: 
  * repository status does, so the panel re-reads where the setup stands. */
 export function SyncSetupPanel({ version, onDone }: { version: string; onDone: (message: string) => void }) {
   const { nav } = useShell();
-  const [setup, setSetup] = useState<SetupPayload | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // The panel stays on screen while it re-reads where the setup stands.
+  const state = useApi(() => api.syncSetup(), [version], { keepData: true });
+  const load = state.reload;
 
-  const load = useCallback(() => {
-    api
-      .syncSetup()
-      .then((payload) => {
-        setSetup(payload);
-        setLoadError(null);
-      })
-      .catch((error: unknown) => {
-        setSetup(null);
-        // The status line already explains a repository problem; only a
-        // core that cannot be reached at all needs saying here.
-        setLoadError(error instanceof ApiUnreachableError ? networkErrorMessage(nav?.language) : null);
-      });
-  }, [nav?.language]);
-
-  useEffect(() => {
-    load();
-  }, [load, version]);
-
-  if (loadError !== null)
+  // The status line already explains a repository problem; only a core
+  // that cannot be reached at all needs saying here.
+  if (state.unreachable)
     return (
       <Callout tone="danger">
-        <p>{loadError}</p>
+        <p>{networkErrorMessage(nav?.language)}</p>
       </Callout>
     );
+  const setup = state.error === null ? state.data : null;
   if (setup === null) return null;
   const L = setup.language;
   const done = (message: string) => {

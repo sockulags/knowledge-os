@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link } from "react-router";
 import { ArrowRight, FolderKanban } from "lucide-react";
 import { api } from "../api/client";
-import type { HealthSummary } from "../api/types";
 import { useApi } from "../hooks/useApi";
 import { PageSkeleton } from "../components/Skeleton";
 import { Pill } from "../components/Pill";
@@ -18,29 +17,20 @@ export function Home() {
   const { nav } = useShell();
   const apiState = useApi(() => api.home(), []);
   const { data, loading } = apiState;
-  const [health, setHealth] = useState<HealthSummary | null>(null);
+  // Kept while it is asked again, so the notice does not flicker.
+  const workspace = useApi(() => api.workspace(), [], { keepData: true });
+  const health = workspace.error === null ? (workspace.data?.health ?? null) : null;
   useDocumentTitle(nav?.workspace_name, null);
-
-  useEffect(() => {
-    api
-      .workspace()
-      .then((w) => setHealth(w.health))
-      .catch(() => setHealth(null));
-  }, []);
 
   // While the reader rebuilds the search index, ask again until it is done,
   // so the notice goes away by itself.
   const refreshing = health?.index_refreshing ?? false;
+  const reloadWorkspace = workspace.reload;
   useEffect(() => {
     if (!refreshing) return;
-    const timer = window.setTimeout(() => {
-      api
-        .workspace()
-        .then((w) => setHealth(w.health))
-        .catch(() => setHealth(null));
-    }, INDEX_REFRESH_POLL_MS);
+    const timer = window.setTimeout(() => reloadWorkspace(), INDEX_REFRESH_POLL_MS);
     return () => window.clearTimeout(timer);
-  }, [refreshing, health]);
+  }, [refreshing, workspace.data, reloadWorkspace]);
 
   if (loading) return <PageSkeleton />;
   if (apiState.error || !data)
