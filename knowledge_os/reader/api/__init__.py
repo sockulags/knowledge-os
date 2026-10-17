@@ -144,7 +144,6 @@ def build_api_routes() -> list[Route]:
         Route("/api/semantic", semantic.status_view, name="api-semantic"),
         Route("/api/semantic/install", semantic.install_view, methods=["POST"], name="api-semantic-install"),
         Route("/api/semantic/refresh", semantic.refresh_view, methods=["POST"], name="api-semantic-refresh"),
-        Route("/api/semantic/remove", semantic.remove_view, methods=["POST"], name="api-semantic-remove"),
         Route("/api/everything", everything.view, name="api-everything"),
         Route("/api/templates", templates.view, name="api-templates"),
         Route("/api/changes", changes.list_view, name="api-changes"),

@@ -679,10 +679,6 @@ def install_semantic_model(workspace: Workspace) -> SemanticStatus:
     return semantic_status(workspace)
 
 
-def remove_semantic_model() -> None:
-    semantic.remove_model()
-
-
 def search_with_meaning(workspace: Workspace, library: Library, query: str, limit: int = 50) -> list[dict[str, str]]:
     """Full-text hits (``search``) merged with pages that match ``query`` by
     meaning, best first. Every row has the keys of a ``search`` row plus
