@@ -15,8 +15,6 @@ from pathlib import Path
 import re
 from typing import Any, Iterable
 
-import yaml
-
 from .context_policy import trust_label
 from .index import search_index_terms, validate_index
 from .model import (
@@ -29,12 +27,14 @@ from .model import (
     Document,
     MetadataError,
     parse_document_text,
+    render_document,
 )
 from .workspace import (
     Workspace,
     atomic_write,
     exclusive_write,
     default_project_record_path,
+    format_issues,
     refresh_derived_indexes,
     stage_workspace,
     staged_documents,
@@ -75,11 +75,6 @@ def _json_block(value: Any) -> str:
     return json.dumps(_json_value(value), ensure_ascii=False, indent=2, sort_keys=True)
 
 
-def _frontmatter(metadata: dict[str, Any], body: str) -> bytes:
-    rendered = yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True).rstrip("\n")
-    return f"---\n{rendered}\n---\n\n{body}".encode("utf-8")
-
-
 def _today_for(metadata: dict[str, Any]) -> str:
     current = metadata["updated"]
     if isinstance(current, datetime):
@@ -92,14 +87,10 @@ def _today_for(metadata: dict[str, Any]) -> str:
     return max(today, current_date).isoformat()
 
 
-def _details(issues: list[Any]) -> str:
-    return "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
-
-
 def _validated_documents(workspace: Workspace, operation: str) -> list[Document]:
     documents, issues = validate_workspace(workspace)
     if issues:
-        raise DiscoveryError(f"cannot {operation} with an invalid corpus:\n{_details(issues)}")
+        raise DiscoveryError(f"cannot {operation} with an invalid corpus:\n{format_issues(issues)}")
     return documents
 
 
@@ -229,7 +220,7 @@ def _add_discovery_locked(workspace: Workspace, input_path: Path) -> tuple[str, 
     candidate = _load_input(input_path)
     _ensure_candidate(candidate)
     record_id = candidate.metadata["id"]
-    canonical = _frontmatter(candidate.metadata, candidate.body)
+    canonical = render_document(candidate.metadata, candidate.body)
     by_id = {document.metadata["id"]: document for document in documents}
     destination = workspace.root / DISCOVERY_DIRECTORY / f"{record_id}.md"
     existing = by_id.get(record_id)
@@ -298,7 +289,7 @@ def _change_status_locked(
         reviewer=reviewer,
         reason=reason,
     )
-    content = _frontmatter(metadata, discovery.body)
+    content = render_document(metadata, discovery.body)
 
     relative_record = f"{DISCOVERY_DIRECTORY}/{record_id}.md"
     with stage_workspace(workspace) as stage:
@@ -664,8 +655,8 @@ def _promote_discovery_locked(
         reason=reason,
         target=target_id,
     )
-    target_content = _frontmatter(target_metadata, discovery.body)
-    discovery_content = _frontmatter(discovery_metadata, discovery.body)
+    target_content = render_document(target_metadata, discovery.body)
+    discovery_content = render_document(discovery_metadata, discovery.body)
 
     discovery_relative = f"{DISCOVERY_DIRECTORY}/{record_id}.md"
     target_relative = target_relative_path.as_posix()

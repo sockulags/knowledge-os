@@ -24,7 +24,7 @@ from .context_policy import (
 from .index import search_index_terms, validate_index
 from .model import ID_PATTERN, RELATION_FIELDS, Document, content_sha256
 from .skills import Skill, load_skills, skill_search_terms
-from .workspace import Workspace, validate_workspace, workspace_identity
+from .workspace import Workspace, format_issues, validate_workspace, workspace_identity
 
 STATUS_WEIGHTS = {"active": 15, "draft": 5, "retained": 15}
 TYPE_WEIGHTS = {"project": 30, "knowledge": 20, "synthesis": 15, "memory": 10, "discovery": 10}
@@ -506,7 +506,7 @@ def build_context(request: ContextRequest, workspace: Workspace) -> str:
     _validate_request(request)
     documents, issues = validate_workspace(workspace)
     if issues:
-        details = "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
+        details = format_issues(issues)
         raise ContextError(f"cannot generate context from invalid corpus:\n{details}")
     validate_index(workspace, documents)
 

@@ -19,10 +19,10 @@ from .model import (
     render_document,
 )
 from .workspace import (
-    Issue,
     Workspace,
     WorkspaceError,
     atomic_write,
+    format_issues,
     refresh_derived_indexes,
     stage_workspace,
     staged_documents,
@@ -93,10 +93,6 @@ class SupersedeIndexError(MutationError):
         self.result = result
 
 
-def _details(issues: list[Issue]) -> str:
-    return "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
-
-
 def _load_candidate(input_path: Path) -> Document:
     path = input_path.expanduser().resolve()
     if not path.is_file():
@@ -134,7 +130,7 @@ def _assert_expected(path: Path, expected: str, option: str) -> None:
 def _documents_for_mutation(workspace: Workspace, operation: str) -> tuple[list[Document], dict[str, Document]]:
     documents, issues = validate_workspace(workspace)
     if issues:
-        raise MutationError(f"cannot {operation} in an invalid corpus:\n{_details(issues)}")
+        raise MutationError(f"cannot {operation} in an invalid corpus:\n{format_issues(issues)}")
     return documents, {document.metadata["id"]: document for document in documents}
 
 

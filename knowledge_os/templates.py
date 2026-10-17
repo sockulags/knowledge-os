@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from pathlib import Path
 
 import yaml
 
@@ -296,10 +295,6 @@ def list_templates(workspace: Workspace) -> list[Template]:
     own = {template.name: template for template in _workspace_templates(workspace)}
     ordered = [own.pop(template.name, template) for template in BUILT_IN]
     return ordered + [own[name] for name in sorted(own)]
-
-
-def find_template(workspace: Workspace, name: str) -> Template | None:
-    return next((template for template in list_templates(workspace) if template.name == name), None)
 
 
 def fill(body: str, today: str) -> str:

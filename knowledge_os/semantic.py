@@ -419,7 +419,6 @@ def update_index(
     embedder: Embedder,
     *,
     source_stamp: str = "",
-    progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, int]:
     """Bring ``indexes/semantic.sqlite3`` in line with ``documents``, embedding
     only passages whose text is new; returns counts. ``source_stamp`` records
@@ -435,8 +434,6 @@ def update_index(
         vectors = embedder.embed_passages([text for _, text in batch])
         for (digest, _), vector in zip(batch, vectors):
             known[digest] = np.asarray(vector, dtype=np.float32).tobytes()
-        if progress:
-            progress(min(start + 32, len(missing)), len(missing))
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{INDEX_FILE}.{os.getpid()}.{threading.get_ident()}.tmp")
     temporary.unlink(missing_ok=True)

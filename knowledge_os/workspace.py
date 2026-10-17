@@ -48,6 +48,12 @@ class Issue:
     message: str
 
 
+def format_issues(issues: Iterable[Issue]) -> str:
+    """One ``path: message`` line per issue."""
+
+    return "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
+
+
 def is_managed_link(path: Path) -> bool:
     """Recognize symbolic links and Windows reparse-point links."""
 
@@ -73,10 +79,10 @@ class Workspace:
         self.config = _load_config(marker)
 
     @classmethod
-    def discover(cls, requested: Path | None = None, start: Path | None = None) -> "Workspace":
+    def discover(cls, requested: Path | None = None) -> "Workspace":
         if requested is not None:
             return cls(requested)
-        current = (start or Path.cwd()).expanduser().resolve()
+        current = Path.cwd().expanduser().resolve()
         for candidate in (current, *current.parents):
             if (candidate / "knowledge-os.toml").is_file():
                 return cls(candidate)
@@ -148,13 +154,6 @@ class Workspace:
                             continue
                         paths.append(path)
         return sorted(paths, key=lambda path: path.as_posix()), issues
-
-    def managed_files(self) -> Iterable[Path]:
-        paths, issues = self._managed_file_scan()
-        if issues:
-            issue = sorted(issues, key=lambda item: (str(item.path), item.message))[0]
-            raise WorkspaceError(f"{issue.path}: {issue.message}")
-        return paths
 
 
 def _load_config(marker: Path) -> dict[str, object]:
@@ -668,7 +667,7 @@ def staged_documents(workspace: Workspace, operation: str) -> list[Document]:
 
     documents, issues = validate_workspace(workspace)
     if issues:
-        details = "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
+        details = format_issues(issues)
         relative: list[tuple[str, str]] = []
         for issue in issues:
             try:

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .model import Document
-from .workspace import Workspace, atomic_write, validate_workspace, workspace_mutation_lock
+from .workspace import Workspace, atomic_write, format_issues, validate_workspace, workspace_mutation_lock
 
 
 def _record_kind(metadata: dict[str, Any]) -> str:
@@ -78,7 +78,7 @@ def _build_sqlite(path: Path, workspace: Workspace, documents: list[Document]) -
 def _rebuild_indexes_locked(workspace: Workspace) -> int:
     documents, issues = validate_workspace(workspace)
     if issues:
-        details = "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
+        details = format_issues(issues)
         raise ValueError(f"cannot index invalid corpus:\n{details}")
     indexes = workspace.root / "indexes"
     workspace.assert_safe_path(indexes)

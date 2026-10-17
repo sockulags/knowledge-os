@@ -31,13 +31,13 @@ import json
 import os
 import posixpath
 import re
-import subprocess
 import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from .gitsync import GitSyncError, _run_git
 from .model import Document
 
 #: The provenance kind of a decision drafted from a documentation check; its
@@ -202,21 +202,19 @@ def links_metadata(links: Iterable[RepositoryLink]) -> list[dict[str, str]] | No
 
 
 def _git(folder: Path, *args: str, limit: int | None = None) -> str:
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", "GIT_OPTIONAL_LOCKS": "0"}
     try:
-        completed = subprocess.run(
+        completed = _run_git(
+            "git",
+            None,
             # A linked folder is named by the knowledge base, so no program its
             # repository configures (fsmonitor, external diff, textconv) may run.
-            ["git", "-C", str(folder), "-c", "core.quotepath=off", "-c", "core.fsmonitor=false", *args],
-            capture_output=True,
-            env=env,
+            ["--no-optional-locks", "-C", str(folder), "-c", "core.fsmonitor=false", *args],
             timeout=GIT_TIMEOUT_SECONDS,
-            check=False,
         )
-    except FileNotFoundError as exc:
+    except GitSyncError as exc:
+        if exc.kind == "timeout":
+            raise CodeDocsError(f"git {args[0]} took longer than {GIT_TIMEOUT_SECONDS} seconds") from exc
         raise CodeDocsError("Git is not installed or not on PATH") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise CodeDocsError(f"git {args[0]} took longer than {GIT_TIMEOUT_SECONDS} seconds") from exc
     if completed.returncode != 0:
         message = completed.stderr.decode("utf-8", "replace").strip().splitlines()
         raise CodeDocsError(message[-1] if message else f"git {args[0]} failed")
