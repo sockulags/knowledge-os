@@ -8,7 +8,7 @@ import os
 import re
 import yaml
 
-from .model import ID_PATTERN
+from .model import ID_PATTERN, FrontmatterDelimiterError, split_frontmatter
 from .workspace import is_managed_link
 
 
@@ -47,18 +47,14 @@ def _safe_relative(root: Path, path: Path) -> str:
 
 def _parse_skill_text(path: Path, raw: str, *, root: Path | None = None) -> Skill:
     relative = _safe_relative(root, path) if root is not None else str(path)
-    normalized = raw.replace("\r\n", "\n").replace("\r", "\n")
-    lines = normalized.splitlines(keepends=True)
-    if not lines or lines[0].rstrip("\n") != "---":
-        raise SkillError(f"skill {relative} is missing YAML frontmatter")
-    closing = next(
-        (index for index, line in enumerate(lines[1:], start=1) if line.rstrip("\n") == "---"),
-        None,
-    )
-    if closing is None:
-        raise SkillError(f"skill {relative} is missing YAML frontmatter closing delimiter")
     try:
-        metadata = yaml.safe_load("".join(lines[1:closing]))
+        front, body = split_frontmatter(raw)
+    except FrontmatterDelimiterError as exc:
+        if exc.missing == "opening":
+            raise SkillError(f"skill {relative} is missing YAML frontmatter") from None
+        raise SkillError(f"skill {relative} is missing YAML frontmatter closing delimiter") from None
+    try:
+        metadata = yaml.safe_load(front)
     except yaml.YAMLError as exc:
         raise SkillError(f"skill {relative} has invalid YAML frontmatter: {exc}") from exc
     if not isinstance(metadata, dict):
@@ -90,7 +86,6 @@ def _parse_skill_text(path: Path, raw: str, *, root: Path | None = None) -> Skil
         if normalized_tag not in normalized_tags:
             normalized_tags.append(normalized_tag)
 
-    body = "".join(lines[closing + 1 :])
     if body.startswith("\n"):
         body = body[1:]
     if not body.strip():

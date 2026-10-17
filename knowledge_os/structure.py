@@ -65,6 +65,7 @@ from .workspace import (
     WorkspaceError,
     atomic_write,
     exclusive_write,
+    format_issues,
     refresh_derived_indexes,
     stage_workspace,
     staged_documents,
@@ -181,7 +182,7 @@ def _today_after(value: object) -> str:
 def _documents(workspace: Workspace, operation: str) -> tuple[list[Document], dict[str, Document]]:
     documents, issues = validate_workspace(workspace)
     if issues:
-        details = "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
+        details = format_issues(issues)
         raise StructureError(f"cannot {operation} in an invalid corpus:\n{details}")
     return documents, {document.metadata["id"]: document for document in documents}
 

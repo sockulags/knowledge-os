@@ -36,7 +36,7 @@ import threading
 from collections import deque
 from dataclasses import asdict
 from pathlib import Path
-from typing import IO, Any, Callable
+from typing import IO, Any
 
 from . import semantic
 from .workspace import Workspace, validate_workspace
@@ -139,11 +139,9 @@ class Worker:
         command: list[str] | None = None,
         *,
         load_timeout: float = LOAD_TIMEOUT,
-        env: dict[str, str] | None = None,
     ) -> None:
         self._command = command or default_command()
         self._load_timeout = load_timeout
-        self._env = env
         self._lock = threading.Lock()
         self._process: subprocess.Popen[bytes] | None = None
         self._ready = threading.Event()
@@ -169,7 +167,7 @@ class Worker:
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    env=self._env or _environment(),
+                    env=_environment(),
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             except OSError as exc:
@@ -396,24 +394,24 @@ def refreshing(workspace: Workspace) -> bool:
         return str(workspace.root) in _refreshing
 
 
-def refresh_now(workspace: Workspace, report: Callable[[str], None] = print) -> None:
+def refresh_now(workspace: Workspace) -> None:
     """``kos index``: update the index through a worker of its own, then stop it."""
 
     worker = Worker()
     worker.start()
     try:
         if not worker.wait_ready(LOAD_TIMEOUT + 5):
-            report(f"Search by meaning: skipped; {worker.error or 'the search model did not load'}")
+            print(f"Search by meaning: skipped; {worker.error or 'the search model did not load'}")
             return
         counts = worker.request("refresh", None, root=str(workspace.root)).get("counts")
     except semantic.SemanticError as exc:
-        report(f"Search by meaning: skipped; {exc}")
+        print(f"Search by meaning: skipped; {exc}")
         return
     finally:
         worker.stop()
     if counts is None:
-        report("Search by meaning: already up to date")
+        print("Search by meaning: already up to date")
     else:
-        report(
+        print(
             f"Search by meaning: {counts['passages']} passage(s), {counts['embedded']} newly read; semantic.sqlite3 rebuilt"
         )

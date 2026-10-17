@@ -313,10 +313,6 @@ def clone_workspace(
 # Guided setup
 # ---------------------------------------------------------------------------
 
-#: States that offer a next step, in the order the setup walks through them.
-SETUP_STEPS = ("init", "remote", "publish")
-
-
 @dataclass(frozen=True)
 class SetupStatus:
     """Where a knowledge base stands on the way to syncing.

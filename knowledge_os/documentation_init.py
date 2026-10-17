@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Iterable
 
 from .model import ID_PATTERN
-from .workspace import Workspace, WorkspaceError, atomic_write, validate_workspace, workspace_identity
+from .workspace import Workspace, WorkspaceError, atomic_write, format_issues, validate_workspace, workspace_identity
 
 
 BEGIN_MARKER = "<!-- BEGIN KNOWLEDGE OS DOCUMENTATION -->"
@@ -36,7 +36,7 @@ def _validated_workspace(path: Path) -> Workspace:
         raise DocumentationInitError(f"invalid Knowledge OS workspace: {exc}") from exc
     _, issues = validate_workspace(workspace)
     if issues:
-        details = "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
+        details = format_issues(issues)
         raise DocumentationInitError(f"invalid Knowledge OS workspace:\n{details}")
     return workspace
 

@@ -8,13 +8,12 @@ from pathlib import Path
 import re
 import unicodedata
 
-import yaml
-
-from .model import MetadataError, parse_document
+from .model import MetadataError, parse_document, render_document
 from .workspace import (
     Workspace,
     atomic_write,
     exclusive_write,
+    format_issues,
     refresh_derived_indexes,
     stage_workspace,
     staged_documents,
@@ -29,16 +28,11 @@ def _slug(value: str) -> str:
     return (result[:48].rstrip("-") or "source")
 
 
-def _frontmatter(metadata: dict[str, object], body: str) -> bytes:
-    rendered = yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True).rstrip("\n")
-    return f"---\n{rendered}\n---\n\n{body}".encode("utf-8")
-
-
 def ingest_source(workspace: Workspace, source_path: Path) -> tuple[str, bool, int]:
     with workspace_mutation_lock(workspace):
         documents, issues = validate_workspace(workspace)
         if issues:
-            details = "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
+            details = format_issues(issues)
             raise MetadataError(f"cannot ingest into invalid corpus:\n{details}")
 
         source_path = source_path.expanduser().resolve()
@@ -74,7 +68,7 @@ def ingest_source(workspace: Workspace, source_path: Path) -> tuple[str, bool, i
                 }
             ],
         }
-        content = _frontmatter(metadata, body)
+        content = render_document(metadata, body)
         by_id = {document.metadata["id"]: document for document in documents}
 
         destination_exists = destination.exists() or destination.is_symlink()

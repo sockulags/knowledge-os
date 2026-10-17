@@ -246,9 +246,22 @@ def _kill_tree(process: subprocess.Popen[bytes]) -> None:
     process.kill()
 
 
+def _verb(args: Iterable[str]) -> str:
+    """The Git subcommand in ``args``: the first argument that is neither an
+    option nor the value of ``-c`` or ``-C``."""
+
+    remaining = iter(args)
+    for arg in remaining:
+        if arg in ("-c", "-C"):
+            next(remaining, None)
+        elif not arg.startswith("-"):
+            return arg
+    return "git"
+
+
 def _run_git(
     git: str,
-    cwd: Path,
+    cwd: Path | None,
     args: Iterable[str],
     *,
     timeout: float = LOCAL_TIMEOUT,
@@ -280,10 +293,9 @@ def _run_git(
             process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             pass
-        verb = next((arg for arg in args if not arg.startswith("-")), "git")
         raise GitSyncError(
             "timeout",
-            f"git {verb} did not finish within {timeout:g} seconds and was stopped; "
+            f"git {_verb(args)} did not finish within {timeout:g} seconds and was stopped; "
             "check the network connection and that the remote answers",
         ) from None
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
@@ -384,7 +396,7 @@ def _run_git_streaming(
     for reader in readers:
         reader.start()
     started = time.monotonic()
-    verb = next((arg for arg in args if not arg.startswith("-")), "git")
+    verb = _verb(args)
     failure: GitSyncError | None = None
     while process.poll() is None:
         now = time.monotonic()

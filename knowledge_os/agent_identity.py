@@ -81,8 +81,8 @@ class AgentIdentity:
     def display_name(self) -> str:
         return agent_display_name(self.client)
 
-    def provenance_entry(self, now: datetime | None = None) -> dict[str, str]:
-        stamp = (now or datetime.now(UTC)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    def provenance_entry(self) -> dict[str, str]:
+        stamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         return {"kind": AGENT_PROVENANCE_KIND, "reference": self.reference, "captured": stamp}
 
 

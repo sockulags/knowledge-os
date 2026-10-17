@@ -47,8 +47,6 @@ removes it.
 from __future__ import annotations
 
 import hashlib
-import os
-import posixpath
 import re
 import secrets
 import tomllib
@@ -78,17 +76,6 @@ ACTIONS = ("review", "direct")
 GENERAL = "general"
 _RULE_FIELDS = {"writer", "project", "folder", "writes", "action"}
 _PROPOSAL_ID = re.compile(r"^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$")
-_PROPOSAL_FIELDS = (
-    "proposal",
-    "action",
-    "record",
-    "title",
-    "project_path",
-    "base_sha256",
-    "proposed_by",
-    "proposed_at",
-    "rule",
-)
 
 
 class ReviewError(ValueError):
@@ -501,21 +488,4 @@ def discard_proposal(workspace: Workspace, proposal_id: str, *, expected_sha256:
         _check_unchanged(workspace, proposal, expected_sha256)
         _remove(workspace, proposal)
     return proposal
-
-
-def project_and_folder(metadata: Mapping[str, Any], relative_path: str | None) -> tuple[str | None, str]:
-    """The project (``None`` for general knowledge or memory) and the folder
-    inside it that a page with ``metadata`` lives in, from its
-    workspace-relative path when it exists or its create ``project_path``."""
-
-    scope = str(metadata.get("scope", ""))
-    if not scope.startswith("project:"):
-        return None, ""
-    project = scope.removeprefix("project:")
-    if relative_path is None:
-        return project, ""
-    prefix = f"projects/{project}/"
-    inside = relative_path[len(prefix) :] if relative_path.startswith(prefix) else relative_path
-    folder = posixpath.dirname(inside.replace(os.sep, "/"))
-    return project, folder
 

@@ -13,6 +13,7 @@ from .workspace import (
     atomic_write,
     exclusive_write,
     default_project_record_path,
+    format_issues,
     project_directory,
     refresh_derived_indexes,
     stage_workspace,
@@ -91,10 +92,6 @@ def _ensure_candidate(candidate: Document) -> None:
         raise CaptureError("capture candidate body must be non-empty")
 
 
-def _details(issues: list[Any]) -> str:
-    return "\n".join(f"{issue.path}: {issue.message}" for issue in issues)
-
-
 def _project_relative_path(metadata: dict[str, Any], requested: Path | None) -> Path:
     default = default_project_record_path(metadata["id"], metadata["scope"])
     if requested is None:
@@ -145,7 +142,7 @@ def _capture(
     with workspace_mutation_lock(workspace):
         documents, issues = validate_workspace(workspace)
         if issues:
-            raise CaptureError(f"cannot capture into an invalid corpus:\n{_details(issues)}")
+            raise CaptureError(f"cannot capture into an invalid corpus:\n{format_issues(issues)}")
 
         candidate = load_candidate()
         _ensure_candidate(candidate)

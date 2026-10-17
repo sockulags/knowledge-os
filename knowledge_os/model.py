@@ -366,20 +366,40 @@ def validate_metadata(metadata: Any, path: Path, *, check_filename: bool = True)
     return metadata
 
 
-def parse_document_text(path: Path, text: str, *, check_filename: bool = True) -> Document:
+class FrontmatterDelimiterError(ValueError):
+    """The text has no ``---`` line that opens (``missing == "opening"``) or
+    closes (``missing == "closing"``) its frontmatter."""
+
+    def __init__(self, missing: str) -> None:
+        super().__init__(f"missing YAML frontmatter {missing} delimiter")
+        self.missing = missing
+
+
+def split_frontmatter(text: str) -> tuple[str, str]:
+    """The YAML between the opening and closing ``---`` lines, and everything
+    after the closing line, with line endings normalized to LF. Callers decide
+    what to do with a blank line after the closing delimiter."""
+
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = normalized.splitlines(keepends=True)
     if not lines or lines[0].rstrip("\n") != "---":
-        raise MetadataError("missing YAML frontmatter opening delimiter")
+        raise FrontmatterDelimiterError("opening")
     closing = next((index for index, line in enumerate(lines[1:], start=1) if line.rstrip("\n") == "---"), None)
     if closing is None:
-        raise MetadataError("missing YAML frontmatter closing delimiter")
+        raise FrontmatterDelimiterError("closing")
+    return "".join(lines[1:closing]), "".join(lines[closing + 1 :])
+
+
+def parse_document_text(path: Path, text: str, *, check_filename: bool = True) -> Document:
     try:
-        metadata = yaml.safe_load("".join(lines[1:closing]))
+        front, body = split_frontmatter(text)
+    except FrontmatterDelimiterError as exc:
+        raise MetadataError(str(exc)) from None
+    try:
+        metadata = yaml.safe_load(front)
     except yaml.YAMLError as exc:
         raise MetadataError(f"invalid YAML frontmatter: {exc}") from exc
     validated = validate_metadata(metadata, path, check_filename=check_filename)
-    body = "".join(lines[closing + 1 :])
     if body.startswith("\n"):
         body = body[1:]
     if validated["type"] == "discovery" and not body.strip():
