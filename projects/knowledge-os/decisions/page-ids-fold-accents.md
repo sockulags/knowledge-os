@@ -3,13 +3,16 @@ id: page-ids-fold-accents
 title: Page ids made from titles fold accented letters
 type: project
 record_kind: decision
-status: draft
+status: active
 scope: project:knowledge-os
 created: '2026-10-17'
 updated: '2026-10-17'
 provenance:
 - kind: user-approved-conversation
   reference: conversation:2026-10-17:simplifier-audit
+- kind: decision-acceptance
+  reference: conversation:2026-10-17:page-ids-fold-accents-accepted
+  captured: '2026-10-17T17:06:22.092854Z'
 related:
 - knowledge-os-editable-interface
 - agent-access
