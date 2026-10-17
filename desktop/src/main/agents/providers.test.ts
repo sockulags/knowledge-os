@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { findOnPath } from './detect'
 import { claudeProvider } from './providers/claude'
 import { codexProvider } from './providers/codex'
-import { PROVIDERS, findProvider } from './providers'
+import { PROVIDERS } from './providers'
 import { testHost } from './testing/conformance'
 
 const directories: string[] = []
@@ -106,9 +106,7 @@ describe('launch and session options', () => {
     expect(codexProvider.authHelp([]).command).toBe('codex login')
   })
 
-  it('finds providers by id', () => {
-    expect(findProvider('claude')).toBe(claudeProvider)
-    expect(findProvider('nope')).toBeNull()
+  it('gives every provider its own id', () => {
     expect(new Set(PROVIDERS.map((provider) => provider.id)).size).toBe(PROVIDERS.length)
   })
 })

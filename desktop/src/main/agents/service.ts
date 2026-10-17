@@ -164,11 +164,6 @@ export class AgentService {
     return this.require().restart()
   }
 
-  /** The open session's provider, or null. */
-  get current(): string | null {
-    return this.session === null ? null : this.providerId
-  }
-
   /** Stop the session, e.g. when the knowledge base closes. */
   close(): void {
     this.session?.close()

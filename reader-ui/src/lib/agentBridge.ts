@@ -41,9 +41,8 @@ export type SessionState = "starting" | "ready" | "working" | "auth-required" | 
 /** One event from the shared ACP client (desktop/src/main/agents/acpSession.ts). */
 export type AgentEvent =
   | { type: "state"; state: SessionState; message: string | null; auth: AuthHelp | null }
-  | { type: "text"; kind: "message" | "thought"; text: string }
-  | { type: "tool"; id: string; title: string | null; status: string | null; kind: string | null; input: unknown; output: unknown }
-  | { type: "plan"; entries: { content: string; status: string }[] }
+  | { type: "text"; kind: "message"; text: string }
+  | { type: "tool"; id: string; title: string | null; status: string | null; input: unknown; output: unknown }
   | {
       type: "permission";
       requestId: string;

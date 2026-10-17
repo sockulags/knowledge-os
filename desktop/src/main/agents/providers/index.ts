@@ -7,7 +7,3 @@ import { claudeProvider } from './claude'
 import { codexProvider } from './codex'
 
 export const PROVIDERS: readonly AgentProvider[] = [claudeProvider, codexProvider]
-
-export function findProvider(id: string): AgentProvider | null {
-  return PROVIDERS.find((provider) => provider.id === id) ?? null
-}

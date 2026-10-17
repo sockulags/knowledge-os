@@ -19,8 +19,6 @@ export function removeNotice(notices: Notice[], key: string): Notice[] {
 
 export const UPDATE_NOTICE_KEY = 'update'
 export const UPDATE_ACTION = { restart: 'restart', later: 'later' } as const
-/** Every notice can be dismissed with this action. */
-export const DISMISS = 'dismiss'
 
 /** The notice for an update event: "ready" offers the restart, the rest only inform. */
 export function updateNotice(notice: UpdateNotice): Notice {

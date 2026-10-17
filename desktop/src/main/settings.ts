@@ -2,8 +2,8 @@
 // recent-workspaces.json. Only Node built-ins are used so the module is
 // unit-testable.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
-import { dirname } from 'path'
+import { readFileSync } from 'fs'
+import { writeFileAtomic } from './atomicFile'
 
 export interface AppSettings {
   /** Check GitHub for a newer release at startup and every few hours. */
@@ -52,8 +52,5 @@ export function loadSettings(file: string): AppSettings {
 
 /** Write the settings through a temporary file so a crash never leaves half a file. */
 export function saveSettings(file: string, settings: AppSettings): void {
-  mkdirSync(dirname(file), { recursive: true })
-  const temporary = `${file}.tmp`
-  writeFileSync(temporary, JSON.stringify({ version: 1, ...settings }, null, 2), 'utf-8')
-  renameSync(temporary, file)
+  writeFileAtomic(file, JSON.stringify({ version: 1, ...settings }, null, 2))
 }

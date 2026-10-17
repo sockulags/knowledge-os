@@ -1,14 +1,16 @@
 // The shell's own window frame. Every window hides the native title bar and
 // keeps Windows' own minimise, maximise, and close buttons through the
-// title-bar overlay, coloured from the design tokens; the preload scripts
-// draw the rest of the title bar into the page (src/preload/chrome/). For
-// the main window this module also owns the chrome's state (menu, notices,
-// dialog), answers its IPC, and runs the menu's keyboard shortcuts.
+// title-bar overlay, coloured from the design tokens; src/chrome/windowChrome.ts
+// draws the rest of the title bar into the page. For the main window this
+// module also owns the chrome's state (menu, notices, dialog), answers its
+// IPC, and runs the menu's keyboard shortcuts. For the small windows that
+// show one page of the app's own (clone, Referat import) it builds the
+// window and answers its IPC for that window only.
 
 import {
+  BrowserWindow,
   ipcMain,
   nativeTheme,
-  type BrowserWindow,
   type BrowserWindowConstructorOptions,
   type IpcMainEvent,
   type IpcMainInvokeEvent
@@ -24,6 +26,7 @@ import {
   type Notice
 } from '../shared/chrome'
 import { SHELL_TEXT } from '../shared/shellText'
+import appIcon from '../../build/icon.ico?asset'
 import { addNotice, removeNotice } from './chromeState'
 import { matchAccelerator, type MenuSpec } from './menuModel'
 
@@ -53,6 +56,78 @@ export function followSystemTheme(window: BrowserWindow): void {
   const update = (): void => colourControls(window, systemTheme())
   nativeTheme.on('updated', update)
   window.on('closed', () => nativeTheme.off('updated', update))
+}
+
+export interface PageWindowOptions {
+  parent?: BrowserWindow
+  modal?: boolean
+  width: number
+  height: number
+  minWidth: number
+  minHeight: number
+  title: string
+  /** The one page the window shows. */
+  pageUrl: string
+  /** Absolute path of the page's own preload script. */
+  preloadPath: string
+}
+
+/**
+ * A framed, sandboxed window without a menu that shows only `pageUrl` (a
+ * reload is allowed): no other navigation, no new windows.
+ */
+export function createPageWindow(options: PageWindowOptions): BrowserWindow {
+  const { pageUrl, preloadPath, ...size } = options
+  const window = new BrowserWindow({
+    ...size,
+    show: false,
+    icon: appIcon,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#15181b' : '#fbfaf7',
+    ...framedWindowOptions(),
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  })
+  window.setMenu(null)
+  followSystemTheme(window)
+  window.on('ready-to-show', () => window.show())
+  const ownPage = (url: string): boolean => url.split(/[?#]/)[0] === pageUrl
+  const guard = (navigation: Electron.Event, url: string): void => {
+    if (!ownPage(url)) navigation.preventDefault()
+  }
+  window.webContents.on('will-navigate', guard)
+  window.webContents.on('will-redirect', guard)
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  void window.loadURL(pageUrl)
+  return window
+}
+
+export type PageHandler = <A extends unknown[], R>(
+  channel: string,
+  action: (event: IpcMainInvokeEvent, ...args: A) => Promise<R>
+) => void
+
+/**
+ * Registers IPC handlers that answer only calls from `window()`'s own page;
+ * any other caller, the reader UI included, gets an error.
+ */
+export function handleFrom(window: () => BrowserWindow | null): PageHandler {
+  return <A extends unknown[], R>(
+    channel: string,
+    action: (event: IpcMainInvokeEvent, ...args: A) => Promise<R>
+  ): void => {
+    ipcMain.handle(channel, (event, ...args) => {
+      const own = window()
+      if (own === null || own.isDestroyed() || event.sender !== own.webContents) {
+        throw new Error('not allowed from this page')
+      }
+      return action(event, ...(args as A))
+    })
+  }
 }
 
 export interface MainChromeHost {

@@ -48,19 +48,17 @@ export type SessionState = 'starting' | 'ready' | 'working' | 'auth-required' | 
 /** Everything the app shows about a session, as plain data (safe for IPC). */
 export type AgentEvent =
   | { type: 'state'; state: SessionState; message: string | null; auth: AuthHelp | null }
-  | { type: 'text'; kind: 'message' | 'thought'; text: string }
+  | { type: 'text'; kind: 'message'; text: string }
   | {
       type: 'tool'
       id: string
       title: string | null
       status: string | null
-      kind: string | null
       /** The tool's arguments, when the agent reports them (e.g. a page id to read). */
       input: unknown
       /** The tool's result as the agent reports it, once it has one. */
       output: unknown
     }
-  | { type: 'plan'; entries: { content: string; status: string }[] }
   | {
       type: 'permission'
       requestId: string
@@ -422,18 +420,11 @@ export class AcpAgentSession {
   }
 
   private forward(notification: SessionNotification): void {
-    const normalize = this.options.provider.dialect?.normalizeUpdate
-    const update = (normalize ? normalize(notification) : notification)?.update
-    if (update === undefined) return
+    const update = notification.update
     switch (update.sessionUpdate) {
       case 'agent_message_chunk':
-      case 'agent_thought_chunk':
         if (update.content.type === 'text') {
-          this.options.onEvent({
-            type: 'text',
-            kind: update.sessionUpdate === 'agent_message_chunk' ? 'message' : 'thought',
-            text: update.content.text
-          })
+          this.options.onEvent({ type: 'text', kind: 'message', text: update.content.text })
         }
         return
       case 'tool_call':
@@ -443,15 +434,8 @@ export class AcpAgentSession {
           id: update.toolCallId,
           title: update.title ?? null,
           status: update.status ?? null,
-          kind: update.kind ?? null,
           input: update.rawInput ?? null,
           output: update.rawOutput ?? null
-        })
-        return
-      case 'plan':
-        this.options.onEvent({
-          type: 'plan',
-          entries: update.entries.map((entry) => ({ content: entry.content, status: entry.status }))
         })
         return
       default:

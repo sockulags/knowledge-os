@@ -238,8 +238,8 @@ it is. A provider says:
 - how to start the adapter (`launchSpec()`);
 - how to limit a session to the MCP servers it is given (`sessionMeta()`);
 - how to explain sign-in (`authHelp()`);
-- small per-adapter corrections (`dialect`), and what it supports
-  (`capabilities`).
+- whether it can continue an earlier session after a restart
+  (`capabilities.sessionResume`).
 
 | Provider | Adapter (pinned) | Runs | Limits |
 | --- | --- | --- | --- |
@@ -276,7 +276,7 @@ else, the same for every provider: starting and stopping the adapter,
 with `kos mcp --place "Knowledge OS app"` as the only MCP server,
 `session/prompt`, `session/cancel`, `session/load` after a restart when the
 provider supports it, and turning `session/update` into plain `AgentEvent`s
-(message and thought text, tool calls, plans, the end of a turn). Every
+(message text, tool calls, the end of a turn). Every
 `session/request_permission` becomes a `permission` event that waits for the
 person's answer, except for the knowledge base's own read tools
 (`KOS_READ_TOOLS`: `search`, `read_page`, `list_projects`, `list_folder`,

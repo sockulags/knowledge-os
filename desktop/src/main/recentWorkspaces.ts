@@ -1,9 +1,9 @@
 // The recently opened workspaces, persisted as JSON in Electron's user-data
 // folder. Only Node built-ins are used so the module is unit-testable.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
-import { dirname } from 'path'
+import { readFileSync } from 'fs'
 import type { RecentWorkspace } from '../shared/types'
+import { writeFileAtomic } from './atomicFile'
 
 export const MAX_RECENT = 10
 
@@ -51,8 +51,5 @@ export function loadRecent(file: string): RecentWorkspace[] {
 
 /** Write the list through a temporary file so a crash never leaves half a file. */
 export function saveRecent(file: string, list: RecentWorkspace[]): void {
-  mkdirSync(dirname(file), { recursive: true })
-  const temporary = `${file}.tmp`
-  writeFileSync(temporary, JSON.stringify({ version: 1, workspaces: list }, null, 2), 'utf-8')
-  renameSync(temporary, file)
+  writeFileAtomic(file, JSON.stringify({ version: 1, workspaces: list }, null, 2))
 }

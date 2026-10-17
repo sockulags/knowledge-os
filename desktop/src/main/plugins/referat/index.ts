@@ -5,12 +5,10 @@
 // know nothing about Referat; without Referat installed the plugin shows
 // that and nothing else changes.
 
-import { BrowserWindow, ipcMain, nativeTheme } from 'electron'
-import appIcon from '../../../../build/icon.ico?asset'
+import type { BrowserWindow } from 'electron'
 import { SHELL_TEXT } from '../../../shared/shellText'
 import type { MenuSpec } from '../../menuModel'
-import { followSystemTheme, framedWindowOptions } from '../../windowChrome'
-import type { IpcMainInvokeEvent } from 'electron'
+import { createPageWindow, handleFrom } from '../../windowChrome'
 import {
   findReferat,
   getMeeting,
@@ -168,59 +166,27 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
       return
     }
     const parent = host.mainWindow() ?? undefined
-    const created = new BrowserWindow({
+    // The window shows only its own page (a reload is allowed): no other
+    // navigation, no new windows.
+    const created = createPageWindow({
       parent,
       width: 920,
       height: 760,
       minWidth: 640,
       minHeight: 480,
-      show: false,
       title: 'Import from Referat',
-      icon: appIcon,
-      backgroundColor: nativeTheme.shouldUseDarkColors ? '#15181b' : '#fbfaf7',
-      ...framedWindowOptions(),
-      autoHideMenuBar: true,
-      webPreferences: {
-        preload: host.preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true
-      }
+      pageUrl: host.pageUrl,
+      preloadPath: host.preloadPath
     })
     window = created
     windowCoreUrl = host.coreUrl()
-    created.setMenu(null)
-    followSystemTheme(created)
-    created.on('ready-to-show', () => created.show())
     created.on('closed', () => {
       if (window === created) window = null
     })
-    // The window shows only its own page (a reload is allowed): no other
-    // navigation, no new windows.
-    const ownPage = (url: string): boolean => url.split(/[?#]/)[0] === host.pageUrl
-    const guard = (event: Electron.Event, url: string): void => {
-      if (!ownPage(url)) event.preventDefault()
-    }
-    created.webContents.on('will-navigate', guard)
-    created.webContents.on('will-redirect', guard)
-    created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    void created.loadURL(host.pageUrl)
   }
 
-  function fromImportWindow(event: IpcMainInvokeEvent): boolean {
-    return window !== null && !window.isDestroyed() && event.sender === window.webContents
-  }
-
-  function handle<A extends unknown[], R>(
-    channel: string,
-    action: (...args: A) => Promise<R>
-  ): void {
-    ipcMain.handle(channel, (event, ...args) => {
-      // Only the import window may call the plugin, never the reader UI.
-      if (!fromImportWindow(event)) throw new Error('not allowed from this page')
-      return action(...(args as A))
-    })
-  }
+  // Only the import window may call the plugin, never the reader UI.
+  const handle = handleFrom(() => window)
 
   async function readMeeting(meetingId: unknown): Promise<Meeting> {
     if (typeof meetingId !== 'string' || !MEETING_ID_PATTERN.test(meetingId)) {
@@ -262,7 +228,7 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
 
   handle(
     REFERAT_IPC.preview,
-    async (meetingId: unknown, summaryId: unknown): Promise<PreviewResult> => {
+    async (_event, meetingId: unknown, summaryId: unknown): Promise<PreviewResult> => {
       let meeting: Meeting
       try {
         meeting = await readMeeting(meetingId)
@@ -292,7 +258,7 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
     }
   )
 
-  handle(REFERAT_IPC.importMeeting, async (raw: unknown): Promise<ImportResultView> => {
+  handle(REFERAT_IPC.importMeeting, async (_event, raw: unknown): Promise<ImportResultView> => {
     const request = raw as Partial<ImportRequest> | null
     if (
       request === null ||
@@ -375,7 +341,7 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
 
   handle(REFERAT_IPC.launch, () => launch())
 
-  handle(REFERAT_IPC.openRecord, async (id: unknown): Promise<void> => {
+  handle(REFERAT_IPC.openRecord, async (_event, id: unknown): Promise<void> => {
     const core = host.coreUrl()
     const main = host.mainWindow()
     if (typeof id !== 'string' || !RECORD_ID_PATTERN.test(id) || core === null || main === null) {

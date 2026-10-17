@@ -15,6 +15,7 @@ import type {
   NotImportedRecord,
   SkippedRow
 } from '../../../shared/referat'
+import { actions, button, element } from '../dom'
 
 const api = window.referat
 const root = document.getElementById('app') as HTMLElement
@@ -23,32 +24,8 @@ const root = document.getElementById('app') as HTMLElement
 mountWindowChrome(null)
 let context: ImportContext | null = null
 
-function element<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  text?: string,
-  className?: string
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag)
-  if (text !== undefined) node.textContent = text
-  if (className !== undefined) node.className = className
-  return node
-}
-
-function button(label: string, action: () => void, primary = false): HTMLButtonElement {
-  const node = element('button', label, primary ? 'primary' : undefined)
-  node.type = 'button'
-  node.addEventListener('click', action)
-  return node
-}
-
 function show(...nodes: HTMLElement[]): void {
   root.replaceChildren(...nodes)
-}
-
-function actions(...buttons: HTMLElement[]): HTMLElement {
-  const row = element('div', undefined, 'actions')
-  row.append(...buttons)
-  return row
 }
 
 function recordButton(record: { id: string; title: string }, label = 'Open'): HTMLButtonElement {

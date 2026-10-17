@@ -6,6 +6,7 @@ import './style.css'
 import mark from '../../../build/icon.svg'
 import { CLONE_TEXT } from '../../shared/cloneText'
 import type { ErrorKind, RecentWorkspace, ShellState } from '../../shared/types'
+import { actions, button, element } from './dom'
 
 const api = window.kosDesktop
 const root = document.getElementById('app') as HTMLElement
@@ -18,17 +19,6 @@ const ERROR_TITLES: Record<ErrorKind, string> = {
   'create-failed': 'The knowledge base was not created'
 }
 
-function element<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  text?: string,
-  className?: string
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag)
-  if (text !== undefined) node.textContent = text
-  if (className !== undefined) node.className = className
-  return node
-}
-
 /** The app's mark beside its name, at the top of the start page. */
 function brand(): HTMLElement {
   const wrapper = element('div', undefined, 'brand')
@@ -39,23 +29,12 @@ function brand(): HTMLElement {
   return wrapper
 }
 
-function button(label: string, action: () => Promise<void>, primary = false): HTMLButtonElement {
-  const node = element('button', label, primary ? 'primary' : undefined)
-  node.type = 'button'
-  node.addEventListener('click', () => {
-    void action()
-  })
-  return node
-}
-
 function mainActions(): HTMLElement {
-  const actions = element('div', undefined, 'actions')
-  actions.append(
+  return actions(
     button('Open knowledge base…', api.openWorkspace, true),
     button('Create new knowledge base…', api.createWorkspace),
     button(CLONE_TEXT.startButton, api.cloneWorkspace)
   )
-  return actions
 }
 
 /** One of the three ways to start, with a sentence on when to pick it. */
@@ -160,13 +139,13 @@ function render(state: ShellState): void {
       if (state.root !== null) nodes.push(element('p', state.root, 'path'))
       nodes.push(element('div', state.message, 'error'))
       if (state.detail !== '') nodes.push(element('pre', state.detail))
-      const actions = element('div', undefined, 'actions')
-      actions.append(
-        button('Try again', api.retry, true),
-        button('Open another knowledge base…', api.openWorkspace),
-        button('Back to start', api.showStart)
+      nodes.push(
+        actions(
+          button('Try again', api.retry, true),
+          button('Open another knowledge base…', api.openWorkspace),
+          button('Back to start', api.showStart)
+        )
       )
-      nodes.push(actions)
       break
     }
   }

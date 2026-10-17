@@ -1,7 +1,7 @@
 // The provider-independent conformance suite. Every provider in
 // providers/index.ts runs it (conformance.test.ts); a new provider is done
 // when it passes. It drives the shared ACP client with the provider's own
-// launch environment, session `_meta`, dialect, and sign-in help against the
+// launch environment, session `_meta`, and sign-in help against the
 // scripted mock agent (mockAgent.mjs) instead of the real adapter, so it
 // needs no agent installed and no network.
 
@@ -113,10 +113,7 @@ export function describeConformance(provider: AgentProvider): void {
 
     function text(events: AgentEvent[]): string {
       return events
-        .filter(
-          (event): event is Extract<AgentEvent, { type: 'text' }> =>
-            event.type === 'text' && event.kind === 'message'
-        )
+        .filter((event): event is Extract<AgentEvent, { type: 'text' }> => event.type === 'text')
         .map((event) => event.text)
         .join('')
     }

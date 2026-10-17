@@ -88,11 +88,9 @@ describe('AgentService', () => {
     expect((await service.list())[0].adapterInstalled).toBe(true)
 
     await service.start('mock', context)
-    expect(service.current).toBe('mock')
     await expect(service.prompt('echo hi')).resolves.toBe('end_turn')
     expect(events.some((event) => event.type === 'text' && event.text === 'hi')).toBe(true)
     service.close()
-    expect(service.current).toBeNull()
     await expect(service.prompt('echo hi')).rejects.toMatchObject({ kind: 'closed' })
   })
 

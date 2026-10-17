@@ -1,7 +1,7 @@
 // The window chrome the shell draws itself: the title bar with the in-app
-// menu, notices, and dialogs. The preload scripts draw it into every page
-// the shell's windows show (see src/preload/chrome/), the main process owns
-// its state (see src/main/windowChrome.ts). Only plain data crosses IPC.
+// menu, notices, and dialogs. src/chrome/windowChrome.ts draws it into the
+// pages the shell's windows show, the main process owns its state (see
+// src/main/windowChrome.ts). Only plain data crosses IPC.
 
 /** Height of the title bar and of Windows' own window controls beside it. */
 export const TITLE_BAR_HEIGHT = 36

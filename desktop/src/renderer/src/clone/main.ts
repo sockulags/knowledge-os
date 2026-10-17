@@ -13,6 +13,7 @@ import {
   type CloneProgress
 } from '../../../shared/clone'
 import { CLONE_TEXT, fill } from '../../../shared/cloneText'
+import { actions, button, element } from '../dom'
 
 const api = window.kosClone
 const root = document.getElementById('app') as HTMLElement
@@ -21,30 +22,6 @@ const root = document.getElementById('app') as HTMLElement
 mountWindowChrome(null)
 
 const form = { url: '', parent: '', name: '', nameEdited: false, showErrors: false }
-
-function element<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  text?: string,
-  className?: string
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag)
-  if (text !== undefined) node.textContent = text
-  if (className !== undefined) node.className = className
-  return node
-}
-
-function button(label: string, action: () => void, primary = false): HTMLButtonElement {
-  const node = element('button', label, primary ? 'primary' : undefined)
-  node.type = 'button'
-  node.addEventListener('click', action)
-  return node
-}
-
-function actions(...buttons: HTMLElement[]): HTMLElement {
-  const row = element('div', undefined, 'actions')
-  row.append(...buttons)
-  return row
-}
 
 function joinPath(parent: string, name: string): string {
   const separator = parent.includes('\\') || !parent.includes('/') ? '\\' : '/'

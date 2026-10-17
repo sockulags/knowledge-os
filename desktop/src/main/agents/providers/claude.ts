@@ -21,7 +21,7 @@ export const claudeProvider: AgentProvider = {
   displayName: 'Claude Code',
   mcpClientName: 'claude-code',
   adapter: CLAUDE_ADAPTER,
-  capabilities: { sessionResume: true, images: true },
+  capabilities: { sessionResume: true },
 
   async detect(env, platform): Promise<ProviderStatus> {
     const explicit = env['CLAUDE_CODE_EXECUTABLE']?.trim()

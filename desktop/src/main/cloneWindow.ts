@@ -4,9 +4,8 @@
 // the result in the main window. The knowledge base open in the main window
 // stays open until the clone has succeeded.
 
-import { BrowserWindow, dialog, ipcMain, nativeTheme, type IpcMainInvokeEvent } from 'electron'
+import { dialog, type BrowserWindow } from 'electron'
 import { join } from 'path'
-import appIcon from '../../build/icon.ico?asset'
 import {
   CLONE_IPC,
   folderNameProblem,
@@ -17,7 +16,7 @@ import {
 } from '../shared/clone'
 import { CLONE_TEXT } from '../shared/cloneText'
 import { startClone, type CloneRun } from './cloneRunner'
-import { followSystemTheme, framedWindowOptions } from './windowChrome'
+import { createPageWindow, handleFrom } from './windowChrome'
 
 export interface CloneHost {
   mainWindow: () => BrowserWindow | null
@@ -44,20 +43,8 @@ export function createCloneWindow(host: CloneHost): CloneWindow {
   let window: BrowserWindow | null = null
   let running: CloneRun | null = null
 
-  function fromCloneWindow(event: IpcMainInvokeEvent): boolean {
-    return window !== null && !window.isDestroyed() && event.sender === window.webContents
-  }
-
-  function handle<A extends unknown[], R>(
-    channel: string,
-    action: (event: IpcMainInvokeEvent, ...args: A) => Promise<R>
-  ): void {
-    ipcMain.handle(channel, (event, ...args) => {
-      // Only the clone window may call these, never the reader UI.
-      if (!fromCloneWindow(event)) throw new Error('not allowed from this page')
-      return action(event, ...(args as A))
-    })
-  }
+  // Only the clone window may call these, never the reader UI.
+  const handle = handleFrom(() => window)
 
   handle(CLONE_IPC.defaults, async (): Promise<CloneDefaults> => ({ parent: host.defaultParent() }))
 
@@ -137,43 +124,23 @@ export function createCloneWindow(host: CloneHost): CloneWindow {
       return
     }
     const parent = host.mainWindow() ?? undefined
-    const created = new BrowserWindow({
+    const created = createPageWindow({
       parent,
       modal: parent !== undefined,
       width: 640,
       height: 620,
       minWidth: 520,
       minHeight: 480,
-      show: false,
       title: CLONE_TEXT.windowTitle,
-      icon: appIcon,
-      backgroundColor: nativeTheme.shouldUseDarkColors ? '#15181b' : '#fbfaf7',
-      ...framedWindowOptions(),
-      autoHideMenuBar: true,
-      webPreferences: {
-        preload: host.preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true
-      }
+      pageUrl: host.pageUrl,
+      preloadPath: host.preloadPath
     })
     window = created
-    created.setMenu(null)
-    followSystemTheme(created)
-    created.on('ready-to-show', () => created.show())
     created.on('closed', () => {
       if (window === created) window = null
       // Closing the window mid-clone cancels it; the core removes what it wrote.
       void running?.cancel()
     })
-    const ownPage = (url: string): boolean => url.split(/[?#]/)[0] === host.pageUrl
-    const guard = (navigation: Electron.Event, url: string): void => {
-      if (!ownPage(url)) navigation.preventDefault()
-    }
-    created.webContents.on('will-navigate', guard)
-    created.webContents.on('will-redirect', guard)
-    created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    void created.loadURL(host.pageUrl)
   }
 
   return {
