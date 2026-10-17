@@ -14,6 +14,7 @@ from __future__ import annotations
 import difflib
 import re
 from dataclasses import dataclass
+from html import escape
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -44,7 +45,7 @@ from .common import (
     strip_leading_h1,
     technical_details,
 )
-from .mdtext import escape_html, strip_markdown_syntax
+from .mdtext import strip_markdown_syntax
 
 _FENCE_PATTERN = re.compile(r"^\s*(```|~~~)")
 
@@ -199,14 +200,14 @@ def _word_diff_html(old_text: str, new_text: str) -> tuple[str, str]:
     right_parts: list[str] = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
-            text = escape_html(" ".join(old_words[i1:i2]))
+            text = escape(" ".join(old_words[i1:i2]), quote=False)
             left_parts.append(text)
             right_parts.append(text)
             continue
         if i1 != i2:
-            left_parts.append(f"<mark>{escape_html(' '.join(old_words[i1:i2]))}</mark>")
+            left_parts.append(f"<mark>{escape(' '.join(old_words[i1:i2]), quote=False)}</mark>")
         if j1 != j2:
-            right_parts.append(f"<mark>{escape_html(' '.join(new_words[j1:j2]))}</mark>")
+            right_parts.append(f"<mark>{escape(' '.join(new_words[j1:j2]), quote=False)}</mark>")
     return f"<p>{' '.join(left_parts)}</p>", f"<p>{' '.join(right_parts)}</p>"
 
 
@@ -346,11 +347,10 @@ async def compare_view(request: Request) -> Response:
     if record is None:
         return not_found(strings.LINEAGE_NOT_FOUND.format(record_id=record_id))
 
-    sentence, _accent = language.status_sentence(library, record)
     return json_response(
         {
             "record": record_summary(record),
-            "status_text": sentence,
+            "status_text": language.status_sentence(library, record),
             "comparisons": _build_comparisons(record, library),
             "no_comparison_text": strings.LINEAGE_NO_COMPARISON,
         }

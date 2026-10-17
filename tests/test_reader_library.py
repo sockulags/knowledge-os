@@ -138,6 +138,33 @@ class BrokenRecordTests(unittest.TestCase):
             self.assertTrue(any("does not match directory" in issue.message for issue in lib.issues))
 
 
+class ReadRepoDocumentTests(unittest.TestCase):
+    """Sec.6 "Unreadable content": a file that cannot be shown raises
+    LibraryError with a user-facing sentence, never an uncaught crash."""
+
+    def test_missing_file_raises_library_error_not_a_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+
+            with self.assertRaises(library.LibraryError) as caught:
+                library.read_repo_document(Workspace(root), "docs/gone.md")
+
+            self.assertIn("no longer exists", str(caught.exception))
+
+    def test_non_utf8_file_raises_library_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            create_workspace(root)
+            (root / "docs").mkdir()
+            (root / "docs" / "binary.md").write_bytes(b"\xff\xfe not utf-8")
+
+            with self.assertRaises(library.LibraryError) as caught:
+                library.read_repo_document(Workspace(root), "docs/binary.md")
+
+            self.assertIn("not valid UTF-8", str(caught.exception))
+
+
 class RecordKindNormalizationTests(unittest.TestCase):
     def test_knowledge_record_without_record_kind_is_ordinary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

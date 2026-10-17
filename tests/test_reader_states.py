@@ -7,11 +7,10 @@ on disk inside a tempfile.TemporaryDirectory() and never touches the real
 workspace this repository ships (a sibling agent is reading it while this
 suite runs).
 
-Covers docs/plans/reader-v1.md Sec.6 acceptance criteria 6, 7, and 8 at the
-states.py layer (states.py is pure and has no server dependency, per the
-unit-9 contract), plus every helper's own edge cases: broken records,
-broken relations, the health line's lint/issue accounting (and its
-dedup rule against Library.broken), and all three IndexHealth states.
+Covers docs/plans/reader-v1.md Sec.6 acceptance criteria 7 and 8 at the
+states.py layer (states.py is pure and has no server dependency): the health
+line's lint/issue accounting (and its dedup rule against Library.broken) and
+the IndexHealth states that disable search.
 """
 
 from __future__ import annotations
@@ -40,128 +39,6 @@ def _knowledge_metadata(**overrides: object) -> dict[str, object]:
     }
     metadata.update(overrides)
     return metadata
-
-
-class DiagnosticForBrokenTests(unittest.TestCase):
-    """Acceptance criterion 6: a corrupted frontmatter file renders as
-    broken with its exact lint message, while its neighbour stays a normal
-    record and is unaffected."""
-
-    def test_corrupted_frontmatter_becomes_a_diagnostic_with_the_exact_message(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            create_workspace(root)
-            write_record(root, "knowledge/good.md", _knowledge_metadata(id="good", title="Good"))
-            (root / "knowledge" / "corrupt.md").write_text(
-                "---\nid: [unterminated\n---\n\nBody.\n", encoding="utf-8"
-            )
-
-            lib = library.load_library(Workspace(root))
-
-            self.assertIn("good", lib.records_by_id)
-            self.assertEqual(len(lib.broken), 1)
-            diagnostics = states.broken_entries(lib)
-            self.assertEqual(len(diagnostics), 1)
-            diagnostic = diagnostics[0]
-            self.assertEqual(diagnostic.label, strings.BROKEN_RECORD_LABEL)
-            self.assertEqual(diagnostic.path, "knowledge/corrupt.md")
-            # The exact lint message from BrokenRecord.message must survive,
-            # framed but not replaced, inside the pre-formatted detail.
-            self.assertIn(lib.broken[0].message, diagnostic.detail)
-            self.assertEqual(diagnostic.detail, strings.BROKEN_RECORD_DETAIL.format(message=lib.broken[0].message))
-            # The neighbour is untouched: still a normal, readable record.
-            self.assertEqual(lib.records_by_id["good"].title, "Good")
-
-    def test_broken_entries_are_sorted_by_path_and_do_not_include_readable_issues(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            create_workspace(root)
-            (root / "knowledge" / "z-broken.md").write_text("no frontmatter\n", encoding="utf-8")
-            (root / "knowledge" / "a-broken.md").write_text("no frontmatter\n", encoding="utf-8")
-            # Parses fine but fails a relational check: must not show up here.
-            write_record(
-                root,
-                "knowledge/mismatched.md",
-                _knowledge_metadata(id="mismatched", title="Mismatched", type="source"),
-            )
-
-            lib = library.load_library(Workspace(root))
-            diagnostics = states.broken_entries(lib)
-
-            self.assertEqual([d.path for d in diagnostics], ["knowledge/a-broken.md", "knowledge/z-broken.md"])
-
-
-class DiagnosticForUnreadableTests(unittest.TestCase):
-    """Sec.6 "Unreadable content": non-UTF-8, deleted mid-session, or
-    rejected by path safety. Exercised directly against LibraryError, since
-    read_repo_document's own I/O is library.py's concern, not states.py's."""
-
-    def test_wraps_a_library_error_with_its_own_label(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            create_workspace(root)
-            (root / "docs").mkdir()
-            (root / "docs" / "binary.md").write_bytes(b"\xff\xfe not utf-8")
-            workspace = Workspace(root)
-
-            with self.assertRaises(library.LibraryError) as caught:
-                library.read_repo_document(workspace, "docs/binary.md")
-
-            diagnostic = states.diagnostic_for_unreadable("docs/binary.md", caught.exception)
-            self.assertEqual(diagnostic.label, strings.UNREADABLE_CONTENT_LABEL)
-            self.assertEqual(diagnostic.path, "docs/binary.md")
-            self.assertEqual(diagnostic.detail, str(caught.exception))
-            self.assertIn("not valid UTF-8", diagnostic.detail)
-
-    def test_missing_file_also_produces_a_diagnostic_not_a_crash(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            create_workspace(root)
-            workspace = Workspace(root)
-
-            with self.assertRaises(library.LibraryError) as caught:
-                library.read_repo_document(workspace, "docs/gone.md")
-
-            diagnostic = states.diagnostic_for_unreadable("docs/gone.md", caught.exception)
-            self.assertIn("no longer exists", diagnostic.detail)
-
-
-class RelationLabelTests(unittest.TestCase):
-    """Sec.6 "Broken relation": shown as "points at unknown id X", flagged,
-    never silently dropped; a resolved relation is unaffected."""
-
-    def test_unresolved_relation_reports_the_unknown_id(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            create_workspace(root)
-            write_record(
-                root,
-                "knowledge/pointer.md",
-                _knowledge_metadata(id="pointer", title="Pointer", related=["missing-id"]),
-            )
-            lib = library.load_library(Workspace(root))
-            relation = lib.records_by_id["pointer"].outbound[0]
-
-            self.assertFalse(relation.resolved)
-            self.assertTrue(states.is_relation_broken(relation))
-            self.assertEqual(states.relation_label(relation), strings.BROKEN_RELATION.format(record_id="missing-id"))
-
-    def test_resolved_relation_shows_the_target_title(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            create_workspace(root)
-            write_record(root, "knowledge/target.md", _knowledge_metadata(id="target", title="Target"))
-            write_record(
-                root,
-                "knowledge/pointer.md",
-                _knowledge_metadata(id="pointer", title="Pointer", related=["target"]),
-            )
-            lib = library.load_library(Workspace(root))
-            relation = lib.records_by_id["pointer"].outbound[0]
-
-            self.assertTrue(relation.resolved)
-            self.assertFalse(states.is_relation_broken(relation))
-            self.assertEqual(states.relation_label(relation), "Target")
 
 
 class IssueEntriesTests(unittest.TestCase):
@@ -289,14 +166,6 @@ class HealthSummaryTests(unittest.TestCase):
             self.assertTrue(summary.index_stale)
             self.assertTrue(summary.search_disabled)
             self.assertEqual(summary.search_disabled_reason, strings.INDEX_HEALTH["stale"])
-
-    def test_lint_summary_line_matches_build_health_summary(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            create_workspace(root)
-            write_record(root, "knowledge/plain.md", _knowledge_metadata(id="plain"))
-            lib = library.load_library(Workspace(root))
-            self.assertEqual(states.lint_summary_line(lib), states.build_health_summary(lib).lint_message)
 
 
 if __name__ == "__main__":

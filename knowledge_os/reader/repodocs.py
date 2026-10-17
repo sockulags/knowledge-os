@@ -3,19 +3,16 @@ that sit outside the record contract (``docs/plans/reader-v1.md`` Sec.3,
 "Repo documents"), plus the shared lookup and rendering helpers other units
 use to surface an entry from it.
 
-Every path here is served at ``GET /f/{path:path}`` (``views/repodoc.py``,
-this unit) and must never be mistaken for a managed record: this module
+Every path here is served at ``GET /api/docs/{path}`` (``api/docs.py``) and
+must never be mistaken for a managed record: this module
 reads only through ``library.read_repo_document``, which itself never
 leaves ``Workspace.assert_safe_path`` (a resolved-path containment check, a
 lexical containment check, and a per-component symlink/reparse-point walk).
 Nothing here re-implements or bypasses that check, parses YAML, or writes
 to the workspace.
 
-Other units surface this tier on their own page by importing
-``REPO_DOCUMENT_PATHS`` and/or ``list_repo_documents`` from here, and by
-including ``templates/partials/unmanaged.html`` in their own template with
-``unmanaged_entries`` set in their ``render()`` context — see that
-partial's own header comment for its exact contract.
+Other API modules list this tier by importing ``REPO_DOCUMENT_PATHS``
+and/or ``list_repo_documents`` from here (the workspace nav payload does).
 """
 
 from __future__ import annotations
@@ -31,8 +28,8 @@ from . import library, markdown
 #: set of files the plan names explicitly, not "every .md file outside the
 #: corpus" — walking the filesystem would also pick up ordinary repository
 #: clutter that was never meant to belong to this tier, and would turn
-#: ``/f/{path:path}`` into a way to browse the whole repository.
-#: ``views/repodoc.py`` refuses any path that is not exactly one of these
+#: ``/api/docs/{path}`` into a way to browse the whole repository.
+#: ``api/docs.py`` refuses any path that is not exactly one of these
 #: before it ever touches the filesystem, which is also what makes every
 #: path-traversal shape (``../../etc/passwd``, an absolute path, an encoded
 #: variant) a clean refusal: none of them can equal one of these literals.
@@ -54,16 +51,16 @@ def is_skill_reference_path(rel_path: str) -> bool:
 
     A second, pattern-based admission rule alongside the fixed
     ``REPO_DOCUMENT_PATHS`` list above: the skill view (unit 8) links a
-    skill's own ``references/*.md`` files through ``/f/...``, and those
-    files live outside the eight named repo documents. This stays a closed
-    rule rather than turning ``/f/{path:path}`` into a way to browse
+    skill's own ``references/*.md`` files through ``/api/docs/...``, and
+    those files live outside the eight named repo documents. This stays a
+    closed rule rather than turning ``/api/docs/{path}`` into a way to browse
     ``skills/`` generally: exactly four workspace-relative POSIX segments,
     a literal ``skills`` root, a literal ``references`` third segment, and a
     plain ``.md`` filename with no further path -- no nested subdirectory
     under ``references/``, and no other directory under ``skills/`` at all
     (a skill's ``SKILL.md`` itself is a managed record, reached at
     ``/s/<name>``, not through this route).
-    ``views/repodoc.py`` still reaches every path admitted here through
+    ``api/docs.py`` still reaches every path admitted here through
     ``library.read_repo_document``, so ``Workspace.assert_safe_path``
     remains the layer of last resort underneath this rule exactly as it
     does for the fixed list -- this function only decides which literal
@@ -129,7 +126,7 @@ def read_entry(workspace: Any, rel_path: str) -> RepoDocumentEntry:
     """Read one tier entry for display, discarding its body.
 
     For a caller that only needs the listing metadata (``list_repo_documents``
-    below); ``views/repodoc.py`` calls ``read_text_entry`` directly instead,
+    below); ``api/docs.py`` calls ``read_text_entry`` directly instead,
     since it also needs the body to render.
     """
 
@@ -141,9 +138,9 @@ def list_repo_documents(workspace: Any) -> tuple[RepoDocumentEntry, ...]:
     """Read every entry in the fixed tier, in ``REPO_DOCUMENT_PATHS`` order.
 
     For a project or start page that wants to list this tier alongside a
-    validated group. This unit's own page (``views/repodoc.py``) reads one
-    entry directly through ``read_text_entry`` instead, since it already
-    knows which single path it was asked for and also needs the body.
+    validated group. ``api/docs.py`` reads one entry directly through
+    ``read_text_entry`` instead, since it already knows which single path it
+    was asked for and also needs the body.
     """
 
     return tuple(read_entry(workspace, path) for path in REPO_DOCUMENT_PATHS)
@@ -165,7 +162,7 @@ def render_document(
     anchors of its own. ``source_path`` and ``resolve_link`` are optional
     and forwarded as-is to ``markdown.render``; passing both rewrites a
     relative record-to-record link inside this document into a ``/r/<id>``
-    permalink (``views/repodoc.py`` passes the requested path and a lookup
+    permalink (``api/docs.py`` passes the requested path and a lookup
     built from ``library.path_index``).
     """
 

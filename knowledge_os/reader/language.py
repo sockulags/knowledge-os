@@ -39,7 +39,6 @@ __all__ = [
     "scope_sentence",
     "provenance_sentence",
     "proposed_by",
-    "record_accent",
     "catalog_phrase",
     "type_label",
     "display_project_title",
@@ -61,43 +60,6 @@ _DISCOVERY_TRUST_LABELS = (
 )
 
 _VERIFIED_DURABLE = "verified durable"
-
-#: context_policy.trust_label() values that change what the reader should
-#: believe (Sec.5: "colour only where it changes what the reader should
-#: believe: proposed, unverified, retired, raw"), mapped to the four accent
-#: modifiers reader.css defines. Any trust label not listed here (verified
-#: durable, operational guidance) stays neutral on purpose.
-_TRUST_ACCENT: dict[str, str] = {
-    "draft durable; not verified": "unverified",
-    "active durable; not verified": "unverified",
-    "unusable durable record": "retired",
-    "raw source; not established knowledge": "raw",
-    "reviewed observation; not established knowledge": "raw",
-    "discovery observation; not default context": "raw",
-}
-
-#: Non-decision lifecycle statuses that read as retired (--accent-retired is
-#: documented as "superseded / deprecated / archived"). "draft"/"active"
-#: stay neutral here: for an ordinary record (not a decision) that colour
-#: would restate the Trust row, not add information.
-_LIFECYCLE_ACCENT: dict[str, str] = {
-    "deprecated": "retired",
-    "archived": "retired",
-    "superseded": "retired",
-}
-
-#: The one discovery status that carries the "raw" accent: unreviewed
-#: material nobody has taken a position on yet. Once a discovery has been
-#: reviewed -- retained, rejected, or promoted -- its own status sentence
-#: (DISCOVERY_STATUS) already says so, and Sec.5 restricts colour to a
-#: state that "changes what the reader should believe", not to every
-#: distinct status a record can carry; a reviewed disposition is a settled
-#: fact, not a live warning. The reader shipped with three disagreeing
-#: rules for this (document.py: proposed+retained=raw, rejected+promoted=
-#: retired; everything.py: only proposed=raw; project.py: everything but
-#: retained=raw); this is everything.py's rule, the only one of the three
-#: pinned by a passing test.
-_DISCOVERY_RAW_STATUS = "proposed"
 
 
 def _parse_iso_date(text: str) -> datetime.date | None:
@@ -173,49 +135,44 @@ def successor_of(library: Library, record: Record) -> Record | None:
     return candidates[0] if candidates else None
 
 
-def _decision_status_sentence(library: Library, record: Record) -> tuple[str, str | None]:
+def _decision_status_sentence(library: Library, record: Record) -> str:
     if record.status == "draft":
-        return strings.DECISION_STATUS["draft"], "proposed"
+        return strings.DECISION_STATUS["draft"]
     if record.status == "active":
         date = format_date(record.accepted_at)
         if date is None:
-            return strings.LINEAGE_ACCEPTED_UNKNOWN, None
-        return strings.DECISION_STATUS["active"].format(date=date), None
+            return strings.LINEAGE_ACCEPTED_UNKNOWN
+        return strings.DECISION_STATUS["active"].format(date=date)
     if record.status == "superseded":
         successor = successor_of(library, record)
         if successor is None:
-            return strings.DOCUMENT_SUPERSEDED_UNKNOWN, "retired"
+            return strings.DOCUMENT_SUPERSEDED_UNKNOWN
         date = format_date(successor.accepted_at) or format_date(successor.updated)
-        sentence = strings.DECISION_STATUS["superseded"].format(title=successor.title, date=date)
-        return sentence, "retired"
+        return strings.DECISION_STATUS["superseded"].format(title=successor.title, date=date)
     if record.status == "archived":
         withdrawal = next((e for e in record.provenance if e.kind == "decision-withdrawal"), None)
         date = format_date(withdrawal.captured if withdrawal and withdrawal.captured else record.updated)
         if date is None:
-            return strings.DECISION_WITHDRAWN_UNDATED, "retired"
-        return strings.DECISION_STATUS["archived"].format(date=date), "retired"
+            return strings.DECISION_WITHDRAWN_UNDATED
+        return strings.DECISION_STATUS["archived"].format(date=date)
     # A decision with no other recognised status (an invalid corpus, since
     # decisions are restricted to draft/active/superseded/archived); degrade to the
     # ordinary lifecycle table rather than raising.
-    return strings.LIFECYCLE_STATUS.get(record.status, record.status), _LIFECYCLE_ACCENT.get(record.status)
+    return strings.LIFECYCLE_STATUS.get(record.status, record.status)
 
 
-def _lifecycle_status_sentence(library: Library, record: Record) -> tuple[str, str | None]:
+def _lifecycle_status_sentence(library: Library, record: Record) -> str:
     if record.status == "superseded":
         successor = successor_of(library, record)
         if successor is None:
-            return strings.DOCUMENT_SUPERSEDED_UNKNOWN, "retired"
+            return strings.DOCUMENT_SUPERSEDED_UNKNOWN
         date = format_date(successor.accepted_at) or format_date(successor.updated)
-        sentence = strings.LIFECYCLE_STATUS["superseded"].format(title=successor.title, date=date)
-        return sentence, "retired"
-    sentence = strings.LIFECYCLE_STATUS.get(record.status, record.status)
-    return sentence, _LIFECYCLE_ACCENT.get(record.status)
+        return strings.LIFECYCLE_STATUS["superseded"].format(title=successor.title, date=date)
+    return strings.LIFECYCLE_STATUS.get(record.status, record.status)
 
 
-def status_sentence(library: Library, record: Record) -> tuple[str, str | None]:
-    """The plain-language sentence for a record's lifecycle meaning, and its
-    accent modifier (one of "proposed"/"unverified"/"retired"/"raw", or
-    ``None`` for a neutral state).
+def status_sentence(library: Library, record: Record) -> str:
+    """The plain-language sentence for a record's lifecycle meaning.
 
     Covers all three shapes the plan's language table gives sentences for: a
     decision (draft/active/superseded), a discovery (proposed/retained/
@@ -229,16 +186,15 @@ def status_sentence(library: Library, record: Record) -> tuple[str, str | None]:
     if record.is_decision:
         return _decision_status_sentence(library, record)
     if record.type == "discovery":
-        sentence = strings.DISCOVERY_STATUS.get(record.status, record.status)
-        accent = "raw" if record.status == _DISCOVERY_RAW_STATUS else None
-        return sentence, accent
+        return strings.DISCOVERY_STATUS.get(record.status, record.status)
     return _lifecycle_status_sentence(library, record)
 
 
-def trust_sentence(record: Record) -> tuple[str, str | None]:
-    """The plain-language sentence for a record's epistemic trust, and its
-    accent modifier. Distinct from ``status_sentence``: a governing
-    (accepted) decision is "In force" (status) yet still only "Confirmed" or
+def trust_sentence(record: Record) -> str:
+    """The plain-language sentence for a record's epistemic trust.
+
+    Distinct from ``status_sentence``: a governing (accepted) decision is
+    "In force" (status) yet still only "Confirmed" or
     "Not confirmed" (trust) depending on ``verified`` -- the two rows answer
     different questions and are never collapsed into one.
     """
@@ -246,7 +202,7 @@ def trust_sentence(record: Record) -> tuple[str, str | None]:
     label = strings.TRUST_LABELS.get(record.trust_label, record.trust_label)
     if record.trust_label == "verified durable" and record.verified:
         label = label.format(date=format_date(record.verified))
-    return label, _TRUST_ACCENT.get(record.trust_label)
+    return label
 
 
 #: A project's overview record is conventionally titled "<Name> project
@@ -416,30 +372,6 @@ def proposer_sentence(library: Library, entry: ProvenanceEntry | None, fallback_
     return {"source": _PROPOSER_SOURCE.get(entry.kind, "other"), "label": label, "kind": entry.kind, "when": when}
 
 
-def record_accent(record: Record) -> str | None:
-    """Which of the four colour-carrying states (Sec.5) applies to one
-    record as a whole, or ``None`` for neutral -- the single badge a flat
-    listing (the everything and project views' record cards) shows next to
-    a title, as opposed to ``status_sentence``/``trust_sentence``'s two
-    separate rail rows.
-
-    A decision is judged on its own status alone (its trust label is not
-    meaningful for an accepted decision -- see ``trust_sentence``'s
-    docstring); a discovery only while still unreviewed (``proposed``);
-    everything else on its trust label.
-    """
-
-    if record.is_decision:
-        if record.status == "draft":
-            return "proposed"
-        if record.status == "superseded":
-            return "retired"
-        return None
-    if record.type == "discovery":
-        return "raw" if record.status == _DISCOVERY_RAW_STATUS else None
-    return _TRUST_ACCENT.get(record.trust_label)
-
-
 def catalog_phrase(library: Library, record: Record) -> str:
     """The single combined phrase a flat listing (the everything view's
     record cards) shows next to a title, with no separate Status/Trust rail
@@ -456,12 +388,10 @@ def catalog_phrase(library: Library, record: Record) -> str:
     """
 
     if record.is_decision:
-        sentence, _accent = _decision_status_sentence(library, record)
-        return sentence
+        return _decision_status_sentence(library, record)
     label = record.trust_label
     if label == _UNUSABLE_DURABLE:
-        sentence, _accent = _lifecycle_status_sentence(library, record)
-        return sentence
+        return _lifecycle_status_sentence(library, record)
     if label in _DISCOVERY_TRUST_LABELS:
         return strings.DISCOVERY_STATUS.get(record.status, strings.TRUST_LABELS[label])
     if label == _VERIFIED_DURABLE:
