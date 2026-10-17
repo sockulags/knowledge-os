@@ -107,6 +107,8 @@ def rebuild_indexes(workspace: Workspace) -> int:
 
 
 def search_index(workspace: Workspace, query: str, limit: int) -> list[dict[str, str]]:
+    """Full-text matches for ``query``, best first. Opens the catalog read-only."""
+
     workspace.assert_safe_path(workspace.root / "indexes")
     database = workspace.root / "indexes" / "catalog.sqlite3"
     workspace.assert_safe_path(database)
@@ -115,7 +117,10 @@ def search_index(workspace: Workspace, query: str, limit: int) -> list[dict[str,
     if not query.strip():
         raise ValueError("search query must not be empty")
     escaped = query.replace('"', '""')
-    connection = sqlite3.connect(database)
+    try:
+        connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
+    except sqlite3.Error as exc:
+        raise ValueError(f"search index could not be opened: {exc}") from exc
     connection.row_factory = sqlite3.Row
     try:
         rows = connection.execute(

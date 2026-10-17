@@ -56,7 +56,7 @@ from knowledge_os.agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity, pa
 from knowledge_os.context_policy import trust_label
 from knowledge_os.gitsetup import ConnectOutcome, InitOutcome, RemoteCheck, SetupStatus
 from knowledge_os.gitsync import CommitOutcome, ConflictFile, GitSyncError, ResolveOutcome, SyncOutcome, SyncStatus
-from knowledge_os.index import rebuild_indexes, validate_index
+from knowledge_os.index import rebuild_indexes, search_index, validate_index
 from knowledge_os.model import (
     SHA256_PATTERN,
     Document,
@@ -551,13 +551,7 @@ def rebuild_search_index(workspace: Workspace) -> int:
 
 
 def search(workspace: Workspace, query: str, limit: int = 50) -> list[dict[str, str]]:
-    """Search the read-only SQLite catalog.
-
-    Deliberately does not call index.search_index: that function opens the
-    database read-write (a bare sqlite3.connect), which risks touching the
-    db file, and acceptance criterion 1 requires the workspace to be
-    byte-identical after serving. This issues the same query read-only via a
-    ``file:...?mode=ro`` URI instead.
+    """Search the SQLite catalog through ``kos search``'s own read-only query.
 
     A blank query, a missing or unopenable database, and an unparseable FTS
     expression all return a clean empty list rather than raise: a view can
@@ -568,41 +562,10 @@ def search(workspace: Workspace, query: str, limit: int = 50) -> list[dict[str, 
     trimmed = query.strip()
     if not trimmed:
         return []
-    database = workspace.root / "indexes" / "catalog.sqlite3"
     try:
-        workspace.assert_safe_path(database)
-    except WorkspaceError:
+        return search_index(workspace, trimmed, max(limit, 0))
+    except (ValueError, WorkspaceError, sqlite3.Error):
         return []
-    if not database.is_file():
-        return []
-    escaped = trimmed.replace('"', '""')
-    try:
-        connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
-        return []
-    connection.row_factory = sqlite3.Row
-    try:
-        rows = connection.execute(
-            """
-            SELECT id, title, type, record_kind, status, scope, path,
-                   snippet(documents_fts, 8, '[', ']', '...', 18) AS snippet
-            FROM documents_fts
-            WHERE documents_fts MATCH ?
-            ORDER BY bm25(documents_fts), id
-            LIMIT ?
-            """,
-            (f'"{escaped}"', max(limit, 0)),
-        ).fetchall()
-    except sqlite3.Error:
-        return []
-    finally:
-        connection.close()
-    results = []
-    for row in rows:
-        result = dict(row)
-        result["snippet"] = " ".join(result["snippet"].split())
-        results.append(result)
-    return results
 
 
 @dataclass(frozen=True)

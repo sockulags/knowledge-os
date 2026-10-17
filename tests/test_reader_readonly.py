@@ -109,14 +109,13 @@ FORBIDDEN_WORKSPACE_NAMES = {
     "refresh_derived_indexes",
     "workspace_mutation_lock",
 }
-#: The core's index module has two read-write-adjacent siblings
-#: (``search_index`` opens the catalog with a bare read-write
-#: ``sqlite3.connect``; ``rebuild_indexes``/``search_index_terms`` either
-#: write or are not what the adapter is meant to use). ``library.search``
-#: must issue its own ``mode=ro`` connection instead of importing any of
-#: these. The adapter alone may import ``rebuild_indexes`` (see
-#: ``ADAPTER_WRITE_ENTRY_POINTS``), for the background index refresh only.
-FORBIDDEN_INDEX_NAMES = {"search_index", "search_index_terms", "rebuild_indexes"}
+#: The core's index functions the reader must not reach for:
+#: ``rebuild_indexes`` writes, and ``search_index_terms`` is the context
+#: pack's ranking, not the reader's. ``library.search`` uses ``search_index``,
+#: which opens the catalog read-only. The adapter alone may import
+#: ``rebuild_indexes`` (see ``ADAPTER_WRITE_ENTRY_POINTS``), for the
+#: background index refresh only.
+FORBIDDEN_INDEX_NAMES = {"search_index_terms", "rebuild_indexes"}
 
 #: Every module the reader package's non-adapter modules are allowed to
 #: import from ``knowledge_os`` at all: the opaque workspace handle used to
@@ -249,9 +248,9 @@ class ImportCheckerSelfTest(unittest.TestCase):
         )
 
     def test_forbidden_index_write_function_is_detected(self) -> None:
-        tree = ast.parse("from knowledge_os.index import search_index\n")
+        tree = ast.parse("from knowledge_os.index import search_index_terms\n")
         self.assertIn(
-            "from knowledge_os.index import search_index",
+            "from knowledge_os.index import search_index_terms",
             forbidden_write_path_violations(tree),
         )
 
@@ -350,15 +349,24 @@ class ForbiddenWritePathTests(unittest.TestCase):
                 offenders[str(path.relative_to(REPOSITORY))] = violations
         self.assertEqual(offenders, {}, f"forbidden write paths imported: {offenders}")
 
-    def test_library_only_imports_validate_index_from_the_index_module(self) -> None:
-        """The audit's specific concern: library.py must never import
-        index.search_index (bare read-write sqlite3.connect); it issues its
-        own mode=ro connection. Its one write import from this module is
-        rebuild_indexes, the ``kos index`` entry point behind the background
-        index refresh."""
+    def test_library_imports_only_read_only_search_from_the_index_module(self) -> None:
+        """library.py searches through index.search_index, which must keep
+        opening the catalog with a ``mode=ro`` connection. Its one write
+        import from this module is rebuild_indexes, the ``kos index`` entry
+        point behind the background index refresh."""
 
         names = _names_imported_from(_parse(LIBRARY_MODULE), "knowledge_os.index")
-        self.assertEqual(names, {"validate_index", "rebuild_indexes"})
+        self.assertEqual(names, {"validate_index", "rebuild_indexes", "search_index"})
+        index_module = REPOSITORY / "knowledge_os" / "index.py"
+        source = index_module.read_text(encoding="utf-8")
+        search = next(
+            node
+            for node in _parse(index_module).body
+            if isinstance(node, ast.FunctionDef) and node.name == "search_index"
+        )
+        segment = ast.get_source_segment(source, search) or ""
+        self.assertIn("?mode=ro", segment)
+        self.assertNotIn("sqlite3.connect(database)", segment)
 
 
 # ---------------------------------------------------------------------------
