@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import os
 import posixpath
-import re
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
@@ -51,7 +50,7 @@ from typing import Any, Callable, Mapping
 from .attachments import ATTACHMENTS_DIR, split_by_use
 from .capture import CaptureIndexError, DuplicateRecordError, capture_record_text
 from .links import relative_links, rewrite_links
-from .model import ID_PATTERN, SHA256_PATTERN, Document, MetadataError, content_sha256, parse_document_text, render_document
+from .model import ID_PATTERN, SHA256_PATTERN, Document, MetadataError, content_sha256, kebab, parse_document_text, render_document
 from .mutations import (
     MutationError,
     MutationIndexError,
@@ -478,7 +477,7 @@ def create_project(
 
 
 def _default_folder_id(project_id: str, folder: str, taken: set[str]) -> str:
-    base = re.sub(r"[^a-z0-9]+", "-", f"{project_id}-{folder}".lower()).strip("-")
+    base = kebab(f"{project_id}-{folder}", None)
     candidate, suffix = base, 2
     while candidate in taken:
         candidate, suffix = f"{base}-{suffix}", suffix + 1

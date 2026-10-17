@@ -27,6 +27,7 @@ from __future__ import annotations
 import difflib
 import html
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
@@ -174,9 +175,14 @@ def _record_id(value: str, name: str = "id") -> str:
 
 
 def slug(title: str) -> str:
-    """A page id from a title: lowercase ASCII words joined by hyphens."""
+    """A page id from a title: lowercase ASCII words joined by hyphens.
 
-    text = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    The same rule as ``knowledge_os.model.kebab``, repeated because this
+    package imports no core modules: accents fold, so "Skärm" gives "skarm".
+    """
+
+    folded = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^a-z0-9]+", "-", folded.lower()).strip("-")
     text = text[:80].rstrip("-")
     return text or "note"
 

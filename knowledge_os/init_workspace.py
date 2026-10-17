@@ -10,13 +10,12 @@ it never merges into, overwrites, or corrupts something that already exists.
 
 from __future__ import annotations
 
-import re
 import shutil
 import sqlite3
 from pathlib import Path
 
 from .index import rebuild_indexes
-from .model import ID_PATTERN
+from .model import ID_PATTERN, kebab
 from .templates import TEMPLATES_DIR, built_in_files
 from .workspace import MANAGED_DIRS, Workspace, exclusive_write
 
@@ -131,7 +130,7 @@ class WorkspaceInitError(ValueError):
 def default_workspace_name(path: Path) -> str:
     """Derive a lowercase kebab-case workspace name from a folder name."""
 
-    candidate = re.sub(r"[^a-z0-9]+", "-", path.name.lower()).strip("-")
+    candidate = kebab(path.name, None)
     return candidate if ID_PATTERN.fullmatch(candidate) else "workspace"
 
 

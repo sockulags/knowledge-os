@@ -62,6 +62,7 @@ from knowledge_os.model import (
     Document,
     MetadataError,
     content_sha256,
+    kebab,
     parse_document,
     parse_document_text,
     render_document,
@@ -1965,8 +1966,7 @@ def propose_documentation_decision(
         title, body, provenance = codedocs.decision_draft(check.repository(path), key)
     except codedocs.CodeDocsError as exc:
         raise WriteError("validation", str(exc)) from exc
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80].rstrip("-") or "decision"
-    record_id = _free_id(documents, slug)
+    record_id = _free_id(documents, kebab(title, 80, "decision"))
     metadata: dict[str, Any] = {
         "id": record_id,
         "title": title,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -73,6 +74,21 @@ def render_document(metadata: dict[str, Any], body: str) -> bytes:
 
     rendered = yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True).rstrip("\n")
     return f"---\n{rendered}\n---\n\n{body}".encode()
+
+
+def kebab(text: str, limit: int | None = 80, fallback: str = "") -> str:
+    """Lowercase ASCII words joined by hyphens: ``"Skärm bild"`` -> ``"skarm-bild"``.
+
+    Accents are folded away rather than dropped, so a title gives the same id
+    here as in the reader UI. ``limit`` trims the result (``None`` keeps all of
+    it), and ``fallback`` is returned when nothing is left.
+    """
+
+    folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    result = re.sub(r"[^a-z0-9]+", "-", folded.lower()).strip("-")
+    if limit is not None:
+        result = result[:limit].rstrip("-")
+    return result or fallback
 
 
 def content_sha256(path: Path) -> str:

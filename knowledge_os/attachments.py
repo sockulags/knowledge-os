@@ -26,12 +26,11 @@ from __future__ import annotations
 import hashlib
 import posixpath
 import re
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
 from .links import relative_links
-from .model import Document, content_sha256
+from .model import Document, content_sha256, kebab
 from .workspace import Workspace, WorkspaceError, exclusive_write, workspace_mutation_lock
 
 ATTACHMENTS_DIR = "assets"
@@ -63,8 +62,7 @@ def clean_filename(name: str) -> str:
     stem, dot, extension = base.rpartition(".")
     if not dot or not stem:
         stem, extension = base, ""
-    ascii_stem = unicodedata.normalize("NFKD", stem).encode("ascii", "ignore").decode("ascii")
-    stem = re.sub(r"[^a-z0-9]+", "-", ascii_stem.lower()).strip("-")[:80].strip("-") or "file"
+    stem = kebab(stem, 80, "file")
     extension = extension.lower()
     if extension and not _EXTENSION.fullmatch(extension):
         extension = ""

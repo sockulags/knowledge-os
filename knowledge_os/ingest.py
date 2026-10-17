@@ -5,10 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
-import re
-import unicodedata
 
-from .model import MetadataError, parse_document, render_document
+from .model import MetadataError, kebab, parse_document, render_document
 from .workspace import (
     Workspace,
     atomic_write,
@@ -20,12 +18,6 @@ from .workspace import (
     validate_workspace,
     workspace_mutation_lock,
 )
-
-
-def _slug(value: str) -> str:
-    ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().lower()
-    result = re.sub(r"[^a-z0-9]+", "-", ascii_value).strip("-")
-    return (result[:48].rstrip("-") or "source")
 
 
 def ingest_source(workspace: Workspace, source_path: Path) -> tuple[str, bool, int]:
@@ -47,7 +39,7 @@ def ingest_source(workspace: Workspace, source_path: Path) -> tuple[str, bool, i
             raise MetadataError("input file must be UTF-8 text") from exc
 
         digest = hashlib.sha256(original).hexdigest()
-        record_id = f"{_slug(source_path.stem)}-{digest[:16]}"
+        record_id = f"{kebab(source_path.stem, 48, 'source')}-{digest[:16]}"
         destination = workspace.root / "sources" / f"{record_id}.md"
         workspace.assert_safe_path(destination)
         today = datetime.now(timezone.utc).date().isoformat()
