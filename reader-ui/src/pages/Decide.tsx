@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   ArrowRight,
@@ -13,7 +12,7 @@ import {
   User,
   Users,
 } from "lucide-react";
-import { api, ApiUnreachableError } from "../api/client";
+import { api } from "../api/client";
 import type { ChangesPayload, DecidePayload, ProposedChange, ProposedDecision } from "../api/types";
 import { ChangeActions, changeKey } from "../components/ChangeActions";
 import { PageSkeleton } from "../components/Skeleton";
@@ -22,7 +21,8 @@ import { DecisionActions } from "../components/DecisionActions";
 import { DecisionGuideToggle } from "../components/DecisionGuide";
 import { EmptyState } from "../components/EmptyState";
 import { useShell } from "../components/Shell";
-import { networkErrorMessage } from "../lib/language";
+import { loadErrorMessage } from "../lib/language";
+import { useApi } from "../hooks/useApi";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { showsOutcome } from "../lib/pendingActions";
 import { useOnPendingSettled, usePendingEntries } from "../lib/pendingStore";
@@ -152,48 +152,33 @@ export function Decide() {
   useDocumentTitle(nav?.workspace_name, "Decide");
   const [params, setParams] = useSearchParams();
   const project = params.get("project");
-  const [data, setData] = useState<DecidePayload | null>(null);
-  const [changesData, setChangesData] = useState<ChangesPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const latest = useRef(0);
-  // When the list request that `data` answers started.
-  const [loadedAt, setLoadedAt] = useState(0);
   const entries = usePendingEntries();
+  // The list stays on screen while it reloads after an action.
+  const inbox = useApi(
+    async () => {
+      // When this list request started: `showsOutcome` compares it with
+      // the time each pending action was taken.
+      const loadedAt = Date.now();
+      const [payload, changes] = await Promise.all([api.proposedDecisions(project), api.changes()]);
+      return { payload, changes, loadedAt };
+    },
+    [project],
+    { keepData: true },
+  );
 
-  const load = useCallback(() => {
-    const request = ++latest.current;
-    const started = Date.now();
-    Promise.all([api.proposedDecisions(project), api.changes()])
-      .then(([payload, changePayload]) => {
-        if (request === latest.current) {
-          setData(payload);
-          setChangesData(changePayload);
-          setLoadedAt(started);
-          setError(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (request !== latest.current) return;
-        if (err instanceof ApiUnreachableError) setError(networkErrorMessage(nav?.language));
-        else setError(err instanceof Error ? err.message : "Could not load the inbox.");
-      });
-  }, [project, nav]);
+  useOnPendingSettled(inbox.reload);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useOnPendingSettled(load);
-
-  if (error && !data) return <LoadError>{error}</LoadError>;
-  if (!data) return <PageSkeleton />;
+  if (inbox.error && !inbox.data)
+    return <LoadError>{loadErrorMessage(inbox, nav?.language, "Could not load the inbox.")}</LoadError>;
+  if (!inbox.data) return <PageSkeleton />;
+  const { payload: data, changes: changesData, loadedAt } = inbox.data;
 
   // Rows accepted or withdrawn here leave the list from the click on.
   const acted = new Set(
     entries.filter((entry) => showsOutcome(entry, loadedAt)).map((entry) => entry.meta.recordId),
   );
   const items = data.items.filter((item) => !acted.has(item.id));
-  const changeRows = (changesData?.items ?? []).filter(
+  const changeRows = changesData.items.filter(
     (item) => !acted.has(changeKey(item.id)) && (project === null || item.project.id === project),
   );
   const count = Math.max(data.count - acted.size, 0);
@@ -211,7 +196,7 @@ export function Decide() {
       {countLabel && <p className="mt-1.5 text-sm text-(--color-text-faint)">{countLabel}</p>}
 
       <div className="mt-5">
-        <DecisionGuideToggle language={data.language} defaultOpen={data.count === 0 && (changesData?.count ?? 0) === 0} />
+        <DecisionGuideToggle language={data.language} defaultOpen={data.count === 0 && changesData.count === 0} />
       </div>
 
       {data.projects.length > 1 && (
@@ -233,12 +218,12 @@ export function Decide() {
         </nav>
       )}
 
-      {changesData?.policy_error && (
+      {changesData.policy_error && (
         <div className="mt-6">
           <Callout tone="danger">{changesData.policy_error}</Callout>
         </div>
       )}
-      {changesData !== null && changesData.broken.length > 0 && (
+      {changesData.broken.length > 0 && (
         <div className="mt-6">
           <Callout tone="danger">
             {changesData.broken.map((line) => (
@@ -247,7 +232,7 @@ export function Decide() {
           </Callout>
         </div>
       )}
-      {changesData !== null && changeRows.length > 0 && (
+      {changeRows.length > 0 && (
         <section className="mt-8" aria-label={changesData.heading}>
           <h2 className="kos-heading">{changesData.heading}</h2>
           <p className="mt-1 text-sm text-(--color-text-muted)">{changesData.intro}</p>

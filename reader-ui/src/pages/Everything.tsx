@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router";
 import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
-import { api, ApiUnreachableError } from "../api/client";
+import { api } from "../api/client";
 import { PageSkeleton } from "../components/Skeleton";
 import { LoadError, BrokenRecordCallout } from "../components/Callout";
 import { Pill } from "../components/Pill";
 import { useShell } from "../components/Shell";
-import { networkErrorMessage } from "../lib/language";
+import { loadErrorMessage } from "../lib/language";
+import { useApi } from "../hooks/useApi";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
-import type { EverythingPayload } from "../api/types";
 
 const FILTER_KEYS = ["type", "status", "record_kind", "trust", "scope"] as const;
 
@@ -23,35 +22,9 @@ export function Everything() {
   const { nav } = useShell();
   useDocumentTitle(nav?.workspace_name, "Everything");
   const [params, setParams] = useSearchParams();
-  const [data, setData] = useState<EverythingPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    api
-      .everything(`?${params.toString()}`)
-      .then((result) => {
-        // A faster response to an older filter/sort combination must never
-        // overwrite a slower response to the current one (mirrors Search).
-        if (!cancelled) {
-          setData(result);
-          setError(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        if (err instanceof ApiUnreachableError) setError(networkErrorMessage(nav?.language));
-        else setError(err instanceof Error ? err.message : "Something went wrong.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [params, nav]);
+  // The table stays on screen while a changed filter or sort is loaded.
+  const catalog = useApi(() => api.everything(`?${params.toString()}`), [params], { keepData: true });
+  const { data, loading } = catalog;
 
   function updateFilter(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -74,7 +47,8 @@ export function Everything() {
   }
 
   if (loading && !data) return <PageSkeleton />;
-  if (error || !data) return <LoadError>{error ?? "Could not load the catalog."}</LoadError>;
+  if (catalog.error || !data)
+    return <LoadError>{loadErrorMessage(catalog, nav?.language, "Could not load the catalog.")}</LoadError>;
 
   const sortKey = data.sort;
 

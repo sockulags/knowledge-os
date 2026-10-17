@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams, Link } from "react-router";
 import { Search as SearchIcon, Sparkles } from "lucide-react";
-import { api, ApiUnreachableError } from "../api/client";
-import type { SearchPayload, SemanticStatus } from "../api/types";
+import { api } from "../api/client";
+import type { SemanticStatus } from "../api/types";
 import { semanticSearch } from "../api/write";
 import { Callout, LoadError } from "../components/Callout";
 import { PageSkeleton } from "../components/Skeleton";
 import { useShell } from "../components/Shell";
 import { networkErrorMessage } from "../lib/language";
+import { useApi } from "../hooks/useApi";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 const FILTER_KEYS = ["type", "status", "scope", "record_kind", "trust"] as const;
@@ -19,62 +20,26 @@ export function Search() {
   const { nav } = useShell();
   useDocumentTitle(nav?.workspace_name, "Search");
   const [params, setParams] = useSearchParams();
-  const [data, setData] = useState<SearchPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState(params.get("q") ?? "");
   // Bumped when search by meaning becomes ready, to run the search again.
   const [semanticRound, setSemanticRound] = useState(0);
+  // Filters stay on screen while a changed query or filter is searched.
+  const search = useApi(() => api.search(`?${params.toString()}`), [params, semanticRound], { keepData: true });
+  const { data, loading, reload } = search;
+  const error = search.error === null ? null : search.unreachable ? networkErrorMessage(nav?.language) : "Could not search the workspace.";
 
   useEffect(() => {
     setInputValue(params.get("q") ?? "");
   }, [params]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    api
-      .search(`?${params.toString()}`)
-      .then((result) => {
-        // A faster response to an older query string must never overwrite
-        // a slower response to the current one (e.g. typing quickly, or
-        // toggling a filter before the previous request lands).
-        if (!cancelled) {
-          setData(result);
-          setError(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setError(err instanceof ApiUnreachableError ? networkErrorMessage(nav?.language) : "Could not search the workspace.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [params, nav, semanticRound]);
-
   // While the reader rebuilds the search index, ask again quietly (no
   // skeleton) until search is back.
   const refreshing = data?.index_refreshing ?? false;
   useEffect(() => {
-    if (!refreshing) return;
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      api
-        .search(`?${params.toString()}`)
-        .then((result) => {
-          if (!cancelled) setData(result);
-        })
-        .catch(() => {});
-    }, INDEX_REFRESH_POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [refreshing, data, params]);
+    if (!refreshing || loading) return;
+    const timer = window.setTimeout(() => reload({ quiet: true }), INDEX_REFRESH_POLL_MS);
+    return () => window.clearTimeout(timer);
+  }, [refreshing, loading, data, reload]);
 
   function updateFilter(key: string, value: string) {
     const next = new URLSearchParams(params);
