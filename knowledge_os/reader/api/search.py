@@ -16,6 +16,7 @@ the original HTML search view.
 from __future__ import annotations
 
 import re
+from html import escape
 
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
@@ -23,11 +24,11 @@ from starlette.responses import Response
 
 from .. import states, strings
 from ..app import get_library, json_response
-from ..library import Library, search_with_meaning, semantic_status
+from ..library import Library, search_with_meaning
 from .common import project_title
 from .semantic import semantic_json
 from .filters import FILTER_DIMENSIONS, matches, read_filters, scope_options
-from .mdtext import escape_html, strip_markdown_syntax
+from .mdtext import strip_markdown_syntax
 
 #: A run of one or more words `library.search`'s own `snippet()` call
 #: wrapped in literal "[" / "]" to mark an FTS match. Applying
@@ -69,9 +70,9 @@ def _highlight(snippet: str) -> str:
     pieces: list[str] = []
     for chunk in _SNIPPET_MATCH.split(snippet):
         if chunk.startswith("[") and chunk.endswith("]"):
-            pieces.append("<mark>" + escape_html(chunk[1:-1]) + "</mark>")
+            pieces.append("<mark>" + escape(chunk[1:-1], quote=False) + "</mark>")
         else:
-            pieces.append(escape_html(chunk))
+            pieces.append(escape(chunk, quote=False))
     return "".join(pieces)
 
 
@@ -92,7 +93,7 @@ def _decorate(row: dict[str, str], trust_by_id: dict[str, str], library: Library
         "project": project_title(library, project_id) if project_id else None,
         "project_id": project_id,
         "snippet_html": (
-            escape_html(row["snippet"])
+            escape(row["snippet"], quote=False)
             if row.get("snippet_is_passage")
             else _highlight(strip_markdown_syntax(row["snippet"]))
         ),

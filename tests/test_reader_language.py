@@ -108,9 +108,8 @@ class StatusSentenceTests(unittest.TestCase):
             )
 
         library = _load(build)
-        sentence, accent = language.status_sentence(library, library.records_by_id["idea"])
+        sentence = language.status_sentence(library, library.records_by_id["idea"])
         self.assertEqual(sentence, "Proposed — not in force until you accept it")
-        self.assertEqual(accent, "proposed")
 
     def test_active_decision_names_the_acceptance_date(self) -> None:
         def build(root: Path) -> None:
@@ -151,9 +150,8 @@ class StatusSentenceTests(unittest.TestCase):
             )
 
         library = _load(build)
-        sentence, accent = language.status_sentence(library, library.records_by_id["choice"])
+        sentence = language.status_sentence(library, library.records_by_id["choice"])
         self.assertEqual(sentence, "In force — accepted 30 August 2026")
-        self.assertIsNone(accent)
 
     def test_superseded_decision_names_its_successor(self) -> None:
         def build(root: Path) -> None:
@@ -208,9 +206,8 @@ class StatusSentenceTests(unittest.TestCase):
             )
 
         library = _load(build)
-        sentence, accent = language.status_sentence(library, library.records_by_id["old"])
+        sentence = language.status_sentence(library, library.records_by_id["old"])
         self.assertEqual(sentence, "Replaced by New choice on 1 September 2026")
-        self.assertEqual(accent, "retired")
 
 
 class TrustAndScopeSentenceTests(unittest.TestCase):
@@ -232,9 +229,8 @@ class TrustAndScopeSentenceTests(unittest.TestCase):
             )
 
         library = _load(build)
-        sentence, accent = language.trust_sentence(library.records_by_id["raw"])
+        sentence = language.trust_sentence(library.records_by_id["raw"])
         self.assertEqual(sentence, "Raw material. Nobody has checked it.")
-        self.assertEqual(accent, "raw")
 
     def test_verified_durable_fills_in_the_date(self) -> None:
         def build(root: Path) -> None:
@@ -255,7 +251,7 @@ class TrustAndScopeSentenceTests(unittest.TestCase):
             )
 
         library = _load(build)
-        sentence, _accent = language.trust_sentence(library.records_by_id["checked"])
+        sentence = language.trust_sentence(library.records_by_id["checked"])
         self.assertEqual(sentence, "Confirmed 29 August 2026")
 
     def test_scope_general_applies_everywhere(self) -> None:
@@ -460,7 +456,7 @@ class ProvenanceSentenceTests(unittest.TestCase):
         for entry in record.provenance[1:]:
             with self.subTest(reference=entry.reference):
                 self.assertEqual(language.provenance_sentence(library, record, entry), "Withdrawn on 23 September 2026")
-        self.assertEqual(language.status_sentence(library, record)[0], "Withdrawn on 23 September 2026, without being accepted")
+        self.assertEqual(language.status_sentence(library, record), "Withdrawn on 23 September 2026, without being accepted")
         self.assertFalse(language.is_neutral_withdrawal("interface: we chose otherwise :withdraw"))
 
     def test_repository_file_provenance_never_shows_its_path(self) -> None:
@@ -643,9 +639,8 @@ class ProposedByTests(unittest.TestCase):
             )
 
         library = _load(build)
-        sentence, accent = language.status_sentence(library, library.records_by_id["dropped"])
+        sentence = language.status_sentence(library, library.records_by_id["dropped"])
         self.assertEqual(sentence, "Withdrawn on 14 September 2026, without being accepted")
-        self.assertEqual(accent, "retired")
 
 
 class DecisionVocabularyTests(unittest.TestCase):

@@ -213,10 +213,6 @@ __all__ = [
 #: contract fixes these three names, not because it might change.
 _RELATION_FIELDS = ("related", "sources", "supersedes")
 
-#: context_policy.trust_label() never returns this; the reader assigns it to
-#: every skill directly (see the "Skills" note in the unit-0 contract).
-_SKILL_TRUST_LABEL = "operational guidance"
-
 _HEADING_PATTERN = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$")
 
 

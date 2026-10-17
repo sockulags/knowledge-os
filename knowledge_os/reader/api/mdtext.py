@@ -36,7 +36,3 @@ def strip_markdown_syntax(text: str) -> str:
     text = _MD_EMPHASIS.sub(r"\2", text)
     text = _MD_CODE.sub(r"\1", text)
     return text
-
-
-def escape_html(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

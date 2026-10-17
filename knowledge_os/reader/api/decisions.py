@@ -80,7 +80,7 @@ def _named_replacement(library: Library, record: Record) -> dict[str, object] | 
         if relation.field != "supersedes":
             continue
         target = library.records_by_id.get(relation.record_id)
-        sentence = language.status_sentence(library, target)[0] if target is not None else None
+        sentence = language.status_sentence(library, target) if target is not None else None
         return {"id": relation.record_id, "title": relation.title or relation.record_id, "sentence": sentence}
     return None
 

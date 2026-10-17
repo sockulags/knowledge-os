@@ -11,12 +11,10 @@ stable JSON shapes the React frontend renders.
 A ``Pill`` is the one place colour is decided (design brief: "Colour means
 something, and appears only there, as small pill badges"): a tone in
 ``{"green", "amber", "yellow", "grey", "violet", None}`` plus the short
-label shown on the badge. ``language.record_accent`` decides only *whether*
-a record carries the reader's original four rail accents (proposed /
-unverified / retired / raw); ``pill_for`` below is a superset built for the
-five UI states the design brief names, kept here (not in ``language.py``)
-because it is a presentation choice about which of two already-true facts
-(status vs. trust) gets the badge, not a new contract-to-language rule.
+label shown on the badge. ``pill_for`` below maps a record onto the UI
+states the design brief names, kept here (not in ``language.py``) because it
+is a presentation choice about which of two already-true facts (status vs.
+trust) gets the badge, not a new contract-to-language rule.
 """
 
 from __future__ import annotations
@@ -99,10 +97,7 @@ def pill_for(record: Record) -> Pill | None:
     """The one colour badge a record carries, or ``None`` for neutral.
 
     Judged on ``status``/``type`` first (what the reader should *believe*),
-    falling back to ``trust_label`` only for an ordinary durable record,
-    exactly mirroring ``language.record_accent``'s precedence but mapped
-    onto the five states the design brief names instead of the original
-    four rail accents.
+    falling back to ``trust_label`` only for an ordinary durable record.
     """
 
     if record.is_decision:
@@ -174,9 +169,8 @@ def record_summary_with_sentence(library: Library, record: Record) -> dict[str, 
     next to a record (e.g. a project's "In force now" row, or the home
     page's "Waiting on you" list)."""
 
-    sentence, _accent = language.status_sentence(library, record)
     summary = record_summary(record)
-    summary["sentence"] = sentence
+    summary["sentence"] = language.status_sentence(library, record)
     return summary
 
 
@@ -220,7 +214,7 @@ def properties_block(library: Library, record: Record) -> dict[str, object]:
     details regardless (``technical_details`` below always includes it).
     """
 
-    status_sentence, _status_accent = language.status_sentence(library, record)
+    status_sentence = language.status_sentence(library, record)
     provenance_sentences = [language.provenance_sentence(library, record, entry) for entry in record.provenance]
     # The one pill a record carries (pill_for) goes on whichever row it
     # actually describes: a decision's pill is a lifecycle state (in force
@@ -234,8 +228,7 @@ def properties_block(library: Library, record: Record) -> dict[str, object]:
     status_pill = pill if record.is_decision else None
     trust_row = None
     if not record.is_decision:
-        trust_sentence, _trust_accent = language.trust_sentence(record)
-        trust_row = {"label": strings.DOCUMENT_TRUST_HEADER, "value": trust_sentence, "pill": pill}
+        trust_row = {"label": strings.DOCUMENT_TRUST_HEADER, "value": language.trust_sentence(record), "pill": pill}
     return {
         "status": {"label": strings.DOCUMENT_STATUS_HEADER, "value": status_sentence, "pill": status_pill},
         "trust": trust_row,
@@ -269,8 +262,8 @@ def technical_details(record: Record, content_sha256_value: str) -> dict[str, ob
 
 
 def relation_view(relation: Relation) -> dict[str, object]:
-    """One relation row (inbound or outbound), with the same broken-relation
-    treatment ``states.relation_label`` gives the old HTML rail, plus an
+    """One relation row (inbound or outbound), with an unresolved relation
+    shown as "points at unknown id X" rather than a blank, plus an
     ``href`` the frontend can navigate to directly (a ``supersedes`` edge
     points at the compare page, matching ``views/document.py``'s original
     rule)."""
@@ -460,7 +453,7 @@ def _outcome(library: Library, record: Record, action: str, status: str, **field
         updated=now.date().isoformat(),
         accepted_at=now.isoformat().replace("+00:00", "Z") if status == "active" else record.accepted_at,
     )
-    sentence, _accent = language.status_sentence(library, after)
+    sentence = language.status_sentence(library, after)
     copy = strings.DECISION_OUTCOMES[action]
     return {
         "notice": copy["notice"].format(title=record.title, **fields),
