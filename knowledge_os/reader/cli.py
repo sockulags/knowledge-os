@@ -81,6 +81,11 @@ def _workspace(args: argparse.Namespace) -> Workspace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Redirected streams on Windows default to cp1252; see knowledge_os.cli.
+    for stream, errors in ((sys.stdout, "strict"), (sys.stderr, "replace")):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors=errors)
     args = build_parser().parse_args(argv)
     # ``[project.scripts]`` installs this command unconditionally, so a plain
     # ``pip install knowledge-os`` yields a ``kos-read`` with no reader
