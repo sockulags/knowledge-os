@@ -22,4 +22,6 @@ Durable Markdown mutations require workspace schema version 1, valid frontmatter
 
 Ingest, discovery mutations, and index replacement share one workspace advisory lock. Canonical Markdown remains authoritative; indexes are disposable and promotion is not crash-atomic. On a partial lineage or index failure, inspect/repair canonical records and run `kos lint` followed by `kos index`.
 
+When changing the code, run the Python tests with `python -m unittest discover -s tests` from the repository root; `.github/workflows/ci.yml` lists every check CI runs, including those for `reader-ui/` and `desktop/`.
+
 Knowledge OS owns durable knowledge and retrieval. Agentic Work OS owns execution orchestration; this repository must not depend on it.
