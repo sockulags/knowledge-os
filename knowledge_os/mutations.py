@@ -1,4 +1,4 @@
-"""Conflict-safe updates and accepted decision transitions."""
+"""Conflict-safe updates, accepted decision transitions, and draft activation."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Callable
 from .model import (
     DECISION_ACCEPTANCE_KIND,
     DECISION_WITHDRAWAL_KIND,
+    DRAFT_ACTIVATION_KIND,
     SHA256_PATTERN,
     Document,
     MetadataError,
@@ -30,7 +31,7 @@ from .workspace import (
     workspace_mutation_lock,
 )
 
-SYSTEM_PROVENANCE_KINDS = {"discovery", DECISION_ACCEPTANCE_KIND, DECISION_WITHDRAWAL_KIND}
+SYSTEM_PROVENANCE_KINDS = {"discovery", DECISION_ACCEPTANCE_KIND, DECISION_WITHDRAWAL_KIND, DRAFT_ACTIVATION_KIND}
 IMMUTABLE_UPDATE_FIELDS = ("id", "type", "scope", "created", "record_kind", "status", "supersedes")
 
 
@@ -153,6 +154,16 @@ def _acceptance(reference: str) -> dict[str, object]:
     }
 
 
+def _activation(reference: str) -> dict[str, object]:
+    if not isinstance(reference, str) or not reference.strip():
+        raise MutationError("--activation-reference must be a non-empty string")
+    return {
+        "kind": DRAFT_ACTIVATION_KIND,
+        "reference": reference.strip(),
+        "captured": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+
+
 def _withdrawal(reason: str | None, reference: str | None) -> dict[str, object]:
     """The ``decision-withdrawal`` entry: the reason when one was given, else
     the caller's neutral reference (see ``neutral_withdrawal_reference``)."""
@@ -169,6 +180,15 @@ def _withdrawal(reason: str | None, reference: str | None) -> dict[str, object]:
         "reference": text,
         "captured": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
+
+
+def neutral_activation_reference(origin: str) -> str:
+    """The provenance reference of an activation without a given reference,
+    such as ``cli:2026-10-21T10:00:00Z:activate``: where and when a person
+    made the draft active."""
+
+    stamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return f"{origin}:{stamp}:activate"
 
 
 def neutral_withdrawal_reference(origin: str) -> str:
@@ -323,7 +343,9 @@ def _update_locked(
         item for item in candidate.metadata["provenance"] if item["kind"] in SYSTEM_PROVENANCE_KINDS
     ]
     if current_system != candidate_system:
-        raise MutationError("update must not alter system-managed discovery or decision-acceptance provenance")
+        raise MutationError(
+            "update must not alter system-managed discovery, decision-acceptance, or draft-activation provenance"
+        )
 
     metadata = deepcopy(candidate.metadata)
     if (
@@ -380,6 +402,40 @@ def accept_decision(
         metadata["updated"] = _today_after(metadata["updated"])
         metadata["provenance"] = [*metadata["provenance"], _acceptance(acceptance_reference)]
         return _write_one(workspace, current, metadata, current.body, "accept a decision")
+
+
+def activate_draft(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    activation_reference: str,
+) -> MutationResult:
+    """Make one draft that is not a decision active, with explicit
+    ``draft-activation`` provenance naming who made it active and when.
+
+    Decisions use ``accept_decision`` instead; a draft promoted from an
+    observation or saved by an agent becomes knowledge only through this
+    explicit step."""
+
+    with workspace_mutation_lock(workspace):
+        _, by_id = _documents_for_mutation(workspace, "activate a draft")
+        current = by_id.get(record_id)
+        if current is None:
+            raise RecordNotFoundError(f"record not found: {record_id}")
+        _assert_expected(current.path, expected_sha256, "--expected-sha256")
+        if current.metadata.get("record_kind") == "decision":
+            raise MutationError(f"record {record_id!r} is a decision; use 'kos decision accept' to make it active")
+        if current.metadata["status"] != "draft":
+            raise MutationError(
+                f"record {record_id!r} must be draft before activation; it is {current.metadata['status']}"
+            )
+
+        metadata = deepcopy(current.metadata)
+        metadata["status"] = "active"
+        metadata["updated"] = _today_after(metadata["updated"])
+        metadata["provenance"] = [*metadata["provenance"], _activation(activation_reference)]
+        return _write_one(workspace, current, metadata, current.body, "activate a draft")
 
 
 def withdraw_decision(

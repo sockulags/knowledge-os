@@ -15,10 +15,10 @@ to letters, digits, spaces, ``.``, ``_``, and ``-`` so a reference always
 splits back into the same two parts.
 
 Like every provenance kind except ``record``, ``discovery``,
-``decision-acceptance``, and ``decision-withdrawal``, the kind is opaque to
-the core: lint does not resolve the reference. The local write API accepts it
-from any caller that holds the write token; it labels agent work, it does not
-prove it. This module has no dependencies so the reader (display, commit
+``decision-acceptance``, ``decision-withdrawal``, and ``draft-activation``,
+the kind is opaque to the core: lint does not resolve the reference. The
+local write API accepts it from any caller that holds the write token; it
+labels agent work, it does not prove it. This module has no dependencies so the reader (display, commit
 messages) and the MCP server (building the identity) share one definition.
 """
 

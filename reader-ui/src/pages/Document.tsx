@@ -12,6 +12,7 @@ import { TableOfContents } from "../components/TableOfContents";
 import { RecordNotFound } from "../components/EmptyState";
 import { LoadError, LineageCalloutRow } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
+import { DraftActivation } from "../components/DraftActivation";
 import { useShell } from "../components/Shell";
 import { useStructure, type TreeItem } from "../components/Structure";
 import { RowMenu } from "../components/ProjectTree";
@@ -141,6 +142,14 @@ export function Document() {
               folder: data.editing.folder,
             }}
             language={data.decision_language}
+            pending={pending}
+          />
+        )}
+        {data.editing.draft_activation && (
+          <DraftActivation
+            id={data.id}
+            sha={data.editing.content_sha256}
+            activation={data.editing.draft_activation}
             pending={pending}
           />
         )}

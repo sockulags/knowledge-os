@@ -30,6 +30,8 @@ from .model import Document, MetadataError, content_sha256, parse_document_text,
 from .mutations import (
     StaleRevisionError,
     accept_decision,
+    activate_draft,
+    neutral_activation_reference,
     neutral_withdrawal_reference,
     supersede_decision,
     update_record,
@@ -218,6 +220,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     decision_withdraw.add_argument("--json", action="store_true", dest="as_json")
     _root_option(decision_withdraw)
+
+    activate = commands.add_parser("activate", help="make a draft that is not a decision active")
+    activate.add_argument("id")
+    activate.add_argument("--expected-sha256", required=True)
+    activate.add_argument(
+        "--activation-reference",
+        help="who made it active, or where (optional; without it a neutral reference is recorded)",
+    )
+    activate.add_argument("--json", action="store_true", dest="as_json")
+    _root_option(activate)
 
     supersede = commands.add_parser("supersede", help="activate a draft replacement and retire its prior decision")
     supersede.add_argument("old_id")
@@ -1364,6 +1376,27 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
             else:
                 print(f"Withdrew decision {result.id}")
+                print(f"SHA-256: {result.sha256}")
+                print(f"Index refreshed: {result.index_count} record(s)")
+            return 0
+        if args.command == "activate":
+            result = activate_draft(
+                workspace,
+                args.id,
+                expected_sha256=args.expected_sha256,
+                activation_reference=args.activation_reference or neutral_activation_reference("cli"),
+            )
+            payload = {
+                "id": result.id,
+                "path": result.path,
+                "sha256": result.sha256,
+                "status": result.status,
+                "index_count": result.index_count,
+            }
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                print(f"Activated {result.id}")
                 print(f"SHA-256: {result.sha256}")
                 print(f"Index refreshed: {result.index_count} record(s)")
             return 0

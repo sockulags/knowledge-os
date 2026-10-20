@@ -33,6 +33,7 @@ REPOSITORY_FIELDS = {"path", "remote", "checked", "checked_on"}
 RECORD_KINDS = {"ordinary", "decision"}
 DECISION_ACCEPTANCE_KIND = "decision-acceptance"
 DECISION_WITHDRAWAL_KIND = "decision-withdrawal"
+DRAFT_ACTIVATION_KIND = "draft-activation"
 ALLOWED_FIELDS = {
     "id",
     "title",
@@ -332,6 +333,12 @@ def validate_metadata(metadata: Any, path: Path, *, check_filename: bool = True)
     if withdrawal and (metadata.get("record_kind") != "decision" or status != "archived"):
         raise MetadataError(
             f"provenance kind {DECISION_WITHDRAWAL_KIND!r} is only allowed on archived decisions"
+        )
+    activation = [item for item in metadata["provenance"] if item["kind"] == DRAFT_ACTIVATION_KIND]
+    if activation and (metadata.get("record_kind") == "decision" or status == "draft"):
+        raise MetadataError(
+            f"provenance kind {DRAFT_ACTIVATION_KIND!r} is only allowed on records that are not decisions "
+            "and are no longer draft"
         )
 
     for field in ("tags",):

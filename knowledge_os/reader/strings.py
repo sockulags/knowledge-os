@@ -122,6 +122,9 @@ PROVENANCE_KIND: dict[str, str] = {
     # directly (see PROVENANCE_ACCEPTED_IN_APP for the analogous "in app"
     # date-only case).
     "decision-withdrawal": "Withdrawn on {date}: {reference}",
+    # A person made a draft active; the reference is usually the app's own
+    # ``interface:<timestamp>:activate`` stamp (see PROVENANCE_ACTIVATED_ON).
+    "draft-activation": "Made active by {reference}",
     "discovery": "Came from the observation {title}",  # verbatim, Sec.5
     # These four are not in the plan's own language table, but are common
     # in the real corpus (``repository-file`` and ``project-definition``
@@ -163,6 +166,10 @@ PROVENANCE_REFERAT_UNDATED = "Imported from a Referat meeting"
 #: ``interface:<timestamp>:<action>``: the reference is a machine stamp, so
 #: the sentence names the date instead of quoting it.
 PROVENANCE_ACCEPTED_IN_APP = "Accepted in this app on {date}"
+
+#: A draft-activation whose reference is a machine stamp (the app's or
+#: ``kos activate``'s own): the sentence names the date instead.
+PROVENANCE_ACTIVATED_ON = "Made active on {date}"
 
 #: Fallback for every other provenance kind (see module docstring):
 #: reference-free on purpose, for the same reason the four entries above
@@ -766,6 +773,19 @@ DECISION_OUTCOMES: dict[str, dict[str, str]] = {
         "summary": "Accepted. It is in force from today and replaces “{old}”.",
     },
 }
+
+#: "Make active" on a draft that is not a decision (a note an agent saved, a
+#: draft promoted from an observation): the sentence above the button, the
+#: button, and what the notice and the page say while Undo is open.
+DRAFT_ACTIVATION_SUMMARY = "Work in progress. It does not count as current knowledge until you make it active."
+DRAFT_ACTIVATION_LABEL = "Make active"
+DRAFT_ACTIVATION_OUTCOME: dict[str, str] = {
+    "notice": "Made “{title}” active.",
+    "summary": "Made active. It is current from today.",
+}
+DRAFT_ACTIVATION_CONFLICT = (
+    "This page changed on disk after it was loaded. Nothing was changed; reload to see the current version."
+)
 
 #: The sentence at the top of a decision's action box. {title} is the
 #: decision it would replace.
