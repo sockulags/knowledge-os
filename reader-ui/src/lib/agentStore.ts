@@ -458,9 +458,11 @@ class AgentStore {
   }
 
   /**
-   * Save the conversation, or only the answer `agentId`, as a draft note in
-   * the project in view (general knowledge without one), marked as the agent's.
-   * Resolves to the new page's id, "held" when review rules hold it back, or null.
+   * Save the conversation, or only the answer `agentId`, as a note in the
+   * project in view (general knowledge without one), marked as the agent's.
+   * It is saved active, as the agent's own write_note does: the review rules
+   * decide on the server whether it lands or waits in Decide. Resolves to the
+   * new page's id, "held" when review rules hold it back, or null.
    */
   async saveAsNote(
     agentId: number | null,
@@ -493,7 +495,7 @@ class AgentStore {
           id,
           title: note.title,
           type: project ? "project" : "knowledge",
-          status: "draft",
+          status: "active",
           scope: project ? `project:${project.id}` : "general",
           // With a provider the core puts the agent's own entry first.
           provenance: provider
