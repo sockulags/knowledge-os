@@ -3,10 +3,10 @@ id: in-app-agent-over-acp
 title: In-app agents run over ACP behind one provider contract
 type: project
 record_kind: decision
-status: active
+status: superseded
 scope: project:knowledge-os
 created: '2026-09-27'
-updated: '2026-09-27'
+updated: '2026-10-20'
 provenance:
 - kind: user-approved-conversation
   reference: conversation:2026-09-27:in-app-agent-provider

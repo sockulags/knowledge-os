@@ -16,6 +16,7 @@ import {
   type SessionState,
   type StoredConversation,
 } from "./agentBridge";
+import { needsTurningOn } from "./codexAccess";
 import { interfaceReference, isProposed, write } from "../api/write";
 import {
   buildPrompt,
@@ -301,6 +302,10 @@ class AgentStore {
     const providerId = this.state.providerId;
     if (providerId === null) {
       this.set({ error: "Choose an agent first." });
+      return false;
+    }
+    if (needsTurningOn(providerId)) {
+      this.set({ error: "Turn Codex on in the agent panel first: it can read files outside this knowledge base." });
       return false;
     }
     this.set({ session: "starting", auth: null, error: null });
