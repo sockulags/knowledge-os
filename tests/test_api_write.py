@@ -19,7 +19,13 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from reader_support import FIXTURE_PROJECT_ID, FIXTURE_PROPOSED_ID, serve, write_decision_fixture
+from reader_support import (
+    FIXTURE_GOVERNING_IDS,
+    FIXTURE_PROJECT_ID,
+    FIXTURE_PROPOSED_ID,
+    serve,
+    write_decision_fixture,
+)
 
 from knowledge_os import capture as capture_module
 from knowledge_os import mutations as mutations_module
@@ -236,6 +242,75 @@ class WriteApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 422, result)
         self.assertIn("must not change status", result["detail"])
+
+    def test_edit_sets_and_removes_the_description(self) -> None:
+        self.assertEqual(self.create(_note("described-note"))[0], 201)
+        status, page = _request(self.base_url, "GET", "/api/records/described-note")
+        self.assertEqual(status, 200, page)
+        self.assertIsNone(page["description"])
+        self.assertEqual(page["editing"]["metadata"]["description"], "")
+
+        status, result = self.write(
+            "PATCH",
+            "/api/records/described-note",
+            {"expected_sha256": self.sha("knowledge/described-note.md"), "metadata": {"description": "One line."}},
+        )
+        self.assertEqual(status, 200, result)
+        status, page = _request(self.base_url, "GET", "/api/records/described-note")
+        self.assertEqual(page["description"], "One line.")
+        self.assertEqual(page["editing"]["metadata"]["description"], "One line.")
+
+        status, result = self.write(
+            "PATCH",
+            "/api/records/described-note",
+            {"expected_sha256": result["content_sha256"], "metadata": {"description": "  "}},
+        )
+        self.assertEqual(status, 422, result)
+        self.assertIn("description", result["detail"])
+
+        status, result = self.write(
+            "PATCH",
+            "/api/records/described-note",
+            {"expected_sha256": self.sha("knowledge/described-note.md"), "metadata": {"description": None}},
+        )
+        self.assertEqual(status, 200, result)
+        self.assertNotIn("description:", (self.root / "knowledge" / "described-note.md").read_text(encoding="utf-8"))
+
+    def test_edit_refuses_identity_lifecycle_and_system_provenance(self) -> None:
+        self.assertEqual(self.create(_note("fixed-fields-note"))[0], 201)
+        relative = "knowledge/fixed-fields-note.md"
+        for changes, expected in (
+            ({"id": "other-id"}, "must not change id"),
+            ({"type": "memory"}, "must not change type"),
+            ({"status": "archived"}, "must not change status"),
+        ):
+            before = self.sha(relative)
+            status, result = self.write(
+                "PATCH", "/api/records/fixed-fields-note", {"expected_sha256": before, "metadata": changes}
+            )
+            self.assertEqual(status, 422, (changes, result))
+            self.assertIn(expected, result["detail"])
+            self.assertEqual(self.sha(relative), before)
+
+        # An accepted decision's acceptance provenance is system-managed.
+        governing = FIXTURE_GOVERNING_IDS[0]
+        decision = f"projects/{FIXTURE_PROJECT_ID}/{governing}.md"
+        before = self.sha(decision)
+        status, result = self.write(
+            "PATCH",
+            f"/api/records/{governing}",
+            {
+                "expected_sha256": before,
+                "metadata": {
+                    "provenance": [
+                        {"kind": "decision-acceptance", "reference": "test:rewritten", "captured": "2026-08-29T12:00:00Z"}
+                    ]
+                },
+            },
+        )
+        self.assertEqual(status, 422, result)
+        self.assertIn("system-managed", result["detail"])
+        self.assertEqual(self.sha(decision), before)
 
     def test_unknown_id_is_not_found(self) -> None:
         status, result = self.write("PATCH", "/api/records/no-such-record", {"expected_sha256": "0" * 64})

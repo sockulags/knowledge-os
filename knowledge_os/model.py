@@ -36,6 +36,7 @@ DECISION_WITHDRAWAL_KIND = "decision-withdrawal"
 ALLOWED_FIELDS = {
     "id",
     "title",
+    "description",
     "type",
     "status",
     "scope",
@@ -286,6 +287,8 @@ def validate_metadata(metadata: Any, path: Path, *, check_filename: bool = True)
     if not ID_PATTERN.fullmatch(record_id):
         raise MetadataError("id must be lowercase kebab-case")
     _string(metadata["title"], "title")
+    if "description" in metadata:
+        _string(metadata["description"], "description")
     record_type = _string(metadata["type"], "type")
     if record_type not in MANAGED_TYPES:
         raise MetadataError(f"type must be one of: {', '.join(sorted(MANAGED_TYPES))}")

@@ -106,6 +106,10 @@ independent of lifecycle status, bounded by `created..updated`. Context trust
 is verified only when this date is present; an `active` or `draft` status does
 not imply verification.
 
+`description` is optional on every record: a non-empty string summing up the
+page, which the reader shows under the title and the editor changes like the
+title.
+
 `record_kind` is optional and is accepted only on `knowledge` and `project`
 records. Its values are `ordinary` and `decision`; absence means `ordinary`.
 A decision is still an ordinary durable record with an explicit body stating
@@ -475,11 +479,13 @@ answer `422 validation`.
 answers `{"html": ...}`, rendered the way the record page renders a saved
 body. It writes nothing but requires the same guard and token.
 
-`GET /api/records/{id}` carries an `editing` object for the editor, apart
+`GET /api/records/{id}` carries the page's `description` (`null` when it has
+none) and an `editing` object for the editor, apart
 from the reader's prose fields: `editable` (the record is a type the routes
 edit; a project overview and a folder's own `README.md` page are editable
 like any other page, since the filename rule's `README.md` exception is
-already checked by the workspace scan), `raw_body` and `metadata` (`title`, `tags`, `related`, `sources`)
+already checked by the workspace scan), `raw_body` and `metadata` (`title`, `description`, `tags`, `related`,
+`sources`; an absent `description` reads as `""`)
 read from the same bytes as `content_sha256`, `path`, `project_id`,
 `folder` (the record's folder below its project directory),
 `body_change_needs_confirmation` (an accepted decision's body changes only
@@ -623,7 +629,7 @@ rule), followed by the page's complete proposed Markdown. It is committed as
   `stale` is an edit whose page no longer has `base_sha256`, which can only
   be discarded. `GET /api/nav`'s `decide.count` includes them.
 - `GET /api/changes/{id}` adds `body_html` for a new page, or for an edit
-  `metadata_changes` (`title`, `tags`, `related`, `sources`) and `blocks`, a
+  `metadata_changes` (`title`, `description`, `tags`, `related`, `sources`) and `blocks`, a
   paragraph diff of the page now (left) against the proposal (right).
 - `POST /api/changes/{id}/accept` and `/discard` take `{"expected_sha256":
   <content_sha256>}` (required; a proposal file changed since is `409`).

@@ -260,6 +260,7 @@ class Record:
     trust_label: str
     accepted_at: str | None  # `captured` of the decision-acceptance entry
     is_decision: bool
+    description: str | None = None  # the optional one-line summary under the title
 
 
 @dataclass(frozen=True)
@@ -422,6 +423,7 @@ def _build_record(
         trust_label=trust_label(document),
         accepted_at=_accepted_at(metadata, record_kind),
         is_decision=record_kind == "decision",
+        description=metadata.get("description"),
     )
 
 
@@ -977,13 +979,14 @@ def _with_commit(workspace: Workspace, result: WriteResult, verb: str, agent: Ag
 #: The metadata fields the interface's editor offers. ``kos update`` allows
 #: more (it refuses only identity, lifecycle, supersession, and system
 #: provenance changes); these are the ones a person edits by hand.
-EDITABLE_FIELDS = ("title", "tags", "related", "sources")
+EDITABLE_FIELDS = ("title", "description", "tags", "related", "sources")
+_EDITABLE_LISTS = ("tags", "related", "sources")
 
 
 @dataclass(frozen=True)
 class EditableSource:
     raw_body: str
-    metadata: dict[str, Any]  # EDITABLE_FIELDS only; absent lists are []
+    metadata: dict[str, Any]  # EDITABLE_FIELDS only; absent lists are [], an absent description ""
     content_sha256: str
     editable: bool  # the interface edits only the types it can create
     body_change_needs_confirmation: bool  # accepted decision: non-material edits only
@@ -1005,8 +1008,8 @@ def editable_source(record: Record) -> EditableSource:
     except (MetadataError, UnicodeDecodeError) as exc:
         raise LibraryError(f"record {record.id!r} cannot be parsed for editing: {exc}") from exc
     metadata = document.metadata
-    fields: dict[str, Any] = {"title": metadata["title"]}
-    for field in EDITABLE_FIELDS[1:]:
+    fields: dict[str, Any] = {"title": metadata["title"], "description": metadata.get("description", "")}
+    for field in _EDITABLE_LISTS:
         fields[field] = list(metadata.get(field, ()))
     return EditableSource(
         raw_body=document.body,

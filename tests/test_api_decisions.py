@@ -100,7 +100,7 @@ class DecisionApiTests(unittest.TestCase):
         self.assertEqual(editing["content_sha256"], self.sha(created["path"]))
         self.assertEqual(
             editing["metadata"],
-            {"title": "Editable read note", "tags": ["alpha"], "related": [], "sources": []},
+            {"title": "Editable read note", "description": "", "tags": ["alpha"], "related": [], "sources": []},
         )
         self.assertIsNone(editing["decision_actions"])
         self.assertFalse(editing["body_change_needs_confirmation"])

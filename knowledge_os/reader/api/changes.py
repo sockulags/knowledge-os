@@ -181,7 +181,9 @@ async def detail_view(request: Request) -> Response:
             source = None
         current_body = source.raw_body if source is not None else ""
         current_metadata = {key: _plain(value) for key, value in (source.metadata if source is not None else {}).items()}
-        proposed_metadata = {key: metadata.get(key, [] if key != "title" else None) for key in current_metadata}
+        # Absent fields read the way editable_source reads them: lists as [], a description as "".
+        absent: dict[str, Any] = {"title": None, "description": ""}
+        proposed_metadata = {key: metadata.get(key, absent.get(key, [])) for key in current_metadata}
         blocks, counts = _diff_blocks(strip_leading_h1(current_body), strip_leading_h1(proposal.body))
         row["body_html"] = None
         row["metadata_changes"] = _metadata_changes(current_metadata, proposed_metadata)

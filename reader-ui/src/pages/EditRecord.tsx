@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../api/client";
 import type { EditableMetadata, RecordPayload, WriteFailure, WriteResult } from "../api/types";
@@ -15,6 +15,7 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ConflictCallout, WriteFailureCallout } from "../components/WriteFailureCallout";
 import { ConflictComparison } from "../components/ConflictComparison";
+import { PagePicker, linkablePages } from "../components/PagePicker";
 import {
   Field,
   PrimaryButton,
@@ -26,38 +27,45 @@ import {
 
 interface Draft {
   title: string;
+  description: string;
   tags: string;
-  related: string;
-  sources: string;
+  related: string[];
+  sources: string[];
   body: string;
 }
 
 function draftFrom(metadata: EditableMetadata, body: string): Draft {
   return {
     title: metadata.title,
+    description: metadata.description,
     tags: metadata.tags.join(", "),
-    related: metadata.related.join(", "),
-    sources: metadata.sources.join(", "),
+    related: metadata.related,
+    sources: metadata.sources,
     body,
   };
 }
 
-const LIST_FIELDS = ["tags", "related", "sources"] as const;
-
-/** The fields that differ from the saved revision, as PATCH metadata
- * (an emptied list is removed rather than written as `[]`). */
+/** The fields that differ from the saved revision, as PATCH metadata (an
+ * emptied list or description is removed rather than written empty). */
 function metadataChanges(saved: Draft, draft: Draft): Record<string, unknown> {
   const changes: Record<string, unknown> = {};
   if (draft.title.trim() !== saved.title) changes.title = draft.title.trim();
-  for (const field of LIST_FIELDS) {
-    const next = parseList(draft[field]);
-    if (next.join(",") !== parseList(saved[field]).join(",")) changes[field] = next.length > 0 ? next : null;
+  const description = draft.description.trim();
+  if (description !== saved.description) changes.description = description || null;
+  const lists = {
+    tags: [parseList(draft.tags), parseList(saved.tags)],
+    related: [draft.related, saved.related],
+    sources: [draft.sources, saved.sources],
+  };
+  for (const [field, [next, before]] of Object.entries(lists)) {
+    if (next.join(",") !== before.join(",")) changes[field] = next.length > 0 ? next : null;
   }
   return changes;
 }
 
 const FIELD_LABELS: Record<string, string> = {
   title: "title",
+  description: "description",
   tags: "tags",
   related: "related pages",
   sources: "based on",
@@ -126,6 +134,7 @@ function Editor({
   refreshNav: () => void;
 }) {
   const editing = record.editing;
+  const { nav } = useShell();
   const [saved, setSaved] = useState<Draft>(() => draftFrom(editing.metadata!, editing.raw_body!));
   const [draft, setDraft] = useState<Draft>(saved);
   const [sha, setSha] = useState(editing.content_sha256!);
@@ -171,7 +180,7 @@ function Editor({
     // What this save sends. The text stays editable meanwhile, so the draft
     // may move on; only `saved` takes this snapshot, and whatever was typed
     // since still reads as unsaved.
-    const sent = { ...draft, title: draft.title.trim() };
+    const sent = { ...draft, title: draft.title.trim(), description: draft.description.trim() };
     setStatus({ kind: "saving" });
     const outcome = await write.edit(record.id, {
       expected_sha256: base.sha,
@@ -242,7 +251,9 @@ function Editor({
     return () => window.removeEventListener("keydown", handleKey);
   }, [save]);
 
-  const update = (field: keyof Draft) => (value: string) => {
+  const pages = useMemo(() => (nav ? linkablePages(nav.record_index) : null), [nav]);
+
+  const update = <K extends keyof Draft>(field: K) => (value: Draft[K]) => {
     setDraft((current) => ({ ...current, [field]: value }));
     if (status.kind === "saved" || status.kind === "failed") setStatus({ kind: "idle" });
   };
@@ -295,16 +306,34 @@ function Editor({
             onChange={(event) => update("title")(event.target.value)}
           />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Tags" hint="Comma separated">
-            <input className={inputClass} value={draft.tags} onChange={(event) => update("tags")(event.target.value)} />
-          </Field>
-          <Field label="Related pages" hint="Page ids, comma separated">
-            <input className={inputClass} value={draft.related} onChange={(event) => update("related")(event.target.value)} />
-          </Field>
-          <Field label="Based on" hint="Page ids, comma separated">
-            <input className={inputClass} value={draft.sources} onChange={(event) => update("sources")(event.target.value)} />
-          </Field>
+        <Field label="Description" hint="One or two sentences, shown under the title">
+          <textarea
+            className={`${inputClass} resize-y`}
+            rows={2}
+            value={draft.description}
+            onChange={(event) => update("description")(event.target.value)}
+          />
+        </Field>
+        <Field label="Tags" hint="Comma separated">
+          <input className={inputClass} value={draft.tags} onChange={(event) => update("tags")(event.target.value)} />
+        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <PagePicker
+            label="Related pages"
+            hint="Pages worth reading alongside this one"
+            value={draft.related}
+            onChange={update("related")}
+            pages={pages}
+            selfId={record.id}
+          />
+          <PagePicker
+            label="Based on"
+            hint="Pages this one builds on"
+            value={draft.sources}
+            onChange={update("sources")}
+            pages={pages}
+            selfId={record.id}
+          />
         </div>
 
         {editing.body_change_needs_confirmation && (
