@@ -54,6 +54,8 @@ export type ShellState =
       notice?: string
     }
   | { kind: 'starting'; root: string; recent: RecentWorkspace[] }
+  /** `kos init` is setting up a new knowledge base in `root`. */
+  | { kind: 'creating'; root: string; recent: RecentWorkspace[] }
   | { kind: 'ready'; root: string; name: string; url: string; recent: RecentWorkspace[] }
   | {
       kind: 'error'

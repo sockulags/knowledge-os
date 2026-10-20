@@ -142,6 +142,9 @@ function render(state: ShellState): void {
     case 'starting':
       nodes.push(element('h1', 'Opening knowledge base…'), element('p', state.root, 'path'))
       break
+    case 'creating':
+      nodes.push(element('h1', 'Creating knowledge base…'), element('p', state.root, 'path'))
+      break
     case 'ready':
       nodes.push(element('h1', 'Loading…'))
       break
