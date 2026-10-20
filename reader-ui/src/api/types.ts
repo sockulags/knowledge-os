@@ -316,6 +316,16 @@ export interface DecidePayload {
   language: DecisionLanguage;
 }
 
+/** "Make active" on a draft that is not a decision: the sentence above the
+ * button, its label, the notice labels (Undo and the like), and what the page
+ * shows while the write waits for Undo. */
+export interface DraftActivation {
+  summary: string;
+  label: string;
+  labels: DecisionLanguage["labels"];
+  outcome: DecisionOutcome;
+}
+
 /** Machine data for the editor and the decision buttons (never shown as prose). */
 export interface EditingBlock {
   editable: boolean;
@@ -327,6 +337,8 @@ export interface EditingBlock {
   content_sha256: string | null;
   body_change_needs_confirmation: boolean;
   decision_actions: DecisionActions | null;
+  /** Null (or absent) unless the page is a draft that is not a decision. */
+  draft_activation?: DraftActivation | null;
   /** What this page's Delete action removes: the page, or for a folder's own
    * page the whole folder; null when it offers none (a project overview). */
   delete: { kind: "page" } | { kind: "folder"; project_id: string; path: string } | null;

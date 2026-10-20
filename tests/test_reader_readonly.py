@@ -73,6 +73,7 @@ ADAPTER_WRITE_ENTRY_POINTS = {
         "StaleRevisionError",
         "SupersedeIndexError",
         "accept_decision",
+        "activate_draft",
         "supersede_decision",
         "update_record_text",
         "withdraw_decision",

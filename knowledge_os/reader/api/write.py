@@ -1,13 +1,14 @@
 """Write endpoints: ``POST /api/records`` (create), ``PATCH
 /api/records/{record_id}`` (edit), the decision lifecycle actions ``POST
-/api/records/{record_id}/accept``, ``/withdraw``, and ``/supersede``, plus
+/api/records/{record_id}/accept``, ``/withdraw``, and ``/supersede``, the
+draft action ``/activate`` (a person makes a draft active), plus
 ``GET /api/session``, which hands the UI the per-process write token.
 
 Every write goes through one ``library`` function (``create_record``,
 ``edit_record``, ``accept_record``, ``withdraw_record``,
-``supersede_record``), which calls the core's own mutation. This module only
-checks where a request comes from, parses JSON, and maps
-``library.WriteError.kind`` to an HTTP status. ``POST /api/preview`` renders
+``supersede_record``, ``activate_record``), which calls the core's own
+mutation. This module only checks where a request comes from, parses JSON,
+and maps ``library.WriteError.kind`` to an HTTP status. ``POST /api/preview`` renders
 unsaved Markdown for the editor; it writes nothing but sits behind the same
 guard, since it is only useful to the UI.
 
@@ -54,6 +55,7 @@ from ..library import (
     WriteError,
     WriteResult,
     accept_record,
+    activate_record,
     create_record,
     edit_record,
     file_resolver,
@@ -343,6 +345,28 @@ async def accept_view(request: Request) -> Response:
     try:
         result = await blocking(
             accept_record,
+            request.app.state.workspace,
+            request.path_params["record_id"],
+            expected_sha256=_field(payload, "expected_sha256", str, required=True),
+        )
+    except WriteError as exc:
+        return _write_error_response(exc)
+    return json_response(_result_json(result))
+
+
+async def activate_view(request: Request) -> Response:
+    """A person makes a draft active. A request labelled as an agent's is
+    refused: an agent's note or a promoted observation becomes knowledge only
+    by a human decision."""
+
+    payload = await _write_payload(request)
+    if isinstance(payload, Response):
+        return payload
+    if "agent" in payload:
+        return _error("forbidden", "agents cannot make a draft active; a person does that in the app")
+    try:
+        result = await blocking(
+            activate_record,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),

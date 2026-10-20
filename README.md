@@ -330,6 +330,14 @@ kos decision accept decision-id --expected-sha256 $hash --acceptance-reference c
 The transition adds explicit `decision-acceptance` provenance. Ordinary capture
 or update cannot make a decision active.
 
+A draft that is not a decision, such as a draft promoted from a discovery, is
+made active by a person with `kos activate` (or "Make active" on its page in
+the app), which adds `draft-activation` provenance:
+
+```powershell
+kos activate record-id --expected-sha256 $hash --activation-reference conversation:approval
+```
+
 ## Update and supersede records safely
 
 `kos update` uses optimistic concurrency. Supply a complete candidate and the

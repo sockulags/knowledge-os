@@ -138,6 +138,9 @@ export const write = {
     send<WriteResult | ProposedWriteResult>("PATCH", recordPath(id), request),
   accept: (id: string, expectedSha256: string, options?: SendOptions) =>
     send<WriteResult>("POST", `${recordPath(id)}/accept`, { expected_sha256: expectedSha256 }, false, options),
+  /** A person makes a draft that is not a decision active. */
+  activate: (id: string, expectedSha256: string, options?: SendOptions) =>
+    send<WriteResult>("POST", `${recordPath(id)}/activate`, { expected_sha256: expectedSha256 }, false, options),
   /** `reason` is optional; without one the core records a neutral reference. */
   withdraw: (id: string, expectedSha256: string, reason?: string, options?: SendOptions) =>
     send<WriteResult>(

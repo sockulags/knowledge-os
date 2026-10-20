@@ -55,6 +55,7 @@ def build_api_routes() -> list[Route]:
         Route("/api/records/{record_id}", write.edit_view, methods=["PATCH"], name="api-record-edit"),
         Route("/api/records/{record_id}/accept", write.accept_view, methods=["POST"], name="api-record-accept"),
         Route("/api/records/{record_id}/withdraw", write.withdraw_view, methods=["POST"], name="api-record-withdraw"),
+        Route("/api/records/{record_id}/activate", write.activate_view, methods=["POST"], name="api-record-activate"),
         Route(
             "/api/records/{record_id}/supersede", write.supersede_view, methods=["POST"], name="api-record-supersede"
         ),

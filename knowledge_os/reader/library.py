@@ -7,14 +7,14 @@ classification, or lifecycle rules: it calls ``validate_workspace``,
 their output into plain data.
 
 Reads never write to the workspace. The only writes are ``create_record``,
-``edit_record``, ``accept_record``, ``withdraw_record``, and
-``supersede_record``, plus the structure changes ``create_project``,
+``edit_record``, ``accept_record``, ``withdraw_record``,
+``supersede_record``, and ``activate_record``, plus the structure changes ``create_project``,
 ``create_folder``, ``rename_page``, ``move_page``, ``move_folder``,
 ``delete_page``, and ``delete_folder``, and the observation reviews
 ``retain_observation``, ``reject_observation``, and ``promote_observation``
 (``kos discovery retain|reject|promote``), at the end of this module, which hand the request to the core's own ``capture``,
-``update``, ``decision accept``, ``decision withdraw``, ``supersede``, and
-``structure`` mutations (shared lock, staged validation,
+``update``, ``decision accept``, ``decision withdraw``, ``supersede``,
+``activate``, and ``structure`` mutations (shared lock, staged validation,
 SHA-256 guard, index refresh) and translate the core's errors into one
 ``WriteError`` with a stable ``kind``. After a successful write they commit
 the touched files to the workspace's own Git repository through
@@ -81,6 +81,7 @@ from knowledge_os.mutations import (
     StaleRevisionError,
     SupersedeIndexError,
     accept_decision,
+    activate_draft,
     supersede_decision,
     update_record_text,
     withdraw_decision,
@@ -1077,6 +1078,13 @@ def decision_actions(library: Library, record: Record) -> DecisionActions | None
     )
 
 
+def can_activate(record: Record) -> bool:
+    """Whether the interface offers "Make active": a draft that is not a
+    decision (decisions are accepted instead). The core checks again."""
+
+    return not record.is_decision and record.type != "discovery" and record.status == "draft"
+
+
 @dataclass(frozen=True)
 class SupersedeWriteResult:
     replacement: WriteResult  # the draft that became active
@@ -1125,6 +1133,23 @@ def accept_record(workspace: Workspace, record_id: str, *, expected_sha256: str)
         )
     )
     return _with_commit(workspace, result, "Accept decision")
+
+
+def activate_record(workspace: Workspace, record_id: str, *, expected_sha256: str) -> WriteResult:
+    """``kos activate`` with an ``interface:<timestamp>:activate`` reference:
+    a person makes a draft (saved by an agent, promoted from an observation)
+    active."""
+
+    _require_sha(expected_sha256, "expected_sha256")
+    result = _decision_write(
+        lambda: activate_draft(
+            workspace,
+            record_id,
+            expected_sha256=expected_sha256,
+            activation_reference=interface_reference("activate"),
+        )
+    )
+    return _with_commit(workspace, result, "Make active")
 
 
 def withdraw_record(

@@ -131,6 +131,18 @@ only path from `draft` to `archived`; an active decision is retired through
 `kos supersede`, never withdrawn. Capture creates
 decisions only as drafts, and ordinary update cannot change lifecycle status.
 
+A draft that is not a decision (a draft promoted from a discovery, or a note
+someone saved as a draft) becomes active only through `kos activate ID
+--expected-sha256 HASH [--activation-reference TEXT]`, or "Make active" on its
+page in the app. It appends `draft-activation` provenance naming who made it
+active (without a reference, the neutral `cli:<UTC timestamp>:activate` or
+`interface:<UTC timestamp>:activate`), under the same SHA-256 guard, workspace
+lock, and staged validation as `kos decision accept`. It refuses decisions,
+records that are not draft, and a stale hash. `draft-activation` provenance is
+rejected on decisions and on drafts, and `kos update` cannot add or remove it.
+Notes saved from the app's agent panel are created `active`, like an agent's
+`write_note`; the review rules decide whether they land or wait in Decide.
+
 Every `project:<slug>` scope present in the corpus must have exactly one usable
 overview with `type: project`, `id: <slug>`, and that same scope. The overview
 must use `draft` or `active` status. `kos lint` enforces this globally;
@@ -465,6 +477,11 @@ answer `422 validation`.
   `{"expected_sha256": "...", "reason": "..."}`. `reason` is optional; when
   given it becomes the `decision-withdrawal` provenance reference, otherwise
   the reference is `interface:<UTC timestamp>:withdraw`.
+- `POST /api/records/{id}/activate` makes draft `id`, which must not be a
+  decision, active (`kos activate`). Body: `{"expected_sha256": "..."}`. The
+  activation reference is `interface:<UTC timestamp>:activate`. A request
+  that carries an `agent` label answers `403 forbidden`: a person makes a
+  draft active.
 - `POST /api/records/{id}/supersede` is called on the draft replacement,
   which must declare `supersedes: [old_id]`: `id` becomes active and
   `old_id` becomes superseded. Body: `{"expected_sha256": "<draft hash>",
@@ -569,7 +586,8 @@ timestamp>:create", "captured": "<UTC timestamp>"}`. No existing kind
 fits: `user-approved-conversation` and `user-request` describe content an
 agent wrote from a conversation, while this content was typed by the person
 directly. The kind is opaque to the core, like every provenance kind except
-`record`, `discovery`, `decision-acceptance`, and `decision-withdrawal`, and
+`record`, `discovery`, `decision-acceptance`, `decision-withdrawal`, and
+`draft-activation`, and
 the interface uses it only when creating a record. Edits add no provenance,
 as with `kos update`; Git history records them. A confirmed non-material
 edit of an accepted decision body gets change reference
