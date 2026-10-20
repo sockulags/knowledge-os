@@ -22,7 +22,7 @@ const decide = {
   all_projects_label: "All",
   projects: [],
   items: [],
-  empty: { title: "Nothing to decide", body: "All clear." },
+  empty: { title: "Nothing to decide", title_observations: "No decisions or changes are waiting", body: "All clear." },
   open_label: "Open",
   language: {},
 } as unknown as DecidePayload;
@@ -46,6 +46,7 @@ const noObservations = {
   error: null,
   items: [],
   labels: {},
+  notice_labels: {},
 } as unknown as PendingObservationsPayload;
 
 let observations: PendingObservationsPayload = noObservations;
@@ -59,6 +60,17 @@ const labels = {
   copy: "Copy",
   copied: "Copied",
 };
+
+function reviewFields(id: string, title: string, related: boolean) {
+  return {
+    content_sha256: "a".repeat(64),
+    scope: "project:demo",
+    actions: {
+      retain: true,
+      promote: { target_id: id, title, acknowledge_related: related, allow_scope_broadening: true },
+    },
+  };
+}
 
 const twoObservations: PendingObservationsPayload = {
   ...noObservations,
@@ -83,6 +95,7 @@ const twoObservations: PendingObservationsPayload = {
         { action: "retain", label: "Keep it", command: 'python -m knowledge_os --root "/w" discovery retain friday-deploys' },
         { action: "reject", label: "Dismiss it", command: 'python -m knowledge_os --root "/w" discovery reject friday-deploys --reason "<why>"' },
       ],
+      ...reviewFields("friday-deploys", "Deploys fail on Fridays", true),
     },
     {
       id: "slow-tests",
@@ -98,6 +111,7 @@ const twoObservations: PendingObservationsPayload = {
       packet_html: "<p>Packet</p>",
       agent_phrase: "Review the discovery slow-tests in Knowledge OS.",
       commands: [],
+      ...reviewFields("slow-tests", "Tests are slow", false),
     },
   ],
 };
@@ -171,6 +185,15 @@ describe("Decide observations waiting", () => {
     await screen.findByTestId("review-rules");
     expect(api.pendingObservations).toHaveBeenCalled();
     expect(screen.queryByTestId("pending-observations")).toBeNull();
+    expect(screen.getByText("Nothing to decide")).toBeTruthy();
+  });
+
+  it("does not say nothing waits while observations do", async () => {
+    observations = twoObservations;
+    show({ rules: [], error: null });
+    await screen.findByTestId("pending-observations");
+    expect(screen.getByText("No decisions or changes are waiting")).toBeTruthy();
+    expect(screen.queryByText("Nothing to decide")).toBeNull();
   });
 
   it("shows the count, the trust label, related pages, and the review packet", async () => {

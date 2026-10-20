@@ -310,7 +310,8 @@ export interface DecidePayload {
   all_projects_label: string;
   projects: { id: string; title: string; count: number }[];
   items: ProposedDecision[];
-  empty: { title: string; body: string };
+  /** `title_observations` replaces `title` while observations still wait below. */
+  empty: { title: string; title_observations?: string; body: string };
   open_label: string;
   language: DecisionLanguage;
 }
@@ -866,6 +867,33 @@ export interface PendingObservation {
   /** What to ask an agent to review it. */
   agent_phrase: string;
   commands: { action: "retain" | "reject" | "promote"; label: string; command: string }[];
+  /** The observation as shown; a review sends it back and is refused if the file changed. */
+  content_sha256: string;
+  scope: string;
+  actions: {
+    /** False for a general-scope observation: the core only retains project ones. */
+    retain: boolean;
+    promote: {
+      /** A free page ID suggested from the title. */
+      target_id: string;
+      title: string;
+      /** Related pages were found, so promoting needs `acknowledge_related`. */
+      acknowledge_related: boolean;
+      /** A project observation may become general knowledge with `allow_scope_broadening`. */
+      allow_scope_broadening: boolean;
+    };
+  };
+}
+
+/** What `kos discovery retain|reject|promote --json` prints, plus the commit. */
+export interface ObservationReviewResult {
+  id: string;
+  status: string;
+  target_id?: string;
+  acknowledged_related?: string[];
+  index_count: number | null;
+  index_error: string | null;
+  commit: CommitInfo | null;
 }
 
 export interface PendingObservationsPayload {
@@ -877,4 +905,5 @@ export interface PendingObservationsPayload {
   error: string | null;
   items: PendingObservation[];
   labels: Record<string, string>;
+  notice_labels: DecisionLanguage["labels"];
 }

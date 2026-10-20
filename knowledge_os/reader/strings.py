@@ -814,6 +814,8 @@ DECIDE_INTRO = (
 DECIDE_ALL_PROJECTS = "All projects"
 DECIDE_PROJECT_FILTER_LABEL = "Project"
 DECIDE_EMPTY_TITLE = "Nothing is waiting on you"
+#: The empty title when observations still wait below (they are not decisions).
+DECIDE_EMPTY_TITLE_OBSERVATIONS = "No decisions or changes are waiting"
 DECIDE_EMPTY_BODY = "When something proposes a decision, it appears here for you to accept or withdraw."
 #: Shown when a project filter matches nothing.
 DECIDE_EMPTY_FILTERED = "No proposed decision is waiting in this project."
@@ -830,14 +832,19 @@ DECIDE_OPEN = "Open"
 HOME_DECIDE_LINK = "Open the decision inbox"
 
 # ---------------------------------------------------------------------------
-# Observations waiting in Decide (GET /api/discoveries/pending). Read-only:
-# the person reviews them from the command line or through an agent.
+# Observations waiting in Decide (GET /api/discoveries/pending), and the
+# person's review of them (POST /api/discoveries/{id}/retain|reject|promote).
 # ---------------------------------------------------------------------------
 
 OBSERVATIONS_HEADING = "Observations waiting"
 OBSERVATIONS_INTRO = (
-    "Agents noted these while working. They are observations, not knowledge, until someone reviews them. "
-    "Review them from the command line or ask your agent; this app cannot act on them yet."
+    "Agents noted these while working. They are observations, not knowledge, until you review them: "
+    "keep one as a reviewed observation, dismiss it, or turn it into a new draft page."
+)
+#: The 403 for a review request labelled as an agent's.
+OBSERVATIONS_AGENT_REFUSED = (
+    "Only a person can review an observation. Agents record observations; they cannot keep, dismiss, "
+    "or promote them."
 )
 OBSERVATIONS_COUNT_SINGULAR = "1 observation is waiting for review."
 OBSERVATIONS_COUNT_PLURAL = "{count} observations are waiting for review."
@@ -856,6 +863,22 @@ OBSERVATIONS_LABELS: dict[str, str] = {
     "promote": "Turn it into a new page",
     "copy": "Copy",
     "copied": "Copied",
+    "act_retain": "Keep",
+    "act_reject": "Dismiss…",
+    "act_promote": "Turn into a page…",
+    "reason_label": "Why dismiss it?",
+    "reason_placeholder": "Required: what is wrong or not worth keeping",
+    "confirm_reject": "Dismiss",
+    "promote_title": "Title of the new page",
+    "promote_id": "Page ID",
+    "promote_general": "Make it general knowledge instead of a page in {project}",
+    "acknowledge_related": "I have checked the pages it may overlap with",
+    "confirm_promote": "Create draft page",
+    "cancel": "Cancel",
+    "notice_retain": "Kept “{title}” as a reviewed observation.",
+    "notice_reject": "Dismissed “{title}”.",
+    "notice_promote": "Turning “{title}” into a new draft page.",
+    "failed": "Could not review “{title}”:",
 }
 
 #: Who or what proposed a decision, from its first provenance entry that is

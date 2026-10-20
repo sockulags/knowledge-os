@@ -102,6 +102,24 @@ def build_api_routes() -> list[Route]:
         Route("/api/home", home.view, name="api-home"),
         Route("/api/decisions/proposed", decisions.proposed_view, name="api-decisions-proposed"),
         Route("/api/discoveries/pending", discoveries.pending_view, name="api-discoveries-pending"),
+        Route(
+            "/api/discoveries/{record_id}/retain",
+            discoveries.retain_view,
+            methods=["POST"],
+            name="api-discovery-retain",
+        ),
+        Route(
+            "/api/discoveries/{record_id}/reject",
+            discoveries.reject_view,
+            methods=["POST"],
+            name="api-discovery-reject",
+        ),
+        Route(
+            "/api/discoveries/{record_id}/promote",
+            discoveries.promote_view,
+            methods=["POST"],
+            name="api-discovery-promote",
+        ),
         Route("/api/projects/{project_id}", project.view, name="api-project"),
         Route("/api/projects/{project_id}/repositories", codedocs.repositories_view, name="api-repositories"),
         Route(
