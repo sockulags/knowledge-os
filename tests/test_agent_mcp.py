@@ -1,10 +1,10 @@
 """The MCP server for agents (issue #59, ``knowledge_os.agent_access``).
 
 Covers finding the app through its runtime file (missing, damaged, stale PID,
-wrong port or token, valid), every tool against a real ``kos-read`` server on
-a temporary workspace that is its own Git repository (including conflict,
-duplicate, validation, and refused decision edits), agent provenance and
-commit messages, that no tool accepts, withdraws, or supersedes, that nothing
+wrong port or token, another knowledge base than expected, valid), every tool
+against a real ``kos-read`` server on a temporary workspace that is its own
+Git repository (including conflict, duplicate, validation, and refused
+decision edits), agent provenance and commit messages, that no tool accepts, withdraws, or supersedes, that nothing
 is written while the app is closed, and the MCP handshake and tool listing
 over stdio with the official SDK's client.
 """
@@ -185,6 +185,56 @@ class RuntimeFileTests(IsolatedTestCase):
             info = runtime.connect()
             self.assertEqual(info.port, PORT)
             self.assertEqual(info.workspace_name, "kb")
+
+
+class ExpectedWorkspaceTests(IsolatedTestCase):
+    """The app's own agent (``KOS_EXPECT_WORKSPACE``) only uses the knowledge
+    base its conversation started in. None of these start a server."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.started = self.base / "kb-a"
+        self.other = self.base / "kb-b"
+        self.started.mkdir()
+        self.other.mkdir()
+
+    def test_runtime_file_for_another_knowledge_base_is_refused(self) -> None:
+        # A live pid, so only the workspace check can refuse it.
+        write_runtime_file(self.runtime_path, port=PORT + 9, token="t", root=self.other)
+        env = {"KOS_RUNTIME_FILE": str(self.runtime_path), "KOS_EXPECT_WORKSPACE": str(self.started)}
+        with patch.object(runtime, "_session_token", side_effect=AssertionError("probed the core")):
+            with self.assertRaises(runtime.AppUnavailable) as caught:
+                runtime.connect(env)
+            self.assertEqual(caught.exception.kind, "wrong_knowledge_base")
+            self.assertIn(str(self.started), caught.exception.detail)
+
+            result = call_tool("write_note", {"title": "Lost", "content": "Hello.\n"}, CALLER, env=env)
+        self.assertTrue(result.is_error)
+        self.assertEqual(result.data["error"], "wrong_knowledge_base")
+        self.assertIs(result.data["written"], False)
+        self.assertIn("next_step", result.data)
+
+    def test_same_knowledge_base_is_used(self) -> None:
+        # Spelled differently but the same folder; it gets past the workspace
+        # check to the stale-pid check.
+        expected = str(self.started / ".." / "kb-a")
+        if sys.platform == "win32":
+            expected = expected.upper()
+        write_runtime_file(self.runtime_path, port=PORT + 9, token="t", root=self.started, pid=_dead_pid())
+        env = {"KOS_RUNTIME_FILE": str(self.runtime_path), "KOS_EXPECT_WORKSPACE": expected}
+        with self.assertRaises(runtime.AppUnavailable) as caught:
+            runtime.connect(env)
+        self.assertEqual(caught.exception.kind, "app_not_responding")
+
+    def test_without_an_expected_root_any_open_knowledge_base_is_used(self) -> None:
+        write_runtime_file(self.runtime_path, port=PORT + 9, token="t", root=self.other)
+        with patch.object(runtime, "_session_token", return_value="t"):
+            info = runtime.connect({"KOS_RUNTIME_FILE": str(self.runtime_path)})
+        self.assertEqual(info.workspace_name, "kb-b")
+
+    def test_same_root_ignores_case_only_on_windows(self) -> None:
+        self.assertTrue(runtime.same_root("C:\\Notes\\KB", "c:\\notes\\kb", "win32"))
+        self.assertFalse(runtime.same_root("/notes/KB", "/notes/kb", "linux"))
 
 
 class PlaceTests(unittest.TestCase):
