@@ -201,7 +201,7 @@ class ExpectedWorkspaceTests(IsolatedTestCase):
 
     def test_runtime_file_for_another_knowledge_base_is_refused(self) -> None:
         # A live pid, so only the workspace check can refuse it.
-        write_runtime_file(self.runtime_path, port=PORT + 9, token="t", root=self.other)
+        write_runtime_file(self.runtime_path, port=free_port(), token="t", root=self.other)
         env = {"KOS_RUNTIME_FILE": str(self.runtime_path), "KOS_EXPECT_WORKSPACE": str(self.started)}
         with patch.object(runtime, "_session_token", side_effect=AssertionError("probed the core")):
             with self.assertRaises(runtime.AppUnavailable) as caught:
@@ -221,14 +221,14 @@ class ExpectedWorkspaceTests(IsolatedTestCase):
         expected = str(self.started / ".." / "kb-a")
         if sys.platform == "win32":
             expected = expected.upper()
-        write_runtime_file(self.runtime_path, port=PORT + 9, token="t", root=self.started, pid=_dead_pid())
+        write_runtime_file(self.runtime_path, port=free_port(), token="t", root=self.started, pid=_dead_pid())
         env = {"KOS_RUNTIME_FILE": str(self.runtime_path), "KOS_EXPECT_WORKSPACE": expected}
         with self.assertRaises(runtime.AppUnavailable) as caught:
             runtime.connect(env)
         self.assertEqual(caught.exception.kind, "app_not_responding")
 
     def test_without_an_expected_root_any_open_knowledge_base_is_used(self) -> None:
-        write_runtime_file(self.runtime_path, port=PORT + 9, token="t", root=self.other)
+        write_runtime_file(self.runtime_path, port=free_port(), token="t", root=self.other)
         with patch.object(runtime, "_session_token", return_value="t"):
             info = runtime.connect({"KOS_RUNTIME_FILE": str(self.runtime_path)})
         self.assertEqual(info.workspace_name, "kb-b")
