@@ -192,7 +192,9 @@ describe("Decide observations waiting", () => {
     observations = twoObservations;
     show({ rules: [], error: null });
     await screen.findByTestId("pending-observations");
-    expect(screen.getByText("No decisions or changes are waiting")).toBeTruthy();
+    // The title follows the observation count once the page has caught up
+    // with it, which can be a render after the section itself appears.
+    expect(await screen.findByText("No decisions or changes are waiting")).toBeTruthy();
     expect(screen.queryByText("Nothing to decide")).toBeNull();
   });
 
