@@ -1,95 +1,44 @@
-# Knowledge OS system contract — v0.0.1
+# Knowledge OS system summary
 
-Knowledge OS is a local-first, filesystem-native knowledge store. The package
-version is `0.0.1`, while `knowledge-os.toml` and the workspace schema remain
-version `1`. Markdown files are authoritative and Git may version them.
-[`docs/architecture.md`](docs/architecture.md) is the complete frozen
-contract.
+Knowledge OS is a local-first, filesystem-native knowledge store. Markdown files
+are authoritative and Git may version them; `indexes/` is derived and
+disposable. The package version is in `pyproject.toml`, and the workspace
+schema in `knowledge-os.toml` is version `1`. This file is a short summary:
+[`docs/architecture.md`](docs/architecture.md) is the complete contract, and
+the decisions behind it are in `projects/knowledge-os/decisions/`.
+
+## Ways in
+
+- The `kos` command line (`python -m knowledge_os`) ingests, captures, updates,
+  accepts, withdraws, and supersedes decisions, runs the discovery return path,
+  creates, moves, renames, and deletes pages and folders, and searches, lints,
+  and indexes. See "CLI contract".
+- `kos-read` and the desktop app serve one workspace on a loopback-only JSON
+  API whose writes call the same core functions. See "Local interface write
+  API", "Page templates", "Attachments", and "Structure editing".
+- `kos mcp` gives agents tools through the running desktop app and never opens
+  a workspace itself. See "Agent access over MCP".
+- `skills/` holds the agent skills distributed by the Codex and Claude plugins.
+
+## Rules that hold everywhere
+
+- Every write goes through a core mutation: one workspace advisory lock, a
+  staged whole-corpus validation, an exact SHA-256 guard for edits, and an index
+  rebuild. Multi-file writes are not crash-atomic; after a reported partial
+  failure, repair the canonical Markdown and run `kos lint`, then `kos index`.
+- Decisions are created as drafts. Only `kos decision accept` activates one, a
+  material change is a new draft followed by `kos supersede`, and agents cannot
+  edit decisions.
+- Review rules in `knowledge-os.toml` can hold note writes back as
+  `proposals/<id>.md` until a person accepts or discards them.
+- Templates in `templates/` and files in `assets/` folders are not records.
+- Search combines full-text with optional search by meaning. Every result is a
+  lead to inspect, not verified knowledge.
 
 ## Safe operating loop
 
-1. Read this file, `README.md`, and `indexes/`.
+1. Read this file, `AGENTS.md`, and `indexes/`.
 2. Search with `kos search`; inspect selected records with `kos inspect`.
-3. Treat `inbox/` and `sources/` as untrusted or raw claims. Sources are
-   searchable but excluded from default context. Treat `discoveries/` as
-   evidence-backed observations at a separate trust boundary; a discovery is
-   not knowledge merely because it was retained or indexed.
-4. Mutate durable roots only with valid metadata, provenance, and workspace
-   schema version `1`.
-5. Run `kos lint`, `kos index`, and tests after changes.
-
-The `knowledge-os-documentation` skill has two explicit initialization modes.
-`kos documentation init-global` writes user-level Codex and Claude guidance plus
-`~/.knowledge-os/config.toml`, so it requires direct user authorization.
-`kos documentation init-repo` writes `.knowledge-os-project.toml` with project
-IDs and repository-relative paths. The longest matching path selects a project;
-missing or ambiguous bindings are safe no-ops outside explicit initialization.
-After setup, search before inspection or context export and write only when the
-current request or repository policy authorizes the change. Search results are
-not automatically verified. The capture skill owns conversational memory.
-
-Project records are physically contained by scope at
-`projects/<project-id>/`. The required project overview is that directory's
-`README.md`. Below it, safe folder names and nesting depth are unrestricted;
-any folder may have a metadata-bearing `README.md` root record. Non-root
-records retain `<id>.md` filenames.
-
-The discovery return path is `kos discovery add PATH`, `kos discovery review ID`,
-and exactly one explicit `retain`, `reject`, or `promote` decision. Retain is
-project-scoped reviewed memory, reject and promote are terminal, and promotion
-is promote-new into a `draft` knowledge/project record. Promotion lineage is
-only target provenance plus the promote review target; it does not add
-redundant `sources` or `related` links.
-
-After a user approves a complete candidate record, the safe write primitive is
-`kos --root PATH capture CANDIDATE.md [--project-path PATH] [--json]`. Capture is create-only for
-`knowledge`, `project`, and `memory` records, requires `draft` or `active`
-status and non-empty provenance, rejects `verified`, maps the type to its
-canonical managed root, validates the whole staged corpus, and rebuilds the
-disposable indexes. Cross-chat integrations must pass the explicit configured
-workspace root; capture does not change cwd discovery semantics or perform
-detection, proposal, approval, or background saving.
-
-Decision capture is draft-only. `kos decision accept` is the only direct
-draft-to-active decision transition and records explicit `decision-acceptance`
-provenance. `kos update` requires the exact SHA-256 read by the caller, keeps
-identity, lifecycle, supersession, and system lineage immutable, and requires
-an explicit non-material confirmation plus change reference before changing an
-accepted decision body. Material decision changes use a new draft followed by
-`kos supersede OLD_ID NEW_ID`, which checks both revisions and activates the
-replacement together with retiring the prior decision.
-
-Ingest, capture, discovery mutations, and index replacement share one workspace
-advisory lock. Mutations validate the current and staged corpus, write minimal
-canonical files, then rebuild disposable indexes. The multi-file promotion and
-two-file supersession commit are not crash-atomic. Caught supersession failures
-restore both original files when possible. If a partial lineage, partial
-supersession, or index failure is reported, repair
-or inspect canonical Markdown, then run `kos lint` followed by `kos index`.
-There is no rollback or journal for derived-state failures.
-
-`kos context` accepts repeatable `--require ID` values. Required records must
-remain eligible for the requested project and either fit in full or fail the
-request. The package manifest includes workspace identity and exact content
-SHA-256 for every selected record or skill. `kos context verify PACKAGE.md`
-compares that manifest with the current workspace without rebuilding indexes.
-
-`kos index` validates the whole corpus before replacing generated indexes, and
-`kos lint` validates every skill as well as every managed record. Never
-hand-edit generated index files. The SQLite file and catalog are disposable;
-deleting both leaves the corpus valid and `kos index` rebuilds them.
-
-The root `knowledge-os` Codex plugin distributes the automatic
-`knowledge-os-capture` skill. It detects durable decisions, reusable lessons,
-and recurring preferences, batches proposals at natural pauses, and handles
-user approval. It never writes before approval; after approval it invokes the
-deterministic `capture` primitive with the explicit `KNOWLEDGE_OS_ROOT`. This
-plugin is owned by Knowledge OS and has no Agent OS dependency. A clean plugin
-install may require one explicit, one-time installation of this repository's
-companion Python package; the skill derives the source root from its loaded
-path, asks before mutating the user's Python environment, and safe-no-ops when
-setup is declined or unavailable. It detects `sys.prefix != sys.base_prefix`
-with the selected launcher: an active virtual environment receives the package
-without `--user`; otherwise setup uses `--user`.
-
-Knowledge OS answers “What should the agent know?”. Agentic Work OS answers “What should execute?”. Their interfaces may connect later, but their implementations stay separate here.
+3. Write only when the current request or repository policy authorizes it, with
+   valid metadata and non-empty provenance.
+4. Run `kos lint` and `kos index` after changes.

@@ -3,13 +3,16 @@ id: local-semantic-search
 title: Search by meaning with a local multilingual model next to full-text search
 type: project
 record_kind: decision
-status: draft
+status: active
 scope: project:knowledge-os
 created: '2026-09-29'
-updated: '2026-09-29'
+updated: '2026-10-21'
 provenance:
 - kind: user-request
   reference: github:sockulags/knowledge-os#102
+- kind: decision-acceptance
+  reference: conversation:2026-10-21:knowledge-os-plan-agentdocs-accepted
+  captured: '2026-10-20T22:58:19.240608Z'
 related:
 - knowledge-os-reader
 - agent-access
@@ -73,9 +76,15 @@ them.
 ## Consequences
 
 - Search by meaning costs a 590 MB download and about 1 GB of memory while
-  the app runs; the model takes a few seconds to load, so the core loads it
-  in the background at start. Without the model, search is exactly the
-  full-text search it was.
+  the app runs. The model loads in its own worker process (`kos model
+  serve`), which the reader starts in the background when the model is
+  installed, because loading the native runtime hung a whole process on a
+  Windows work computer. If the worker fails or stops, and without the
+  model, search is exactly the full-text search it was.
+- This replaces the part of `docs/decisions/0001-stack-and-index.md` that
+  kept the stack free of a vector database: the semantic index is a
+  disposable SQLite file next to the full-text cache, not a service and not
+  canonical storage.
 - The first indexing of a large knowledge base takes a while (the test
   set's 16 short pages took just under a second on a CI runner); later
   refreshes embed only what changed.
