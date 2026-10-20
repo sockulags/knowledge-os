@@ -29,9 +29,14 @@ Each rule may name:
 - ``action``: ``review`` (the default) or ``direct``.
 
 The first rule that matches decides; no match means direct, as before.
-Rules govern note writes through the local API (the app, the MCP server, and
-the Referat import). Decisions are not governed by them: a decision is always
-a draft that a person accepts. The command line writes directly, as always.
+Rules govern every agent write and every note write through the local API
+(the app, the MCP server, and the Referat import). On the command line they
+apply only when the caller says it is an agent: ``kos capture`` and ``kos
+update`` with ``--writer agent`` (or ``--writer agent:<client>``) store a
+proposed change when a rule holds the write back; without ``--writer`` a
+person typing in the terminal writes directly, as always. Decisions are not
+governed by rules: a decision is always a draft that a person accepts, and
+agents cannot edit one.
 
 A write that needs review is validated exactly as if it were applied, then
 stored as a proposed change in ``proposals/<id>.md`` instead: a small
@@ -47,6 +52,7 @@ removes it.
 from __future__ import annotations
 
 import hashlib
+import posixpath
 import re
 import secrets
 import tomllib
@@ -57,6 +63,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from .agent_identity import clean_label
 from .capture import CaptureIndexError, capture_record_text, capture_record_text_locked
 from .model import ID_PATTERN, MetadataError, SHA256_PATTERN, parse_document_text, render_document
 from .mutations import (
@@ -245,6 +252,39 @@ def needs_review(
 
     rule = matching_rule(rules, writer=writer, project=project, folder=folder, write=write)
     return rule if rule is not None and rule.action == "review" else None
+
+
+def write_place(metadata: Mapping[str, Any], path_in_project: str | None) -> tuple[str | None, str]:
+    """Where a page sits for rule matching: its project (``None`` for general
+    knowledge and for every memory page) and its folder inside that project
+    (``""`` at the top level). ``path_in_project`` is the page's path below
+    ``projects/<project-id>/``, if any."""
+
+    if metadata.get("type") == "memory":
+        return None, ""
+    scope = str(metadata.get("scope", ""))
+    project = scope.removeprefix("project:") if scope.startswith("project:") else None
+    if project is None or not path_in_project:
+        return project, ""
+    return project, posixpath.dirname(path_in_project.replace("\\", "/").strip("/"))
+
+
+def page_place(metadata: Mapping[str, Any], relative: str) -> tuple[str | None, str]:
+    """``write_place`` for an existing page at the workspace-relative path ``relative``."""
+
+    prefix = f"projects/{str(metadata.get('scope', '')).removeprefix('project:')}/"
+    return write_place(metadata, relative[len(prefix) :] if relative.startswith(prefix) else None)
+
+
+def agent_writer(value: str) -> Writer:
+    """``agent`` or ``agent:<client>`` (as ``--writer`` takes it) as a Writer."""
+
+    kind, separator, client = value.partition(":")
+    if kind != "agent" or (separator and (not client or clean_label(client) != client)):
+        raise ReviewError(
+            f"--writer must be agent or agent:<client> (letters, digits, '.', '_', and '-'), not {value!r}"
+        )
+    return Writer("agent", client or None)
 
 
 # ---------------------------------------------------------------------------

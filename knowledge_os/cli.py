@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import codedocs
+from .agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity
 from .capture import capture_record, capture_record_text
 from .context import ContextRequest, build_context
 from .context_policy import trust_label
@@ -24,7 +26,7 @@ from .discovery import (
 )
 from .index import rebuild_indexes, search_index
 from .ingest import ingest_source
-from .model import Document, MetadataError, content_sha256, render_document
+from .model import Document, MetadataError, content_sha256, parse_document_text, render_document
 from .mutations import (
     accept_decision,
     neutral_withdrawal_reference,
@@ -47,6 +49,16 @@ from .structure import (
     plan_page_deletion,
     rename_record,
 )
+from .review import (
+    Proposal,
+    ReviewError,
+    agent_writer,
+    load_policy,
+    needs_review,
+    page_place,
+    propose,
+    write_place,
+)
 from .version_info import path_warning, version_lines
 from .workspace import Workspace, WorkspaceError, validate_workspace
 from . import semantic
@@ -55,6 +67,15 @@ from .semantic import SemanticError
 
 def _root_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root", type=Path, default=argparse.SUPPRESS, help="workspace root (default: discover from cwd)")
+
+
+def _writer_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--writer",
+        metavar="agent[:client]",
+        help="an agent is writing: apply the review rules in knowledge-os.toml, and store a proposed "
+        "change in proposals/ when a rule holds the write back",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -135,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional path below projects/<project-id>/ for a project record",
     )
     capture.add_argument("--json", action="store_true", dest="as_json")
+    _writer_option(capture)
     _root_option(capture)
 
     update = commands.add_parser("update", help="conflict-safe editorial or evidence update")
@@ -143,6 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--confirm-non-material", action="store_true")
     update.add_argument("--change-reference")
     update.add_argument("--json", action="store_true", dest="as_json")
+    _writer_option(update)
     _root_option(update)
 
     decision = commands.add_parser("decision", help="accept a proposed decision")
@@ -640,12 +663,96 @@ def _write_stdout(text: str) -> None:
         stdout_buffer.write(text.encode("utf-8"))
 
 
+def _held_for_review(
+    workspace: Workspace,
+    writer_value: str,
+    path: Path,
+    write: str,
+    *,
+    project_path: Path | None = None,
+    expected_sha256: str | None = None,
+) -> Proposal | None:
+    """For ``--writer agent[:client]``: store the write as a proposed change
+    when a review rule holds it back, exactly as the local API does, and
+    return it; ``None`` means the write goes ahead directly."""
+
+    writer = agent_writer(writer_value)
+    try:
+        text = path.expanduser().read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{path} must be UTF-8 text") from exc
+    except OSError as exc:
+        raise ValueError(f"{path} cannot be read: {exc}") from exc
+    try:
+        metadata = parse_document_text(path, text, check_filename=False).metadata
+    except MetadataError as exc:
+        raise ValueError(f"invalid record {path}: {exc}") from exc
+    if write == "edit":
+        documents, _issues = validate_workspace(workspace)
+        current = next((document for document in documents if document.metadata["id"] == metadata["id"]), None)
+        if current is None:
+            return None  # the update itself reports the missing record
+        if current.metadata.get("record_kind") == "decision":
+            raise ValueError(
+                f"{metadata['id']!r} is a decision, and agents cannot edit decisions; propose a new decision "
+                "that supersedes it instead"
+            )
+        project, folder = page_place(current.metadata, workspace.relative(current.path))
+    else:
+        if metadata.get("record_kind") == "decision":
+            return None  # a new decision is always a draft that a person accepts
+        project, folder = write_place(metadata, project_path.as_posix() if project_path is not None else None)
+    try:
+        rules = load_policy(workspace)
+    except ReviewError as exc:
+        raise ValueError(f"the review rules cannot be used, so nothing was written: {exc}") from exc
+    rule = needs_review(rules, writer=writer, project=project, folder=folder, write=write)
+    if rule is None:
+        return None
+    identity = AgentIdentity.create(writer.client) if writer.client is not None else None
+    if identity is not None:
+        proposer = identity.provenance_entry()
+    else:
+        stamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        proposer = {"kind": AGENT_PROVENANCE_KIND, "reference": "agent", "captured": stamp}
+    return propose(
+        workspace,
+        action=write,
+        text=text,
+        proposed_by=proposer,
+        rule=rule.describe(),
+        project_path=project_path.as_posix() if project_path is not None else None,
+        base_sha256=expected_sha256,
+    )
+
+
+def _print_proposal(proposal: Proposal, as_json: bool) -> None:
+    if as_json:
+        payload = {
+            "action": "waiting_for_review",
+            "id": proposal.record_id,
+            "proposal": proposal.id,
+            "path": proposal.path,
+            "rule": proposal.rule,
+        }
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    else:
+        what = proposal.title if proposal.action == "create" else f"the edit to {proposal.title}"
+        print(f"Waiting for review: {what} was not written ({proposal.rule})")
+        print(f"Proposed change: {proposal.path}; a person accepts or discards it in the app")
+
+
 def _lint(workspace: Workspace) -> int:
     documents, issues = validate_workspace(workspace)
-    if issues:
-        for issue in issues:
-            print(f"ERROR {issue.path}: {issue.message}", file=sys.stderr)
-        print(f"Lint failed: {len(issues)} issue(s)", file=sys.stderr)
+    findings = [(issue.path, issue.message) for issue in issues]
+    try:
+        load_policy(workspace)
+    except ReviewError as exc:
+        findings.append(("knowledge-os.toml", str(exc)))
+    if findings:
+        for path, message in findings:
+            print(f"ERROR {path}: {message}", file=sys.stderr)
+        print(f"Lint failed: {len(findings)} issue(s)", file=sys.stderr)
         return 1
     print(f"Lint OK: {len(documents)} managed record(s)")
     return 0
@@ -922,6 +1029,11 @@ def main(argv: list[str] | None = None) -> int:
             _write_stdout(package)
             return 0
         if args.command == "capture":
+            if args.writer is not None:
+                proposal = _held_for_review(workspace, args.writer, args.path, "create", project_path=args.project_path)
+                if proposal is not None:
+                    _print_proposal(proposal, args.as_json)
+                    return 0
             result = capture_record(workspace, args.path, project_path=args.project_path)
             if args.as_json:
                 print(
@@ -942,6 +1054,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Index refreshed: {result.index_count} record(s)")
             return 0
         if args.command == "update":
+            if args.writer is not None:
+                proposal = _held_for_review(
+                    workspace, args.writer, args.path, "edit", expected_sha256=args.expected_sha256
+                )
+                if proposal is not None:
+                    _print_proposal(proposal, args.as_json)
+                    return 0
             result = update_record(
                 workspace,
                 args.path,

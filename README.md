@@ -116,7 +116,9 @@ A rule may name `writer` (`agent`, `agent:claude-code`, `referat`, `person`,
 back write is stored in `proposals/` and waits in **Decide** next to proposed
 decisions, where Accept writes it and Discard drops it, each in one click with
 Undo. An edit whose page changed in the meantime can only be discarded.
-Agents are told in the tool result that their write waits for review. See
+Agents are told in the tool result that their write waits for review; an
+agent on the command line passes `--writer agent` to `kos capture` or `kos
+update` to get the same treatment. `kos lint` checks the rules. See
 "Configurable review" in [`docs/architecture.md`](docs/architecture.md).
 
 ## Sync a knowledge base with Git
@@ -195,7 +197,7 @@ nothing is written.
 | `read_page` | One page by `id`: Markdown content, state, project, folder, links, provenance, and `content_sha256`. |
 | `list_projects` | Project ids, titles, and top-level folders. |
 | `list_folder` | A project folder's overview, pages, and subfolders (`project`, optional `folder`). |
-| `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. A write the review rules hold back answers `waiting_for_review` and writes nothing yet. |
+| `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`, and `destination: memory` for a preference) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. A write the review rules hold back answers `waiting_for_review` and writes nothing yet. |
 | `propose_decision` | Create a decision as a draft (`title`, `content`, optional `project`, `folder`, `supersedes`, `related`). |
 | `list_proposed_decisions` | The Decide inbox: drafts waiting for a person, with who proposed them. |
 | `list_proposed_changes` | Writes the review rules held back, waiting in Decide: new pages and edits, with the rule and who proposed them. |

@@ -29,7 +29,6 @@ edited while the server is running is visible on the next request
 from __future__ import annotations
 
 import hashlib
-import posixpath
 import re
 import sqlite3
 from dataclasses import dataclass, replace
@@ -91,7 +90,9 @@ from knowledge_os.review import (
     load_policy,
     load_proposal,
     needs_review,
+    page_place,
     propose,
+    write_place,
 )
 from knowledge_os.skills import Skill, load_skills
 from knowledge_os.templates import Template, fill as fill_template, list_templates
@@ -726,9 +727,10 @@ def read_repo_document(workspace: Workspace, rel_path: str) -> tuple[str, str]:
 class WriteError(LibraryError):
     """A refused write, with a ``kind`` the API maps to one HTTP status.
 
-    ``kind`` is one of ``bad_request``, ``not_found``, ``conflict`` (stale
-    SHA-256), ``duplicate`` (ID or destination already exists), or
-    ``validation`` (the core rejected the candidate or the resulting corpus).
+    ``kind`` is one of ``bad_request``, ``forbidden`` (an agent editing a
+    decision), ``not_found``, ``conflict`` (stale SHA-256), ``duplicate`` (ID
+    or destination already exists), or ``validation`` (the core rejected the
+    candidate or the resulting corpus).
     ``issues`` holds ``(path, message)`` lint findings when the core reported
     them; ``current_sha256`` is set on a conflict.
     """
@@ -807,9 +809,7 @@ def create_record(
         candidate["provenance"] = [agent.provenance_entry(), *(given if isinstance(given, list) else [])]
     text = render_document(candidate, body).decode("utf-8")
     if candidate.get("record_kind") != "decision":
-        scope = str(candidate.get("scope", ""))
-        project = scope.removeprefix("project:") if scope.startswith("project:") else None
-        folder = posixpath.dirname(project_path.replace("\\", "/").strip("/")) if project_path and project else ""
+        project, folder = write_place(candidate, project_path)
         rule = _review_rule(workspace, _writer_of(candidate, agent), project, folder, "create")
         if rule is not None:
             provenance = candidate.get("provenance")
@@ -855,7 +855,8 @@ def edit_record(
 
     ``agent`` marks an agent edit: its ``agent-authored`` entry is appended
     to the provenance unless an entry with the same reference is already
-    there, and the commit message starts with the agent's name.
+    there, and the commit message starts with the agent's name. Agents cannot
+    edit decisions (``forbidden``): they propose a superseding one instead.
     """
 
     if not SHA256_PATTERN.fullmatch(expected_sha256):
@@ -874,6 +875,14 @@ def edit_record(
             "validation",
             f"record {record_id!r} has type {current.metadata['type']!r}; the interface edits only "
             f"{', '.join(sorted(CAPTURE_DIRECTORIES))} records",
+        )
+
+    if agent is not None and current.metadata.get("record_kind") == "decision":
+        # Agents propose decisions; a person accepts, withdraws, or supersedes them.
+        raise WriteError(
+            "forbidden",
+            f"{record_id!r} is a decision, and agents cannot edit decisions; propose a new decision "
+            "that supersedes it instead",
         )
 
     # Merge onto the exact bytes the caller read, never onto a newer revision.
@@ -912,11 +921,7 @@ def edit_record(
             metadata["provenance"] = [*provenance, agent.provenance_entry()]
     text = render_document(metadata, base.body if body is None else body).decode("utf-8")
     if base.metadata.get("record_kind") != "decision":
-        relative = workspace.relative(current.path)
-        scope = str(base.metadata["scope"])
-        project = scope.removeprefix("project:") if scope.startswith("project:") else None
-        prefix = f"projects/{project}/"
-        folder = posixpath.dirname(relative[len(prefix) :]) if project and relative.startswith(prefix) else ""
+        project, folder = page_place(base.metadata, workspace.relative(current.path))
         rule = _review_rule(workspace, _writer_of(metadata, agent, edit=True), project, folder, "edit")
         if rule is not None:
             proposer = agent.provenance_entry() if agent is not None else _interface_provenance("edit")[0]

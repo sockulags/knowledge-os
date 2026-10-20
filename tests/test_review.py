@@ -5,8 +5,11 @@ applies or drops them, and what an MCP agent is told."""
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -14,6 +17,7 @@ from test_agent_mcp import CALLER, GIT, IsolatedTestCase, _session_token, git, w
 from test_api_write import TOKEN_HEADER, _request
 
 from knowledge_os.agent_access.tools import call_tool
+from knowledge_os.cli import main as cli_main
 from knowledge_os.init_workspace import init_workspace
 from knowledge_os.model import render_document
 from knowledge_os.mutations import StaleRevisionError
@@ -25,8 +29,10 @@ from knowledge_os.review import (
     discard_proposal,
     list_proposals,
     load_policy,
+    agent_writer,
     needs_review,
     propose,
+    write_place,
 )
 from knowledge_os.structure import create_folder, create_project
 from knowledge_os.workspace import Workspace
@@ -107,6 +113,19 @@ class PolicyTests(unittest.TestCase):
         self.assertIsNone(
             needs_review(rules, writer=Writer("agent", "claude-code"), project=None, folder="", write="edit")
         )
+
+    def test_memory_pages_are_general_and_folders_come_from_the_project_path(self) -> None:
+        self.assertEqual(write_place({"type": "memory", "scope": "project:acme"}, "notes/x.md"), (None, ""))
+        self.assertEqual(write_place({"type": "knowledge", "scope": "general"}, None), (None, ""))
+        self.assertEqual(write_place({"type": "project", "scope": "project:acme"}, "a/b/x.md"), ("acme", "a/b"))
+        self.assertEqual(write_place({"type": "project", "scope": "project:acme"}, None), ("acme", ""))
+
+    def test_the_command_line_writer_is_an_agent(self) -> None:
+        self.assertEqual(agent_writer("agent"), Writer("agent"))
+        self.assertEqual(agent_writer("agent:codex"), Writer("agent", "codex"))
+        for value in ("person", "agent:", "agent:Not ok!", "referat"):
+            with self.subTest(value=value), self.assertRaises(ReviewError):
+                agent_writer(value)
 
     def test_rules_that_cannot_be_used_are_refused(self) -> None:
         cases = [
@@ -278,6 +297,28 @@ class ReviewApiTests(unittest.TestCase):
         status, result = self.create("agent-decision", "acme", record_kind="decision", status="draft")
         self.assertEqual(status, 201, result)
 
+    def test_agents_cannot_edit_a_decision(self) -> None:
+        status, created = self.create("in-force", "beta", agent=False, record_kind="decision", status="draft")
+        self.assertEqual(status, 201, created)
+        status, accepted = self.write(
+            "POST", "/api/records/in-force/accept", {"expected_sha256": created["content_sha256"]}
+        )
+        self.assertEqual(status, 200, accepted)
+        before = (self.root / accepted["path"]).read_bytes()
+        status, result = self.write(
+            "PATCH",
+            "/api/records/in-force",
+            {
+                "expected_sha256": accepted["content_sha256"],
+                "body": "Body.\n\nChanged.\n",
+                "confirm_non_material": True,
+                "agent": {"client": "claude-code"},
+            },
+        )
+        self.assertEqual(status, 403, result)
+        self.assertIn("agents cannot edit decisions", result["detail"])
+        self.assertEqual((self.root / accepted["path"]).read_bytes(), before)
+
     def test_agent_edit_shows_a_diff_and_discarding_drops_it(self) -> None:
         self.assertEqual(self.create("edited-page", "acme", agent=False)[0], 201)
         status, page = _request(self.base_url, "GET", "/api/records/edited-page")
@@ -343,6 +384,149 @@ class McpReviewTests(IsolatedTestCase):
             git(self.root, "log", "-1", "--format=%s").strip(), "Claude Code: Propose Agent plan"
         )
         self.assertIn("proposals/", git(self.root, "show", "--stat", "--format=", "HEAD"))
+
+    def test_memory_follows_the_rules_for_general_knowledge(self) -> None:
+        arguments = {"title": "Prefers short replies", "content": "Keep replies short.\n", "destination": "memory"}
+        result = call_tool("write_note", arguments, CALLER)
+        self.assertFalse(result.is_error, result.data)
+        self.assertEqual((result.data["action"], result.data["path"]), ("created", "memory/prefers-short-replies.md"))
+
+        with (self.root / "knowledge-os.toml").open("a", encoding="utf-8") as handle:
+            handle.write('\n[[review.rule]]\nwriter = "agent"\nproject = "general"\n')
+        result = call_tool("write_note", {**arguments, "title": "Prefers tables", "project": "acme"}, CALLER)
+        self.assertFalse(result.is_error, result.data)
+        self.assertEqual(result.data["action"], "waiting_for_review")
+        self.assertFalse((self.root / "memory/prefers-tables.md").exists())
+        (proposal,) = list_proposals(Workspace(self.root))[0]
+        self.assertEqual((proposal.record_id, proposal.metadata["type"]), ("prefers-tables", "memory"))
+
+        refused = call_tool("write_note", {**arguments, "title": "In a folder", "project": "acme", "folder": "x"}, CALLER)
+        self.assertTrue(refused.is_error)
+
+
+class CliReviewTests(unittest.TestCase):
+    """``--writer agent`` on ``kos capture`` and ``kos update``, and ``kos lint``."""
+
+    def setUp(self) -> None:
+        self._temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._temp.cleanup)
+        self.root = init_workspace(Path(self._temp.name) / "kb")
+        self.workspace = Workspace(self.root)
+        create_project(self.workspace, "acme", title="Acme", provenance=PROVENANCE)
+        self.config = (self.root / "knowledge-os.toml").read_text(encoding="utf-8")
+        self.candidates = Path(self._temp.name) / "candidates"
+        self.candidates.mkdir()
+
+    def rules(self, text: str) -> None:
+        (self.root / "knowledge-os.toml").write_text(self.config + text, encoding="utf-8")
+
+    def kos(self, *arguments: str) -> tuple[int, str, str]:
+        stdout, stderr = StringIO(), StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = cli_main([*arguments, "--root", str(self.root)])
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def candidate(self, record_id: str, text: str) -> Path:
+        path = self.candidates / f"{record_id}.md"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def memory(self, record_id: str) -> str:
+        return render_document(
+            {
+                "id": record_id,
+                "title": "Prefers short replies",
+                "type": "memory",
+                "status": "draft",
+                "scope": "general",
+                "created": "2026-10-21",
+                "updated": "2026-10-21",
+                "provenance": PROVENANCE,
+            },
+            "Keep replies short.\n",
+        ).decode("utf-8")
+
+    def test_an_agent_capture_a_rule_holds_back_becomes_a_proposal(self) -> None:
+        self.rules('\n[[review.rule]]\nwriter = "agent"\nproject = "general"\n')
+        path = self.candidate("short-replies", self.memory("short-replies"))
+
+        code, out, err = self.kos("capture", str(path), "--writer", "agent", "--json")
+        self.assertEqual(code, 0, err)
+        result = json.loads(out)
+        self.assertEqual((result["action"], result["id"]), ("waiting_for_review", "short-replies"))
+        self.assertIn("agents in general knowledge", result["rule"])
+        self.assertFalse((self.root / "memory/short-replies.md").exists())
+        (proposal,) = list_proposals(self.workspace)[0]
+        self.assertEqual(proposal.id, result["proposal"])
+        self.assertEqual(proposal.proposed_by["reference"], "agent")
+
+        code, out, err = self.kos("capture", str(path), "--json")  # a person in the terminal
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["path"], "memory/short-replies.md")
+
+    def test_an_agent_update_follows_its_clients_rule(self) -> None:
+        self.rules('\n[[review.rule]]\nwriter = "agent:codex"\nproject = "acme"\nwrites = "edit"\n')
+        page = self.root / "projects/acme/README.md"
+        base = hashlib.sha256(page.read_bytes()).hexdigest()
+        edited = self.candidate("acme", page.read_text(encoding="utf-8") + "\nMore.\n")
+
+        code, out, err = self.kos(
+            "update", str(edited), "--expected-sha256", base, "--writer", "agent:claude-code", "--json"
+        )
+        self.assertEqual(code, 0, err)  # another client: no rule, written directly
+        self.assertNotIn("action", json.loads(out))
+        base = hashlib.sha256(page.read_bytes()).hexdigest()
+        edited.write_text(page.read_text(encoding="utf-8") + "\nEven more.\n", encoding="utf-8")
+
+        code, out, err = self.kos("update", str(edited), "--expected-sha256", base, "--writer", "agent:codex")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Waiting for review", out)
+        self.assertNotIn("Even more.", page.read_text(encoding="utf-8"))
+        (proposal,) = list_proposals(self.workspace)[0]
+        self.assertEqual((proposal.action, proposal.base_sha256), ("edit", base))
+        self.assertEqual(proposal.proposed_by["reference"], "agent:codex")
+
+    def test_an_agent_cannot_update_a_decision(self) -> None:
+        decision = render_document(
+            {
+                "id": "use-postgres",
+                "title": "Use Postgres",
+                "type": "project",
+                "record_kind": "decision",
+                "status": "draft",
+                "scope": "project:acme",
+                "created": "2026-10-21",
+                "updated": "2026-10-21",
+                "provenance": PROVENANCE,
+            },
+            "We use Postgres.\n",
+        ).decode("utf-8")
+        code, out, err = self.kos("capture", str(self.candidate("use-postgres", decision)), "--writer", "agent", "--json")
+        self.assertEqual(code, 0, err)
+        page = self.root / json.loads(out)["path"]
+        base = hashlib.sha256(page.read_bytes()).hexdigest()
+        edited = self.candidate("use-postgres", page.read_text(encoding="utf-8") + "\nMore.\n")
+
+        code, _out, err = self.kos("update", str(edited), "--expected-sha256", base, "--writer", "agent")
+        self.assertEqual(code, 1)
+        self.assertIn("agents cannot edit decisions", err)
+        self.assertEqual(hashlib.sha256(page.read_bytes()).hexdigest(), base)
+
+    def test_a_writer_that_is_not_an_agent_is_refused(self) -> None:
+        path = self.candidate("short-replies", self.memory("short-replies"))
+        code, _out, err = self.kos("capture", str(path), "--writer", "person")
+        self.assertEqual(code, 1)
+        self.assertIn("--writer must be agent", err)
+        self.assertFalse((self.root / "memory/short-replies.md").exists())
+
+    def test_lint_reports_review_rules_that_cannot_be_used(self) -> None:
+        code, out, err = self.kos("lint")
+        self.assertEqual(code, 0, err)
+        self.rules('\n[[review.rule]]\nwriter = "robot"\n')
+        code, out, err = self.kos("lint")
+        self.assertEqual(code, 1, out)
+        self.assertIn("ERROR knowledge-os.toml: review rule 1: writer must be agent", err)
+        self.assertIn("Lint failed: 1 issue(s)", err)
 
 
 if __name__ == "__main__":
