@@ -1,43 +1,49 @@
 # Knowledge OS
 
-Knowledge OS `0.8.6` is a local-first durable knowledge system for Markdown
-and text. Markdown is canonical truth. Sources and external-agent discoveries
-remain separate trust boundaries, while SQLite and the catalog are disposable
-indexes. Its root Codex plugin provides automatic, approval-gated conversational
-capture; the deterministic storage boundary remains the local CLI. The complete
-frozen contract is [`docs/architecture.md`](docs/architecture.md).
+Knowledge OS keeps notes, decisions, and project documentation as Markdown
+files in a folder on your computer. The desktop app lets you browse, search,
+write, and review them; agents such as Claude Code and Codex read and write the
+same folder through the app, and decisions they propose wait for you to accept
+them. Nothing leaves the computer unless you sync the folder with Git.
 
-## Bootstrap
+## Get started
 
-PowerShell:
+**Install the app.** Download `knowledge-os-setup.exe` from the latest
+[release](https://github.com/sockulags/knowledge-os/releases/latest) and run
+it. It is a per-user Windows installer that needs no administrator rights and
+no Python. Windows SmartScreen warns about it on first run because it is not
+signed. The app updates itself from later releases, and the installer puts a
+`kos` command on PATH for the command line and for agents.
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\python -m pip install -e .
-.\.venv\Scripts\Activate.ps1
-kos lint
-kos index
+**Make your first page.** On the start page, choose *Create new knowledge
+base…* and pick an empty folder. The app sets it up and opens it. Home then
+offers *Create your first project* and *Create a page*: pages live in projects,
+so *Create a page* creates the project first and then opens the new page.
+Write, save, and the page is a Markdown file in the folder.
+
+**Connect Claude Code or Codex.** In Claude Code, install the plugin:
+
+```
+/plugin marketplace add sockulags/knowledge-os
+/plugin install knowledge-os
 ```
 
-Cross-platform:
+In Codex, install the `knowledge-os` plugin from this repository's marketplace,
+or add `kos mcp` as an MCP server (see [`docs/agents.md`](docs/agents.md)).
+Keep the knowledge base open in the app, then ask the agent, for example, to
+write a note about what you just decided; the note appears in the app,
+labelled with the agent that wrote it. The app also has its own agent panel
+(Ctrl+J). [`docs/agents.md`](docs/agents.md) describes the tools, their limits,
+and the skills.
 
-```sh
-python3.11 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e .
-kos lint
-kos index
-```
-
-The workspace root is found from the current directory or with `kos --root
-PATH`. Try `kos ingest examples/sample.md`, then `kos search xylophone --json`,
-and `kos inspect <id>`. `inbox/` is intentionally outside the managed record
-contract.
+The rest of this page covers the features in more detail and the `kos` command
+line. The complete contract is [`docs/architecture.md`](docs/architecture.md);
+the desktop app is described in [`desktop/README.md`](desktop/README.md).
 
 ## Create a separate knowledge base
 
-A knowledge base does not have to live in this repository. `kos init PATH`
-creates an empty, valid workspace in a new or empty folder: the
+The app's *Create new knowledge base…* runs `kos init`. From the command line,
+`kos init PATH` creates an empty, valid workspace in a new or empty folder: the
 `knowledge-os.toml` marker, the managed directories with their README files, an
 `AGENTS.md` guide for agents working in the folder, a `.gitignore` for the
 generated indexes, and fresh indexes, and prints the next steps. It refuses a folder that
@@ -66,6 +72,12 @@ same and relative links to moved files are rewritten. Moving to another project
 changes scope and needs `--allow-scope-change`. In the app, use "New project"
 in the sidebar, each row's menu, or drag pages and folders in the project tree.
 See "Structure editing" in [`docs/architecture.md`](docs/architecture.md).
+
+Project documentation is contained by project directory. The required project
+overview is `projects/<project-id>/README.md`; arbitrary folders may be nested
+below it, and each folder may have its own metadata-bearing `README.md` root
+record. Other records use `<id>.md`. Create a record at a chosen nested path
+with `kos capture CANDIDATE.md --project-path architecture/decisions/README.md`.
 
 ## Write pages: templates, images, and files
 
@@ -169,130 +181,69 @@ index` then builds `indexes/semantic.sqlite3`. See the decision
 
 ## Command line
 
-The desktop app installer puts a `kos` command on PATH (see "The `kos` command" in
-[`desktop/README.md`](desktop/README.md)); a checkout gets the same command from `pip install -e .`
-instead. Both can end up on PATH at once, and whichever directory comes first wins for a bare `kos`
-invocation, which can silently run the wrong one. `where kos` (PowerShell) or `which kos` (POSIX
-shells) lists every `kos` on PATH in the order Windows or the shell will try them, with the one that
-actually runs listed first. `kos --version` reports the version and where that particular `kos` runs
-from: `installed app (bundled core at ...)` for the app's bundled core, or `Python X.Y.Z at
-<interpreter>, package at <path>` (with `(editable install)` appended when detectable) for a Python
-install. When the app's `kos` runs but a bare `kos` on PATH would reach a different one, or a Python
-`kos` runs while the app is also installed, `kos` prints a one-line warning to stderr (never stdout,
-so `--json` output and `kos mcp`'s stdio protocol stay clean) saying how to fix it: uninstall the pip
-package (`py -3.11 -m pip uninstall knowledge-os`) or reorder PATH. Set `KOS_NO_PATH_WARNING=1` to
-silence it.
+Most of what the app does also has a `kos` command, and the sections below
+describe the commands that have no button in the app. `kos --help` lists them
+all, and `kos COMMAND --help` describes one. `--root PATH` names the knowledge
+base; without it, the knowledge base is found from the current directory. Many
+commands take `--json` for scripts.
 
-Agents reach the knowledge base through `kos mcp` (below). When those tools are not available, the
-plugin skills run the command line as `<python> -m knowledge_os --root <root> ...`, with a proven
-Python >=3.11 launcher and the root from `KNOWLEDGE_OS_ROOT` or `~/.knowledge-os/config.toml`, and
-never as a bare `kos`, which could reach another install and would look for the workspace in the
-agent's working directory. People and scripts use the plain `kos` command directly.
+The installer puts `kos` on PATH (see "The `kos` command" in
+[`desktop/README.md`](desktop/README.md)); a checkout gets the same command from
+`pip install -e .`. When both are on PATH, whichever directory comes first wins
+for a bare `kos`. `where kos` (PowerShell) or `which kos` (POSIX shells) lists
+them in the order they are tried, and `kos --version` reports the version and
+where that `kos` runs from: `installed app (bundled core at ...)`, or `Python
+X.Y.Z at <interpreter>, package at <path>` (with `(editable install)` when
+detectable). When the app's `kos` runs but a bare `kos` would reach another
+one, or a Python `kos` runs while the app is also installed, `kos` prints a
+one-line warning to stderr (never stdout, so `--json` output and `kos mcp`'s
+stdio protocol stay clean) saying how to fix it: uninstall the pip package
+(`py -3.11 -m pip uninstall knowledge-os`) or reorder PATH. Set
+`KOS_NO_PATH_WARNING=1` to silence it.
+
+Agents do not run a bare `kos`; see "When the MCP tools are not available" in
+[`docs/agents.md`](docs/agents.md).
+
+## Run from source
+
+To work on Knowledge OS itself, or to use it without the app, install it from a
+checkout with Python 3.11 or newer. PowerShell:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python -m pip install -e .
+.\.venv\Scripts\Activate.ps1
+kos lint
+kos index
+```
+
+Cross-platform:
+
+```sh
+python3.11 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e .
+kos lint
+kos index
+```
+
+The workspace root is found from the current directory or with `kos --root
+PATH`. Try `kos ingest examples/sample.md`, then `kos search xylophone --json`,
+and `kos inspect <id>`. `inbox/` is intentionally outside the managed record
+contract. Add the `reader` and `mcp` extras (`pip install -e ".[reader,mcp]"`)
+for `kos-read` and `kos mcp`; running and building the desktop app from source
+is described in [`desktop/README.md`](desktop/README.md).
 
 ## Agents (MCP)
 
-Agents such as Claude Code and Codex working in other repositories use the knowledge base through
-an MCP server, `kos mcp`; people and scripts keep the `kos` command line (see the accepted decision
-`projects/knowledge-os/decisions/agent-access.md`). The server works only through the running
-desktop app: it talks to the app's local API and acts on the knowledge base open there, so agent
-writes get the same validation, conflict checks, and Git commits as your own edits and show up in
-the app as they happen. When the app is closed or no knowledge base is open, every tool says so and
-nothing is written.
-
-| Tool | What it does |
-| --- | --- |
-| `search` | Search by words and, with the search model installed, by meaning (`query`, optional `project`, `limit`). |
-| `read_page` | One page by `id`: Markdown content, state, project, folder, links, provenance, and `content_sha256`. |
-| `list_projects` | Project ids, titles, and top-level folders. |
-| `list_folder` | A project folder's overview, pages, and subfolders (`project`, optional `folder`). |
-| `write_note` | Create a note (`title`, `content`, optional `project`, `folder`, `tags`, `status`, and `destination: memory` for a preference) or edit one (`id`, `content`, `expected_sha256`). Decisions cannot be edited. A write the review rules hold back answers `waiting_for_review` and writes nothing yet. |
-| `propose_decision` | Create a decision as a draft (`title`, `content`, optional `project`, `folder`, `supersedes`, `related`). |
-| `list_proposed_decisions` | The Decide inbox: drafts waiting for a person, with who proposed them. |
-| `list_proposed_changes` | Writes the review rules held back, waiting in Decide: new pages and edits, with the rule and who proposed them. |
-| `read_proposed_change` | One proposed change: a new page's Markdown, or an edit as a diff against the page as it is now. |
-| `check_documentation` | What changed in a project's linked code repositories since the last check, and the page updates and decisions that suggests, with their commits. Read-only. |
-| `read_commit` | One commit of a linked repository: message, files, and diff. |
-| `propose_documentation_decision` | Draft a decision the check suggests (`key`), with its commits as provenance. |
-| `mark_documentation_checked` | Record the commit a check covered, so the next check starts there. |
-| `link_repository` | Link a Git repository (absolute `path`) to a project. |
-
-There is no tool to accept, withdraw, or supersede a decision; those stay yours, in the app or the
-command line. Failures come back as structured results with an `error` kind (`app_not_open`,
-`app_not_responding`, `conflict`, `duplicate`, `validation`, `not_found`, `not_allowed`, ...), a
-`message`, a `next_step`, and whether anything was `written`.
-
-Every agent write carries provenance `agent-authored` with reference `agent:<client>:<place>`:
-the client name the agent reports over MCP (`claude-code`, `codex-mcp-client`, ...) and where it
-ran, which is `kos mcp --place LABEL`, else `KOS_AGENT_PLACE`, else the name (never the path) of
-the directory the agent started the server in. The app shows it as "Proposed by Claude Code in
-my-repo", and the commit reads `Claude Code: Create <title>`. This is a guardrail, not a lock: an
-agent with shell access can still run `kos` or edit files; provenance and Git history make its
-writes visible.
-
-**Inside the app.** The desktop app has its own agent panel (Ctrl+J, or the robot button in the
-reader): it runs the Claude Code or Codex you installed over the Agent Client Protocol with
-`kos mcp` as its only tools, so it has exactly these limits. *Ask* answers with links to the pages
-it read; *Draft* writes notes and proposes decisions, shown as written or proposed by the agent "in
-Knowledge OS app". File → New Page (Ctrl+N) can start a page from one line with the agent. See
-"In-app agents (ACP)" in [`desktop/README.md`](desktop/README.md).
-
-**Keeping documentation in step with code.** A project can link the code repositories it
-describes (the *Code* section of the project page, or `kos code link PROJECT PATH`). *Check
-documentation* then lists what changed in them since the last check (commits, dependencies,
-commands and API routes, configuration, modules, READMEs), which pages to update and why, and
-which decisions to propose (a new or removed dependency or module), each with the commits it came
-from. Nothing is rewritten: a suggested decision is proposed as a draft with its commits as
-provenance, pages are updated by you or by the agent (`read_commit` lets it read the commits), and
-*Mark as checked* records the commit covered, so the next check starts there. Agents get the same
-through `check_documentation`, `read_commit`, `propose_documentation_decision`,
-`mark_documentation_checked`, and `link_repository`.
-
-**Setup.** Install the desktop app (it puts `kos` on PATH with the MCP server built in) or, in a
-checkout, `pip install -e ".[reader,mcp]"`. Then:
-
-- Claude Code: install the plugin (below); it registers the `knowledge-os` MCP server. Without the
-  plugin: `claude mcp add knowledge-os -- kos mcp` (add `--scope user` to use it in every project).
-- Codex: install the plugin from this repository's marketplace; `.codex-plugin/mcp.json`
-  registers the server. Without the plugin, add to `~/.codex/config.toml`:
-
-  ```toml
-  [mcp_servers.knowledge-os]
-  command = "kos"
-  args = ["mcp"]
-  ```
-
-Open the knowledge base in the app before asking the agent to use it. The server finds the app
-through a runtime file the app keeps in its user-data folder while a knowledge base is open (see
-"Agents and the runtime file" in [`desktop/README.md`](desktop/README.md)).
-
-## Documentation skill
-
-The automatically discoverable `knowledge-os-documentation` skill supports one-time setup and
-normal documentation retrieval. Global setup requires direct authorization because it writes the
-managed blocks in the user-level Codex and Claude files and `~/.knowledge-os/config.toml`:
-
-```text
-kos documentation init-global --workspace PATH [--host codex] [--host claude] [--user-home PATH] [--replace] [--json]
-```
-
-Repository setup writes `.knowledge-os-project.toml` with one or more project bindings:
-
-```text
-kos documentation init-repo --repo PATH --project ID[=RELATIVE_PATH] [--project ...] [--user-home PATH] [--replace] [--json]
-```
-
-After setup, the skill searches before inspection or context export, reads each affected project's
-overview and nearest relevant folder `README.md`, and keeps current behavior, decisions, drafts,
-raw sources, and discoveries distinct. Search results are not automatically verified. Writes need
-authorization from the current request or repository policy. See
-[`skills/knowledge-os-documentation/references/init.md`](skills/knowledge-os-documentation/references/init.md)
-and [`skills/knowledge-os-documentation/references/documentation-workflow.md`](skills/knowledge-os-documentation/references/documentation-workflow.md).
-
-Project documentation is contained by project directory. The required project
-overview is `projects/<project-id>/README.md`; arbitrary folders may be nested
-below it, and each folder may have its own metadata-bearing `README.md` root
-record. Other records use `<id>.md`. Create a record at a chosen nested path
-with `kos capture CANDIDATE.md --project-path architecture/decisions/README.md`.
+Agents reach the knowledge base through `kos mcp`, an MCP server that works
+only through the running desktop app, so agent writes get the same validation,
+review rules, and Git commits as your own edits. It cannot accept, withdraw, or
+supersede a decision. Every agent write carries `agent-authored` provenance
+naming the agent and where it ran. The tools, the error results, the in-app
+agent panel, the documentation check for linked code repositories, and the
+capture and documentation skills are described in
+[`docs/agents.md`](docs/agents.md).
 
 ## Capture an approved record
 
@@ -314,10 +265,10 @@ the indexes on success. Project records default to
 `projects/<project-id>/<id>.md`, while the overview defaults to
 `projects/<project-id>/README.md`; `--project-path` chooses any safe nested
 Markdown path below that project directory. `--json` reports the exact captured
-`id`, `type`, `scope`, canonical relative `path`, and `status`. The bundled `knowledge-os`
-Codex plugin owns detection, natural-pause proposal batching, and approval
-handling; it invokes this CLI only after approval. There is no Agent OS
-dependency and no background saving.
+`id`, `type`, `scope`, canonical relative `path`, and `status`. The plugin's
+`knowledge-os-capture` skill owns detection, proposal batching, and approval
+handling, and calls capture only after approval (see "Capture skill" in
+[`docs/agents.md`](docs/agents.md)).
 
 Decision records are always captured as `draft`. Activate an accepted decision
 with the exact hash returned by `kos inspect ID`:
@@ -365,31 +316,6 @@ workspace lock. Caught write failures restore both original records when
 possible. Abrupt process termination is still not crash-atomic; inspect both
 records and run `kos lint` followed by `kos index` when partial-state recovery
 is reported.
-
-The plugin is distributed from this repository through
-`.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json` for Codex,
-and through `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`
-for Claude Code. Install the Claude Code plugin with:
-
-```
-/plugin marketplace add sockulags/knowledge-os
-/plugin install knowledge-os
-```
-
-Its `knowledge-os-capture` skill remains automatically discoverable. Standalone
-means the skill and its companion CLI source are owned and distributed here;
-the CLI package still needs one explicit, one-time local setup when it is not
-already importable. The skill derives the plugin root from its loaded
-`SKILL.md`, asks before installing, and safely does nothing when setup is
-declined or unavailable.
-
-The launcher detection and install commands for PowerShell and POSIX shells
-live in one place,
-[`skills/knowledge-os-capture/references/setup.md`](skills/knowledge-os-capture/references/setup.md).
-The install includes the `mcp` extra so `kos mcp` also runs without the
-desktop app. The skill asks for approval immediately before the selected
-install command, then rechecks `import knowledge_os` with that same launcher
-before any candidate is created.
 
 ## Export bounded context
 
@@ -492,10 +418,10 @@ with `--no-index-refresh` to leave the index alone.
 
 The CLI, the local reader server and desktop app, and the standard-library
 SQLite FTS5 cache are local only; there is no cloud or remote service.
-Retrieval and review are deterministic lexical FTS plus metadata and explicit
-relationships; they are not semantic fact checking or contradiction
-detection. No URL/PDF ingestion, embeddings, model calls, or Agentic Work OS
-coupling is included. The only MCP surface is `kos mcp`, which works through
+Retrieval is lexical FTS plus metadata and explicit relationships, and, with
+the optional local search model, similarity in meaning; neither is fact
+checking or contradiction detection. No URL/PDF ingestion, calls to a hosted
+model, or Agentic Work OS coupling is included. The only MCP surface is `kos mcp`, which works through
 the running desktop app (see [Agents (MCP)](#agents-mcp)). The local reader exposes a JSON API for
 editing records and decision actions, and workspaces that are their own Git
 repository get versioned writes and Git-based sync (pull, push, and conflict
