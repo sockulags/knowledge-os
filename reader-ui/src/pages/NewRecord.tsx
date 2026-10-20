@@ -10,6 +10,7 @@ import { PageSkeleton } from "../components/Skeleton";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
+import { kebab } from "../lib/text";
 import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MarkdownEditor } from "../components/MarkdownEditor";
@@ -26,17 +27,6 @@ import {
   inputClass,
   parseList,
 } from "../components/EditorParts";
-
-/** "Écrire une Note!" -> "ecrire-une-note": the lowercase kebab-case id the
- * core requires, which is also the file name. */
-export function slugify(title: string): string {
-  return title
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 function cleanFolder(folder: string): string {
   return folder
@@ -146,7 +136,7 @@ function NewRecordForm({
   }
 
   const replaced = useApi(() => (supersedes ? api.record(supersedes) : Promise.resolve(null)), [supersedes]);
-  const effectiveId = idEdited ? id : slugify(title);
+  const effectiveId = idEdited ? id : kebab(title, null);
   const dirty =
     title.trim() !== "" ||
     (body.trim() !== "" && body !== templateText) ||

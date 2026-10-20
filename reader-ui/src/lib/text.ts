@@ -9,3 +9,19 @@ export function folderDisplayName(name: string): string {
   if (!spaced) return name;
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
+
+/** "Skärm bild" -> "skarm-bild": lowercase ASCII words joined by hyphens, the
+ * page id rule. It mirrors `knowledge_os.model.kebab` step for step (NFKD,
+ * drop every non-ASCII character, lowercase, hyphenate), so a title gives
+ * the same id here as in the core; tests/fixtures/kebab_cases.json checks
+ * both. `limit` trims the result (`null` keeps all of it), and `fallback` is
+ * returned when nothing is left. */
+export function kebab(text: string, limit: number | null = 80, fallback = ""): string {
+  const folded = text.normalize("NFKD").replace(/[^\x00-\x7f]/g, "");
+  let result = folded
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (limit !== null) result = result.slice(0, limit).replace(/-+$/, "");
+  return result || fallback;
+}
