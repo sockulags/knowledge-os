@@ -37,9 +37,10 @@ from __future__ import annotations
 import ipaddress
 import json
 import secrets
-from typing import Any
+from typing import Any, Callable, TypeVar
 from urllib.parse import urlsplit
 
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -73,6 +74,22 @@ _STATUS_BY_KIND = {
     "duplicate": 409,
     "validation": 422,
 }
+
+
+_T = TypeVar("_T")
+
+
+async def blocking(fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+    """Run one blocking library call on a worker thread.
+
+    A write validates the corpus, waits for the workspace lock (which a sync
+    may hold for a whole fetch, merge, and push), and runs git. Called
+    directly in an ``async def`` route, that would stall the event loop and
+    with it every other request, GETs included. Every route that writes or
+    runs git goes through here; cheap reads stay on the event loop.
+    """
+
+    return await run_in_threadpool(fn, *args, **kwargs)
 
 
 def new_write_token() -> str:
@@ -276,7 +293,8 @@ async def create_view(request: Request) -> Response:
         metadata = _field(payload, "metadata", dict, required=True)
         body = _field(payload, "body", str, required=True)
         project_path = _field(payload, "project_path", str, required=False)
-        result = create_record(
+        result = await blocking(
+            create_record,
             request.app.state.workspace,
             metadata=metadata,
             body=body,
@@ -300,7 +318,8 @@ async def edit_view(request: Request) -> Response:
         body = _field(payload, "body", str, required=False)
         confirm = _field(payload, "confirm_non_material", bool, required=False) or False
         reference = _field(payload, "change_reference", str, required=False)
-        result = edit_record(
+        result = await blocking(
+            edit_record,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=expected,
@@ -322,7 +341,8 @@ async def accept_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = accept_record(
+        result = await blocking(
+            accept_record,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),
@@ -337,7 +357,8 @@ async def withdraw_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = withdraw_record(
+        result = await blocking(
+            withdraw_record,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),
@@ -363,7 +384,8 @@ async def supersede_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = supersede_record(
+        result = await blocking(
+            supersede_record,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),
