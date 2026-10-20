@@ -7,9 +7,14 @@
 //
 // Codex has no switch that removes its built-in tools. The session starts in
 // codex-acp's `read-only` mode, so editing files or reaching the network needs
-// a permission the person grants in the app; reading files in the workspace
-// stays possible, and MCP servers in the person's own ~/.codex/config.toml
-// also load. That is weaker than the Claude provider and is documented.
+// a permission the person grants in the app. Codex's read-only sandbox
+// policy has no readable roots (only `networkAccess`), and its `on-request`
+// approval runs commands that stay inside the sandbox without asking, so
+// Codex can read any file the person's account can. MCP servers in the
+// person's own ~/.codex/config.toml also load. That is weaker than the Claude
+// provider: the reader asks the person to turn Codex on before its first
+// session and shows a notice while it is used (decision
+// `in-app-agent-provider-isolation`).
 
 import type { AgentProvider, AuthHelp, LaunchHost, LaunchSpec, ProviderStatus } from '../contract'
 import { findOnPath, probeVersion } from '../detect'

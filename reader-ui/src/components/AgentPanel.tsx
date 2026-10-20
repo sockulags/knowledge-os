@@ -22,7 +22,9 @@ import { write } from "../api/write";
 import type { AgentContext, AgentMode } from "../lib/agentPrompt";
 import { pagesUsed, permissionDetails, permissionQuestion, toolLabel } from "../lib/agentPrompt";
 import { agentStore, useAgent, type PermissionAsk, type TranscriptItem } from "../lib/agentStore";
+import { codexTurnedOn, isCodex } from "../lib/codexAccess";
 import { AgentReview } from "./AgentReview";
+import { CodexNotice } from "./CodexNotice";
 import { Markdown } from "./Markdown";
 import { ReviewRules } from "./ReviewRules";
 
@@ -417,6 +419,7 @@ export function AgentPanel({
   const endRef = useRef<HTMLDivElement>(null);
   const [showList, setShowList] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  const [codexOn, setCodexOn] = useState(codexTurnedOn);
   const navigate = useNavigate();
   const titles = new Map((nav?.record_index ?? []).map((entry) => [entry.id, entry.title]));
   const saveNote = async (agentId: number | null) => {
@@ -448,7 +451,14 @@ export function AgentPanel({
   if (!open || !state.available) return null;
 
   const chosen = state.providers?.find((item) => item.id === state.providerId) ?? null;
-  const canChat = chosen !== null && chosen.state === "ready" && chosen.adapterInstalled && state.session !== "auth-required";
+  // The agent the next request goes to, or the one already running.
+  const usingCodex = isCodex(state.sessionProvider ?? chosen?.id);
+  const canChat =
+    chosen !== null &&
+    chosen.state === "ready" &&
+    chosen.adapterInstalled &&
+    state.session !== "auth-required" &&
+    (!usingCodex || codexOn);
   const send = () => {
     const request = text.trim() || (mode === "review" ? DEFAULT_REVIEW_REQUEST : "");
     if (!canChat || request === "" || state.busy) return;
@@ -514,6 +524,7 @@ export function AgentPanel({
         </button>
       </header>
       <ReviewRules variant="compact" />
+      {usingCodex && <CodexNotice onTurnedOn={() => setCodexOn(true)} />}
 
       {showList ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">

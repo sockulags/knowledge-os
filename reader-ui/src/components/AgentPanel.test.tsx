@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import type { ReviewRulesPayload } from "../api/types";
-import type { AgentBridge, AgentEvent } from "../lib/agentBridge";
+import type { AgentBridge, AgentEvent, AgentProviderInfo } from "../lib/agentBridge";
 
 const reviewRules = vi.hoisted(() => ({ current: { rules: [], error: null } as ReviewRulesPayload }));
 
@@ -20,10 +20,10 @@ let emit: (event: AgentEvent) => void;
 let respond: ReturnType<typeof vi.fn>;
 
 /** The panel and its store, loaded fresh against a fake desktop bridge. */
-async function loadPanel() {
+async function loadPanel(providers: AgentProviderInfo[] = []) {
   respond = vi.fn(async () => true);
   const bridge: Partial<AgentBridge> = {
-    list: async () => [],
+    list: async () => providers,
     respondPermission: respond as AgentBridge["respondPermission"],
     conversations: async () => [],
     onEvent: (callback) => {
@@ -63,6 +63,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // jsdom has no layout, so no scrolling.
   Element.prototype.scrollIntoView = () => undefined;
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -149,5 +150,49 @@ describe("AgentPanel review rules", () => {
     const section = await screen.findByTestId("review-rules");
     fireEvent.click(within(section).getByRole("button", { name: "The review rules cannot be used." }));
     expect(within(section).getByText(/review rule 1: writer must be agent/)).toBeTruthy();
+  });
+});
+
+function provider(id: string, displayName: string): AgentProviderInfo {
+  return {
+    id,
+    displayName,
+    state: "ready",
+    version: "1.0.0",
+    message: displayName,
+    adapterVersion: "1.0.0",
+    adapterInstalled: true,
+    mcpClientName: `${id}-client`,
+  };
+}
+
+describe("AgentPanel with Codex", () => {
+  it("asks the person to turn Codex on before it can be used, then keeps a notice", async () => {
+    await loadPanel([provider("codex", "Codex")]);
+    const card = await screen.findByTestId("agent-codex-opt-in");
+    expect(within(card).getByText(/can read any file your account can/)).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Question" })).toHaveProperty("disabled", true);
+
+    fireEvent.click(within(card).getByRole("checkbox", { name: "Use Codex with this access" }));
+
+    expect(screen.queryByTestId("agent-codex-opt-in")).toBeNull();
+    expect(screen.getByTestId("agent-codex-notice").textContent).toContain("can read files outside this knowledge base");
+    expect(screen.getByRole("textbox", { name: "Question" })).toHaveProperty("disabled", false);
+    expect(window.localStorage.getItem("kos.agent.codexTurnedOn")).toBe("yes");
+  });
+
+  it("remembers that Codex was turned on", async () => {
+    window.localStorage.setItem("kos.agent.codexTurnedOn", "yes");
+    await loadPanel([provider("codex", "Codex")]);
+    expect(await screen.findByTestId("agent-codex-notice")).toBeTruthy();
+    expect(screen.queryByTestId("agent-codex-opt-in")).toBeNull();
+  });
+
+  it("shows no notice for Claude Code", async () => {
+    await loadPanel([provider("claude-code", "Claude Code"), provider("codex", "Codex")]);
+    expect(await screen.findAllByText("Claude Code")).not.toHaveLength(0);
+    expect(screen.queryByTestId("agent-codex-notice")).toBeNull();
+    expect(screen.queryByTestId("agent-codex-opt-in")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Question" })).toHaveProperty("disabled", false);
   });
 });
