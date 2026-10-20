@@ -811,37 +811,61 @@ def _lint_issues(workspace: Workspace) -> tuple[tuple[str, str], ...]:
     return tuple(found)
 
 
+def _sync_target(repo: Repository) -> tuple[str, _Upstream]:
+    """The current branch and its upstream, or the error that stops a sync."""
+
+    branch = _branch(repo)
+    if branch is None:
+        raise GitSyncError("no_branch", "The repository is not on a branch (detached HEAD), so it cannot sync.")
+    upstream = _upstream(repo, branch)
+    if upstream is None:
+        raise _no_upstream_error(repo, branch)
+    return branch, upstream
+
+
+def _fetch(repo: Repository, remote: str, timeout: float) -> None:
+    result = _run_git(
+        repo.git,
+        repo.workspace.root,
+        ["fetch", "--quiet", remote],
+        timeout=timeout,
+        ssh_batch=_ssh_batch(repo),
+    )
+    if result.returncode != 0:
+        raise _classify_network_failure(result, "Fetching from the remote")
+
+
 def sync(workspace: Workspace, *, timeout: float = NETWORK_TIMEOUT) -> SyncOutcome:
     """Pull (fetch + merge) the upstream branch, then push.
 
     When a merge from an earlier sync is waiting and every conflict has been
     resolved, this completes it instead: the corpus must pass lint, then the
     merge is committed, the indexes rebuilt, and the result pushed.
+
+    The fetch runs without the workspace lock: it only updates
+    remote-tracking refs, and a slow remote must not hold up every save for
+    up to ``timeout`` seconds. The lock is taken for the merge and push, and
+    the branch, upstream, and merge state are read again under it, since a
+    write or another sync may have run while the fetch did.
     """
 
     repo = open_repository(workspace)
     with workspace_mutation_lock(workspace):
-        branch = _branch(repo)
-        if branch is None:
-            raise GitSyncError("no_branch", "The repository is not on a branch (detached HEAD), so it cannot sync.")
-        upstream = _upstream(repo, branch)
-        if upstream is None:
-            raise _no_upstream_error(repo, branch)
-
+        branch, upstream = _sync_target(repo)
         if _merging(repo):
             return _complete_merge(repo, upstream, timeout)
+    fetched = upstream.remote
+    _fetch(repo, fetched, timeout)
+
+    with workspace_mutation_lock(workspace):
+        branch, upstream = _sync_target(repo)
+        if _merging(repo):
+            return _complete_merge(repo, upstream, timeout)
+        if upstream.remote != fetched:
+            _fetch(repo, upstream.remote, timeout)
+            upstream = _upstream(repo, branch) or upstream
 
         before = _head(repo)
-        result = _run_git(
-            repo.git,
-            workspace.root,
-            ["fetch", "--quiet", upstream.remote],
-            timeout=timeout,
-            ssh_batch=_ssh_batch(repo),
-        )
-        if result.returncode != 0:
-            raise _classify_network_failure(result, "Fetching from the remote")
-        upstream = _upstream(repo, branch) or upstream
 
         pulled = 0
         if upstream.tracking is not None:

@@ -254,6 +254,29 @@ class SyncTests(GitTestCase):
             status = library.sync_status(workspace)
             self.assertEqual((status.ahead, status.behind, status.uncommitted), (0, 0, 0))
 
+    def test_fetch_runs_without_the_workspace_lock(self) -> None:
+        # A save made while the fetch is talking to the remote goes through at
+        # once (no lock wait allowed) and is pushed by that same sync.
+        a, b, _remote = self.make_remote_and_clones()
+        self.create(b, "from-b", "From B")
+        library.run_sync(b)
+        real_run_git = gitsync._run_git
+        saved: list[library.WriteResult] = []
+
+        def run_git(git_path, root, args, **kwargs):  # type: ignore[no-untyped-def]
+            if args[0] == "fetch" and not saved:
+                with patch.dict(os.environ, {"KOS_LOCK_TIMEOUT": "0"}):
+                    saved.append(self.create(a, "during-fetch", "During fetch"))
+            return real_run_git(git_path, root, args, **kwargs)
+
+        with patch.object(gitsync, "_run_git", run_git):
+            outcome = library.run_sync(a)
+        self.assertEqual(len(saved), 1)
+        self.assertEqual((outcome.pulled, outcome.pushed), (1, 2))
+        library.run_sync(b)
+        self.assertTrue((b.root / saved[0].path).is_file())
+        self.assertTrue((a.root / "knowledge" / "from-b.md").is_file())
+
     def test_pull_never_overwrites_uncommitted_local_changes(self) -> None:
         a, b, _remote = self.make_remote_and_clones()
         created = self.create(a, "guarded", "Guarded")
