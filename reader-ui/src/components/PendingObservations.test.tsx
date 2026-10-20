@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import type { DecisionLanguage, PendingObservation, PendingObservationsPayload } from "../api/types";
 import { api } from "../api/client";
@@ -133,11 +133,12 @@ afterEach(async () => {
 describe("Reviewing observations in Decide", () => {
   it("keeps one: the row goes at once and the request waits for the undo window", async () => {
     const onCount = await show([friday, slow]);
-    expect(onCount).toHaveBeenLastCalledWith(2);
+    // The count reaches the parent from an effect, after the rows render.
+    await waitFor(() => expect(onCount).toHaveBeenLastCalledWith(2));
     fireEvent.click(within(row("Tests are slow")).getByRole("button", { name: "Keep" }));
 
     expect(screen.getAllByTestId("observation-row")).toHaveLength(1);
-    expect(onCount).toHaveBeenLastCalledWith(1);
+    await waitFor(() => expect(onCount).toHaveBeenLastCalledWith(1));
     expect(screen.getByText("Kept “Tests are slow” as a reviewed observation.")).toBeTruthy();
     expect(observations.review).not.toHaveBeenCalled();
 
