@@ -1,8 +1,11 @@
-# Knowledge OS — v0.0.1 contract freeze
+# Knowledge OS architecture contract
 
-This document is the authoritative product and metadata contract for the
-stabilization release. The package version is `0.0.1`; the workspace schema
-version remains the integer `1`.
+This document is the authoritative product and metadata contract. It is a
+living contract: it describes the code as it is now, and each change to it
+names the decision record in `projects/knowledge-os/decisions/` that made the
+change. The package version is in `pyproject.toml`; the workspace schema
+version is the integer `1`. The history section at the end describes
+where the contract started.
 
 ## Authority and boundaries
 
@@ -19,11 +22,15 @@ workflow that calls that primitive. Agentic Work OS owns execution and
 orchestration; this repository has no runtime dependency on either Agent OS or
 Agentic Work OS.
 
-The product does not include URLs, PDFs, embeddings, semantic search or
-reranking, LLM trust decisions, contradiction or backlink subsystems, arbitrary
-record merging, a remote or shared API, cloud or multi-user behavior, a
-database as canonical storage, WAL/journal/transaction infrastructure, or
-background workers. The local interface (the `kos-read` JSON API and the
+The product does not include URLs, PDFs, reranking, LLM trust decisions,
+contradiction or backlink subsystems, arbitrary record merging, a remote or
+shared API, cloud or multi-user behavior, a database as canonical storage, or
+WAL/journal/transaction infrastructure. Search by meaning (decision
+`local-semantic-search`, see "Search by meaning") is the one place with
+embeddings and a background process: an optional local model runs in its own
+worker process and its vectors live in a disposable index, so neither is
+canonical and search without the model is plain full-text search. The local
+interface (the `kos-read` JSON API and the
 desktop app that shows it) reads one workspace and writes to it only through
 the core mutations described under "Local interface write API". The one MCP
 surface, `kos mcp` (see "Agent access over MCP"), is a client of that local
@@ -41,7 +48,7 @@ version = 1
 ```
 
 The parser rejects a missing, non-integer, or unsupported
-`[workspace].version`; v0.0.1 accepts only `1`. There are no per-record
+`[workspace].version`; only `1` is accepted. There are no per-record
 versions or migrations.
 
 The managed roots are:
@@ -281,12 +288,20 @@ context.
 Ingest, capture, conflict-safe update, decision acceptance, decision
 withdrawal, decision supersession, discovery add/retain/reject/promote, the
 structure changes (project and folder creation, page and folder moves,
-renames, and deletions), and index replacement all use one workspace-scoped advisory mutation
-lock owned by workspace infrastructure.
+renames, and deletions), storing an attachment, storing, accepting, and
+discarding a proposed change, Git operations, and index replacement all use
+one workspace-scoped advisory mutation lock owned by workspace infrastructure. The lock file is in the system temp
+folder, named after a hash of the workspace path. A mutation that finds the
+lock held waits up to `KOS_LOCK_TIMEOUT` seconds (default 120) and then fails
+with a message naming the variable, so a long Git sync makes other writes wait
+instead of failing at once.
 Each mutation follows this order:
 
 1. acquire the lock and validate the current canonical corpus and skills;
-2. validate the intended result in a disposable staged workspace;
+2. validate the intended result in a disposable staged workspace, a copy in
+   the system temp folder (never next to the knowledge base) that holds
+   Markdown and skills in full and every other file as an empty placeholder
+   of the same name, so its cost does not grow with attachment size;
 3. write only the required canonical Markdown files, atomically replacing
    existing files and exclusively creating new records;
 4. keep canonical Markdown as authoritative and rebuild disposable indexes;
@@ -342,7 +357,9 @@ user authorization. `kos documentation init-repo` validates the global config,
 project overviews, and repository-relative project paths before writing
 `.knowledge-os-project.toml`. Both commands are idempotent, refuse conflicting
 configuration unless `--replace` is supplied, use atomic file replacement, and
-attempt to restore writes after a caught failure.
+attempt to restore writes after a caught failure. In a repository, the
+longest matching binding path selects the project; a missing or ambiguous
+binding is a safe no-op outside explicit initialization.
 
 ## Local interface write API
 
@@ -351,7 +368,9 @@ on a loopback address. It cannot be reached from other computers: `--host`
 accepts only a loopback address (`127.0.0.1`, another `127.x.x.x`, `::1`, or
 `localhost`) and exits with an error for anything else, such as `0.0.0.0`, and
 every route refuses a request whose peer address is not loopback, whatever
-`Host` header it sends. `GET` routes never write canonical Markdown. When a
+`Host` header it sends. The app shell (the built `index.html`) is served
+with a Content Security Policy that allows script, style, and connections
+only from the reader's own origin. `GET` routes never write canonical Markdown. When a
 request finds the search index stale, absent, or unreadable, the server starts
 one background rebuild through `kos index`'s own function, under the same
 lock; it tries once per state of the corpus, skips a corpus that fails `kos
@@ -618,6 +637,15 @@ rule), followed by the page's complete proposed Markdown. It is committed as
   again is refused; discard it.
 - `GET /api/review/check?writer=&project=&folder=&writes=` answers
   `{"review", "rule"}` without writing.
+
+Two kinds of write are outside the review rules on purpose. Structure and
+lifecycle actions (rename, move, and delete of pages and folders, and
+decision accept, withdraw, and supersede, in `knowledge_os/reader/library.py`)
+are never held back: they are taken by a person in the app or on the command
+line, and no MCP tool performs them. Attachments are stored and committed
+when they are added (`library.attach_file`), before the page that links to
+them is saved; if that page is then held back for review, the file is already
+in the knowledge base while the link waits in Decide.
 
 Decide shows proposed changes above proposed decisions, each with Accept (not
 for a stale edit) and Discard in one click with the same Undo notice as
@@ -1065,6 +1093,14 @@ local API above with that token, sending `agent` with the MCP client's
 name of the working directory the client started it in. Only a directory name
 is used, never a path.
 
+The desktop app runs one instance per user-data folder: a second start
+focuses the existing window instead, because two instances would share one
+runtime file and an agent started in one window could write to the knowledge
+base open in the other. The app's own agent also gets `KOS_EXPECT_WORKSPACE`,
+the knowledge base its conversation started in; a runtime file naming another
+knowledge base is then refused (`wrong_knowledge_base`) instead of followed.
+Without the variable, any open knowledge base is used.
+
 Tool results are JSON objects, also sent as text. A refusal is an error
 result `{"ok": false, "error", "message", "next_step", "written"}`:
 `app_not_open` (no runtime file) and `app_not_responding` (stale file) write
@@ -1263,3 +1299,16 @@ the optional model and the semantic index:
   full-text only. A search waits at most 15 seconds for it. Asking to
   download the model again (`POST /api/semantic/install`) retries a failed
   worker. The worker exits when its stdin closes, that is, with the app.
+
+## History: the v0.0.1 freeze
+
+This contract began as the v0.0.1 contract freeze: a stabilization release
+with package version `0.0.1` and workspace schema version `1`. That slice was
+a command-line store with ingest, capture, the discovery return path, decision
+lifecycle commands, bounded context, and SQLite FTS5 search, and it named
+embeddings, semantic search, and background workers among its non-goals.
+Later decisions in `projects/knowledge-os/decisions/` added the local
+interface and its write API, configurable review, structure editing, Git
+sync, agent access over MCP, and search by meaning. The workspace schema
+version is still `1`; the package version has moved on and is kept only in
+`pyproject.toml`.
