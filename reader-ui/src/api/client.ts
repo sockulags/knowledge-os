@@ -15,6 +15,7 @@ import type {
   NavPayload,
   ProjectPayload,
   RepositoriesPayload,
+  PendingObservationsPayload,
   ReviewRulesPayload,
   RecordPayload,
   SearchPayload,
@@ -85,6 +86,7 @@ export const api = {
   changes: () => request<ChangesPayload>("/api/changes"),
   change: (id: string) => request<ChangeDetail>(`/api/changes/${encodeURIComponent(id)}`),
   reviewRules: () => request<ReviewRulesPayload>("/api/review/rules"),
+  pendingObservations: () => request<PendingObservationsPayload>("/api/discoveries/pending"),
   pageDeletion: (id: string) => request<DeletePreview>(`/api/records/${encodeURIComponent(id)}/delete-preview`),
   repositories: (projectId: string) =>
     request<RepositoriesPayload>(`/api/projects/${encodeURIComponent(projectId)}/repositories`),

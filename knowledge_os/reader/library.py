@@ -53,6 +53,7 @@ from knowledge_os.attachments import (
 )
 from knowledge_os.agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity, parse_agent_reference
 from knowledge_os.context_policy import trust_label
+from knowledge_os.discovery import DiscoveryError, pending_review_details
 from knowledge_os.gitsetup import ConnectOutcome, InitOutcome, RemoteCheck, SetupStatus
 from knowledge_os.gitsync import CommitOutcome, ConflictFile, GitSyncError, ResolveOutcome, SyncOutcome, SyncStatus
 from knowledge_os.index import rebuild_indexes, search_index, validate_index
@@ -188,6 +189,10 @@ __all__ = [
     "ReviewRule",
     "review_policy",
     "review_rules",
+    # Observations waiting for review, read-only.
+    "PendingDiscovery",
+    "RelatedRecordView",
+    "pending_discoveries",
     "review_check",
     "proposed_changes",
     "proposed_change",
@@ -1954,3 +1959,39 @@ def propose_documentation_decision(
     return create_record(
         workspace, metadata=metadata, body=body, project_path=f"decisions/{record_id}.md", agent=agent
     )
+
+
+@dataclass(frozen=True)
+class RelatedRecordView:
+    id: str
+    title: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PendingDiscovery:
+    id: str
+    packet: str  # the Markdown review packet ``kos discovery review`` prints
+    related: tuple[RelatedRecordView, ...]
+
+
+def pending_discoveries(workspace: Workspace) -> tuple[list[PendingDiscovery], str | None]:
+    """Every proposed discovery with its review packet, newest first, or no
+    packets and the reason when the corpus or search index cannot produce
+    them (an invalid record, a stale or missing index). Never writes."""
+
+    try:
+        details = pending_review_details(workspace)
+    except (DiscoveryError, ValueError, OSError, sqlite3.Error) as exc:
+        return [], str(exc)
+    return [
+        PendingDiscovery(
+            document.metadata["id"],
+            packet,
+            tuple(
+                RelatedRecordView(item.document.metadata["id"], item.document.metadata["title"], tuple(item.reasons))
+                for item in related
+            ),
+        )
+        for document, packet, related in details
+    ], None

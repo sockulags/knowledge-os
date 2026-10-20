@@ -842,3 +842,35 @@ export interface DocumentationCheckPayload {
   project: string;
   repositories: RepositoryCheck[];
 }
+
+/** GET /api/discoveries/pending: observations waiting for review, read-only. */
+export interface PendingObservation {
+  id: string;
+  title: string;
+  excerpt: string;
+  project: { id: string; title: string };
+  proposed_by: { source: string; label: string };
+  proposed_display: string | null;
+  proposed_exact: string | null;
+  /** Always "Observation — not knowledge". */
+  trust: string;
+  status_pill: Pill | null;
+  /** Pages it may overlap with; null when the packet could not be made. */
+  related: { id: string; title: string; reasons: string[]; exists: boolean }[] | null;
+  /** The review packet `kos discovery review` prints, rendered; null when it could not be made. */
+  packet_html: string | null;
+  /** What to ask an agent to review it. */
+  agent_phrase: string;
+  commands: { action: "retain" | "reject" | "promote"; label: string; command: string }[];
+}
+
+export interface PendingObservationsPayload {
+  heading: string;
+  intro: string;
+  count: number;
+  count_label: string | null;
+  /** Why the packets cannot be shown (the rows still list every observation). */
+  error: string | null;
+  items: PendingObservation[];
+  labels: Record<string, string>;
+}

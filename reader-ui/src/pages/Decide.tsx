@@ -20,6 +20,7 @@ import { Callout, LoadError } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { DecisionGuideToggle } from "../components/DecisionGuide";
 import { EmptyState } from "../components/EmptyState";
+import { PendingObservations } from "../components/PendingObservations";
 import { ReviewRules } from "../components/ReviewRules";
 import { useShell } from "../components/Shell";
 import { loadErrorMessage } from "../lib/language";
@@ -258,6 +259,8 @@ export function Decide() {
           ))}
         </ul>
       )}
+
+      <PendingObservations />
     </div>
   );
 }
