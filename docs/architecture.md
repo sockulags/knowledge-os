@@ -1209,6 +1209,12 @@ commit.
 
 ## CLI contract
 
+- `--json` writes one JSON object to stdout on `ingest`, `index`, `lint`,
+  `search` (a list), `inspect`, `capture`, `update`, `decision`, `supersede`,
+  every `discovery` and `proposal` subcommand, and the structure and `code`
+  commands; a write that changes records reports `index_count`, the records
+  indexed after it. Failures stay text on stderr with exit code 1; `kos lint`
+  with `--json` reports its issues in the object and exits 1.
 - `kos clone URL PATH [--json] [--cancel-on-stdin-eof]` clones a knowledge base
   from Git into a new or empty folder, checks it, and rebuilds its indexes (see
   "Git versioning and sync").
@@ -1222,7 +1228,8 @@ commit.
 - `kos model install|status|remove` downloads, reports, or deletes the
   optional search model; it needs no knowledge base.
 - `kos search QUERY` reads the existing cache for compact audit results,
-  including type, record kind, status, scope, path, and snippet.
+  including type, record kind, status, scope, path, and snippet; with no hits
+  it prints `No results.` to stderr (`--json` prints `[]`).
 - `kos inspect ID` provides compact record metadata and exact content SHA-256;
   `--full` adds the body.
 - `kos context` emits bounded, trust-aware, project-scoped generated context;
@@ -1248,8 +1255,15 @@ commit.
 - `kos project create`, `kos folder create`, `kos folder move`, `kos folder
   rename`, `kos move`, and `kos rename` create projects and folders and move
   or rename pages and folders (see "Structure editing").
-- `kos discovery add PATH`, `review ID`, `retain ID`, `reject ID`, and
-  `promote ID` implement the explicit discovery return path.
+- `kos discovery add PATH`, `inspect ID`, `review ID`, `retain ID`, `reject
+  ID --reason TEXT`, and `promote ID` implement the explicit discovery return
+  path.
+- `kos proposal list`, `kos proposal show ID`, and `kos proposal accept|discard
+  ID --expected-sha256 HASH` handle the proposed changes in `proposals/` with
+  the same functions as the app's Decide (see "Configurable review"); the
+  required hash is the proposal file's, which `show` prints, so a proposal
+  edited after it was shown is refused. Unlike the app, the command line does
+  not auto-commit.
 - `kos documentation init-global --workspace PATH` installs user-level host
   guidance and the global workspace location after direct authorization.
 - `kos documentation init-repo --repo PATH --project ID[=RELATIVE_PATH]`
@@ -1261,6 +1275,7 @@ commit.
   and the documentation check"); each takes `--json`.
 - `kos mcp [--place LABEL]` serves the agent tools over MCP on stdio through
   the running desktop app (see "Agent access over MCP"); it ignores `--root`.
+  Its help lists the tools from their specs in `agent_access/tools.py`.
 
 Read-only context and review require a current SQLite cache and never rebuild
 it implicitly. `kos index` is always safe to run as the derived-state repair
