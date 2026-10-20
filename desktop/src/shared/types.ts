@@ -67,8 +67,12 @@ export type ShellState =
     }
 
 /**
- * The only API the preload script exposes. Everything but the sidebar width
- * is for the start page; the main process rejects it from the reader UI.
+ * The only API the main window's preload script exposes. The workspace
+ * actions (`getState` through `retry`) are for the start page, and the main
+ * process rejects them from any other page. The sidebar width and `agent` are
+ * for the reader UI of the open knowledge base, and the main process answers
+ * them for no other page. `onStateChanged`, `onReaderCommand`, and
+ * `agent.onEvent` only listen for events the main process sends.
  */
 export interface DesktopApi {
   /**
