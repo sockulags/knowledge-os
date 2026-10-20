@@ -637,6 +637,14 @@ rule), followed by the page's complete proposed Markdown. It is committed as
   again is refused; discard it.
 - `GET /api/review/check?writer=&project=&folder=&writes=` answers
   `{"review", "rule"}` without writing.
+- `GET /api/review/rules` answers `{"rules", "error"}`: the rules in file
+  order, each `{"number", "writer", "project", "folder", "writes", "action",
+  "description"}`, where `description` is one sentence naming what the rule
+  covers and whether those writes wait for review or are written directly.
+  When the rule file cannot be used, `rules` is empty and `error` is the
+  reason. Decide and the agent panel show these rules, or that there are none
+  and every write lands directly, with the `[[review.rule]]` snippet that adds
+  one.
 
 Two kinds of write are outside the review rules on purpose. Structure and
 lifecycle actions (rename, move, and delete of pages and folders, and

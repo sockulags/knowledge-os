@@ -187,6 +187,7 @@ __all__ = [
     "ProposedWrite",
     "ReviewRule",
     "review_policy",
+    "review_rules",
     "review_check",
     "proposed_changes",
     "proposed_change",
@@ -1671,6 +1672,16 @@ def review_policy(workspace: Workspace) -> tuple[ReviewRule, ...]:
         return load_policy(workspace)
     except ReviewError as exc:
         raise WriteError("validation", f"the review rules cannot be used, so nothing was written: {exc}") from exc
+
+
+def review_rules(workspace: Workspace) -> tuple[tuple[ReviewRule, ...], str | None]:
+    """The review rules for showing them, and the reason they cannot be used
+    (``load_policy``'s message) when the rule file is broken."""
+
+    try:
+        return load_policy(workspace), None
+    except ReviewError as exc:
+        return (), str(exc)
 
 
 def _review_rule(

@@ -15,6 +15,7 @@ import type {
   NavPayload,
   ProjectPayload,
   RepositoriesPayload,
+  ReviewRulesPayload,
   RecordPayload,
   SearchPayload,
   SemanticStatus,
@@ -83,6 +84,7 @@ export const api = {
   templates: () => request<TemplatesPayload>("/api/templates"),
   changes: () => request<ChangesPayload>("/api/changes"),
   change: (id: string) => request<ChangeDetail>(`/api/changes/${encodeURIComponent(id)}`),
+  reviewRules: () => request<ReviewRulesPayload>("/api/review/rules"),
   pageDeletion: (id: string) => request<DeletePreview>(`/api/records/${encodeURIComponent(id)}/delete-preview`),
   repositories: (projectId: string) =>
     request<RepositoriesPayload>(`/api/projects/${encodeURIComponent(projectId)}/repositories`),

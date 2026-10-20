@@ -24,6 +24,7 @@ import { pagesUsed, permissionDetails, permissionQuestion, toolLabel } from "../
 import { agentStore, useAgent, type PermissionAsk, type TranscriptItem } from "../lib/agentStore";
 import { AgentReview } from "./AgentReview";
 import { Markdown } from "./Markdown";
+import { ReviewRules } from "./ReviewRules";
 
 /** How often a streaming answer is rendered again, at most. */
 const STREAM_RENDER_MS = 200;
@@ -512,6 +513,7 @@ export function AgentPanel({
           <X size={16} />
         </button>
       </header>
+      <ReviewRules variant="compact" />
 
       {showList ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">

@@ -9,6 +9,9 @@
   ``{"expected_sha256": <the proposal file's hash>}``; both commit.
 - ``GET /api/review/check?writer=&project=&folder=&writes=`` says whether a
   write would go to review, without writing (the Referat import asks first).
+- ``GET /api/review/rules`` lists the rules in order, each with a sentence
+  saying what it does, or why the rule file cannot be used, so Decide and the
+  agent panel can show which writes wait for a person.
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ from ..library import (
     proposed_changes,
     review_check,
     review_policy,
+    review_rules,
 )
 from .common import decision_language, project_title, relative_date, strip_leading_h1
 from .decisions import GENERAL, _excerpt
@@ -243,3 +247,25 @@ async def check_view(request: Request) -> Response:
     except WriteError as exc:
         return _write_error_response(exc)
     return json_response({"review": rule is not None, "rule": rule.describe() if rule is not None else None})
+
+
+async def rules_view(request: Request) -> Response:
+    rules, error = review_rules(request.app.state.workspace)
+    return json_response(
+        {
+            "rules": [
+                {
+                    "number": rule.number,
+                    "writer": rule.writer,
+                    "project": rule.project,
+                    "folder": rule.folder,
+                    "writes": rule.writes,
+                    "action": rule.action,
+                    "description": f"{rule.describe()} "
+                    + ("wait for review in Decide." if rule.action == "review" else "are written directly."),
+                }
+                for rule in rules
+            ],
+            "error": error,
+        }
+    )

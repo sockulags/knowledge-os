@@ -353,6 +353,57 @@ class ReviewApiTests(unittest.TestCase):
         self.assertEqual((status, answer["review"]), (200, False))
 
 
+class ReviewRulesApiTests(unittest.TestCase):
+    """``GET /api/review/rules``: what Decide and the agent panel show."""
+
+    def setUp(self) -> None:
+        self._temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._temp.cleanup)
+        self.root = init_workspace(Path(self._temp.name) / "kb")
+        self.config = (self.root / "knowledge-os.toml").read_text(encoding="utf-8")
+        server = serve(self.root)
+        self.base_url = server.__enter__()
+        self.addCleanup(server.__exit__, None, None, None)
+
+    def rules(self, text: str) -> dict:
+        (self.root / "knowledge-os.toml").write_text(self.config + text, encoding="utf-8")
+        status, answer = _request(self.base_url, "GET", "/api/review/rules")
+        self.assertEqual(status, 200, answer)
+        return answer
+
+    def test_no_rules(self) -> None:
+        self.assertEqual(self.rules(""), {"rules": [], "error": None})
+
+    def test_rules_in_order_with_what_they_do(self) -> None:
+        answer = self.rules(RULES)
+        self.assertIsNone(answer["error"])
+        self.assertEqual(
+            [rule["description"] for rule in answer["rules"]],
+            [
+                "Rule 1: notes by anyone in folder drafts are written directly.",
+                "Rule 2: notes by agents in project acme wait for review in Decide.",
+                "Rule 3: new pages by Referat imports wait for review in Decide.",
+            ],
+        )
+        self.assertEqual(
+            answer["rules"][1],
+            {
+                "number": 2,
+                "writer": "agent",
+                "project": "acme",
+                "folder": None,
+                "writes": "any",
+                "action": "review",
+                "description": "Rule 2: notes by agents in project acme wait for review in Decide.",
+            },
+        )
+
+    def test_a_broken_policy_says_why(self) -> None:
+        answer = self.rules('\n[[review.rule]]\nwriter = "robot"\n')
+        self.assertEqual(answer["rules"], [])
+        self.assertIn("review rule 1: writer must be", answer["error"])
+
+
 @unittest.skipIf(GIT is None, "git is not installed")
 class McpReviewTests(IsolatedTestCase):
     def setUp(self) -> None:
