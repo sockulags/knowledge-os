@@ -41,7 +41,7 @@ from ..library import (
 from .common import decision_language, project_title, relative_date, strip_leading_h1
 from .decisions import GENERAL, _excerpt
 from .record import _diff_blocks, _summarize
-from .write import _commit_json, _field, _result_json, _write_error_response, _write_payload
+from .write import _commit_json, _field, _result_json, _write_error_response, _write_payload, blocking
 
 def _entry(proposal: Proposal) -> ProvenanceEntry | None:
     value = proposal.proposed_by
@@ -212,8 +212,9 @@ async def _act(request: Request, accept: bool) -> Response:
         workspace = request.app.state.workspace
         change_id = request.path_params["change_id"]
         if accept:
-            return json_response(_result_json(accept_change(workspace, change_id, expected_sha256=expected)))
-        discarded = discard_change(workspace, change_id, expected_sha256=expected)
+            accepted = await blocking(accept_change, workspace, change_id, expected_sha256=expected)
+            return json_response(_result_json(accepted))
+        discarded = await blocking(discard_change, workspace, change_id, expected_sha256=expected)
     except WriteError as exc:
         return _write_error_response(exc)
     return json_response({"discarded": discarded.proposal_id, "commit": _commit_json(discarded.commit)})
