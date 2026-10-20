@@ -55,7 +55,12 @@ export const SHELL_TEXT = {
     message: 'You have changes that are not saved.',
     detail: 'Leaving now discards them.',
     discard: 'Discard changes',
-    keep: 'Keep editing'
+    keep: 'Keep editing',
+    noAnswerMessage: 'The knowledge base is not responding.',
+    noAnswerDetail:
+      'It may have changes that are not saved. Leaving now discards them. Cancel to wait and try again.',
+    cancel: 'Cancel',
+    leaveAnyway: 'Leave anyway'
   },
   referat: {
     menu: 'Referat',

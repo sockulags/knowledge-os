@@ -37,6 +37,7 @@ import {
   type LaunchHost,
   type ProviderStatus
 } from './contract'
+import { killProcessTree } from '../processTree'
 
 /** ACP's "authentication required" error code. */
 const AUTH_REQUIRED = -32000
@@ -354,7 +355,9 @@ export class AcpAgentSession {
           cwd: this.options.cwd,
           env: { ...host.env, ...spec.env },
           stdio: ['pipe', 'pipe', 'pipe'],
-          windowsHide: true
+          windowsHide: true,
+          // Its own process group on POSIX, so stopping it stops its children.
+          detached: process.platform !== 'win32'
         })
     this.child = child
     this.stderrTail = ''
@@ -568,6 +571,11 @@ export class AcpAgentSession {
     const child = this.child
     this.child = null
     this.connection = null
-    if (child !== null && child.exitCode === null && !child.killed) child.kill()
+    if (child === null || child.exitCode !== null || child.killed) return
+    // The adapter runs the agent (claude.exe, codex app-server) and `kos mcp`
+    // as its children, which a plain kill leaves running, with the knowledge
+    // base folder as their working directory.
+    if (child.pid !== undefined) killProcessTree(child.pid)
+    else child.kill()
   }
 }
