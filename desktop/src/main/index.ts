@@ -32,6 +32,7 @@ import { ConversationStore } from './agents/conversations'
 import { AgentService, electronLaunchHost, kosMcpCommand } from './agents/service'
 import { createCloneWindow, type CloneWindow } from './cloneWindow'
 import { flushReaderActions } from './flushReader'
+import { isFrom } from './ipcSender'
 import {
   buildMenus,
   COMMAND,
@@ -654,9 +655,8 @@ function createWindow(): void {
   void window.loadURL(startPageUrl)
 }
 
-function isStartPage(event: IpcMainInvokeEvent): boolean {
-  const url = event.senderFrame?.url ?? ''
-  return decideNavigation(url, [startPageUrl]) === 'allow'
+function isStartPage(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  return isFrom(event, mainWindow, (url) => decideNavigation(url, [startPageUrl]) === 'allow')
 }
 
 function handle(channel: string, action: (...args: unknown[]) => Promise<unknown>): void {
@@ -667,19 +667,16 @@ function handle(channel: string, action: (...args: unknown[]) => Promise<unknown
   })
 }
 
-function isReaderPage(event: IpcMainEvent): boolean {
+function isReaderPage(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
   if (state.kind !== 'ready') return false
-  const url = event.senderFrame?.url ?? ''
-  return decideNavigation(url, [state.url]) === 'allow'
+  const readerOrigin = state.url
+  return isFrom(event, mainWindow, (url) => decideNavigation(url, [readerOrigin]) === 'allow')
 }
 
 /** Like `handle`, for the in-app agent: only the reader UI of an open knowledge base. */
 function handleForReader(channel: string, action: (...args: unknown[]) => Promise<unknown>): void {
   ipcMain.handle(channel, (event, ...args) => {
-    const url = event.senderFrame?.url ?? ''
-    if (state.kind !== 'ready' || decideNavigation(url, [state.url]) !== 'allow') {
-      throw new Error('not allowed from this page')
-    }
+    if (!isReaderPage(event)) throw new Error('not allowed from this page')
     return action(...args)
   })
 }

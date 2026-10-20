@@ -186,7 +186,7 @@ export function createReferatPlugin(host: ReferatHost): ReferatPlugin {
   }
 
   // Only the import window may call the plugin, never the reader UI.
-  const handle = handleFrom(() => window)
+  const handle = handleFrom(() => window, host.pageUrl)
 
   async function readMeeting(meetingId: unknown): Promise<Meeting> {
     if (typeof meetingId !== 'string' || !MEETING_ID_PATTERN.test(meetingId)) {
