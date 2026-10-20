@@ -829,6 +829,35 @@ DECIDE_OPEN = "Open"
 #: Home page link into the inbox.
 HOME_DECIDE_LINK = "Open the decision inbox"
 
+# ---------------------------------------------------------------------------
+# Observations waiting in Decide (GET /api/discoveries/pending). Read-only:
+# the person reviews them from the command line or through an agent.
+# ---------------------------------------------------------------------------
+
+OBSERVATIONS_HEADING = "Observations waiting"
+OBSERVATIONS_INTRO = (
+    "Agents noted these while working. They are observations, not knowledge, until someone reviews them. "
+    "Review them from the command line or ask your agent; this app cannot act on them yet."
+)
+OBSERVATIONS_COUNT_SINGULAR = "1 observation is waiting for review."
+OBSERVATIONS_COUNT_PLURAL = "{count} observations are waiting for review."
+OBSERVATIONS_TRUST = "Observation — not knowledge"
+#: Shown instead of the packets when the corpus or search index cannot give them.
+OBSERVATIONS_UNAVAILABLE = "The review packets cannot be shown right now: {error}"
+OBSERVATIONS_AGENT_PHRASE = "Review the discovery {id} in Knowledge OS."
+OBSERVATIONS_LABELS: dict[str, str] = {
+    "related": "Pages it may overlap with",
+    "no_related": "No page it may overlap with was found.",
+    "packet": "Review packet",
+    "agent": "Ask your agent",
+    "commands": "Or run one of these",
+    "retain": "Keep it as a reviewed observation",
+    "reject": "Dismiss it",
+    "promote": "Turn it into a new page",
+    "copy": "Copy",
+    "copied": "Copied",
+}
+
 #: Who or what proposed a decision, from its first provenance entry that is
 #: not a lifecycle step, keyed by provenance kind. ``language.proposed_by``
 #: fills {date} for a Referat meeting and {title} for an observation. A kind

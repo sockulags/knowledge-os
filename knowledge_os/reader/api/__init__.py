@@ -18,6 +18,7 @@ from . import (
     changes,
     codedocs,
     decisions,
+    discoveries,
     docs,
     everything,
     files,
@@ -100,6 +101,7 @@ def build_api_routes() -> list[Route]:
         Route("/api/nav", workspace_nav.nav_view, name="api-nav"),
         Route("/api/home", home.view, name="api-home"),
         Route("/api/decisions/proposed", decisions.proposed_view, name="api-decisions-proposed"),
+        Route("/api/discoveries/pending", discoveries.pending_view, name="api-discoveries-pending"),
         Route("/api/projects/{project_id}", project.view, name="api-project"),
         Route("/api/projects/{project_id}/repositories", codedocs.repositories_view, name="api-repositories"),
         Route(
