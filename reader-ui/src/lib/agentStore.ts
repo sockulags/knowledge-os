@@ -24,12 +24,12 @@ import {
   noteFromTurns,
   pagesUsed,
   parseComposed,
-  slugify,
   withEarlierTurns,
   type AgentContext,
   type AgentMode,
   type Turn,
 } from "./agentPrompt";
+import { kebab } from "./text";
 
 export type TranscriptItem =
   | { kind: "user"; id: number; text: string; mode: AgentMode }
@@ -482,7 +482,7 @@ class AgentStore {
       date: new Date().toISOString().slice(0, 10),
     });
     const project = context.project;
-    const base = slugify(note.title);
+    const base = kebab(note.title, 80, "conversation");
     for (let attempt = 1; attempt <= 5; attempt++) {
       const id = attempt === 1 ? base : `${base}-${attempt}`;
       const outcome = await write.create({

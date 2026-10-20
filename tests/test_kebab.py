@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
 
 from knowledge_os.agent_access.tools import slug
 from knowledge_os.model import ID_PATTERN, kebab
 
+CASES = json.loads((Path(__file__).parent / "fixtures" / "kebab_cases.json").read_text(encoding="utf-8"))
 TITLES = ["Skärmbild från mötet", "Écrire une Note!", "Retry policy (v2)", "  --x--  ", "a" * 120]
 
 
@@ -30,6 +33,16 @@ class KebabTests(unittest.TestCase):
         for title in TITLES:
             self.assertEqual(slug(title), kebab(title, 80, "note"), title)
         self.assertEqual(slug("???"), "note")
+
+    def test_shared_fixture(self) -> None:
+        # The reader UI's kebab() reads the same file (reader-ui/src/lib/text.test.ts).
+        for case in CASES:
+            limit = case.get("limit", 80)
+            fallback = case.get("fallback", "")
+            with self.subTest(case=case["input"], limit=limit):
+                self.assertEqual(kebab(case["input"], limit, fallback), case["expected"])
+                if limit == 80 and fallback in {"", "note"}:
+                    self.assertEqual(slug(case["input"]), case["expected"] or "note")
 
 
 if __name__ == "__main__":

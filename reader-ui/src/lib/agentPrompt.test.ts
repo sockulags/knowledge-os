@@ -9,7 +9,6 @@ import {
   documentationPrompt,
   noteFromTurns,
   reviewRecommendations,
-  slugify,
   withEarlierTurns,
   isWriteTool,
   pagesUsed,
@@ -137,11 +136,6 @@ describe("conversations", () => {
       { request: "latest", answer: "short" },
     ]);
     assert.ok(!cut.includes("oldest") && cut.includes("middle") && cut.includes("latest"));
-  });
-
-  it("makes page ids from titles", () => {
-    assert.equal(slugify("Hur fungerar återförsök?"), "hur-fungerar-aterforsok");
-    assert.equal(slugify("!!!"), "conversation");
   });
 
   it("turns a conversation into a note with its pages linked", () => {

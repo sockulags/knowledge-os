@@ -248,19 +248,6 @@ export function withEarlierTurns(prompt: string, turns: readonly Turn[]): string
   ].join("\n");
 }
 
-/** A page id from a title: lowercase ASCII words joined by hyphens, as the MCP tools make them. */
-export function slugify(title: string): string {
-  const text = title
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80)
-    .replace(/-+$/, "");
-  return text || "conversation";
-}
-
 /**
  * A conversation, or one answer, as a draft note (issue #100): each request as
  * a heading with its answer below, and the pages the agent used listed as

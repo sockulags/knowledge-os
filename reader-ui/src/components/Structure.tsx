@@ -7,9 +7,8 @@ import { structure, type Outcome } from "../api/write";
 import { useApi } from "../hooks/useApi";
 import { hasUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { pendingActions } from "../lib/pendingStore";
-import { folderDisplayName } from "../lib/text";
+import { folderDisplayName, kebab } from "../lib/text";
 import { WriteFailureCallout } from "./WriteFailureCallout";
-import { slugify } from "../pages/NewRecord";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { fieldLabelClass, inputClass } from "./EditorParts";
 
@@ -225,7 +224,7 @@ export function StructureProvider({
       try {
         await pendingActions.flushAll();
         if (item.kind === "folder") {
-          const name = slugify(trimmed);
+          const name = kebab(trimmed, null);
           if (!name) {
             setFeedback({ tone: "error", text: "A folder name needs at least one letter or digit." });
             return false;
@@ -455,7 +454,7 @@ function NameDialog({
   onConfirm: (name: string, slug: string) => void;
 }) {
   const [name, setName] = useState("");
-  const slug = slugify(name);
+  const slug = kebab(name, null);
   const ready = name.trim() !== "" && slug !== "" && !busy;
   return (
     <ConfirmDialog
