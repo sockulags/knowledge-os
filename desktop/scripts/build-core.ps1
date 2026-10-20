@@ -3,15 +3,18 @@
 # PyInstaller's work folder also live under desktop\build-core (git-ignored).
 #
 # Knowledge OS itself is frozen from this checkout; only its runtime
-# dependencies (from pyproject.toml, including the reader and mcp extras) and
-# PyInstaller are installed into the build venv. Installing the package would
-# write setuptools build output into the repository.
+# dependencies (from pyproject.toml, including the reader, mcp, and search
+# extras) and PyInstaller are installed into the build venv. Installing the
+# package would write setuptools build output into the repository.
+#
+# The dependencies come from core\requirements-core.txt, which pins every
+# package, transitive ones included, by version and sha256, so two builds of
+# the same commit freeze the same Python packages. Regenerate it with
+# scripts\lock-core.ps1 after changing the dependencies in pyproject.toml.
 
 $ErrorActionPreference = 'Stop'
-$PyInstaller = 'pyinstaller==6.22.3'
 
 $desktop = Split-Path -Parent $PSScriptRoot
-$repo = Split-Path -Parent $desktop
 $build = Join-Path $desktop 'build-core'
 $venv = Join-Path $build 'venv'
 $python = Join-Path $venv 'Scripts\python.exe'
@@ -25,17 +28,12 @@ if (-not (Test-Path -LiteralPath $python)) {
   Invoke-Checked 'Creating the build venv with py -3.11' { py -3.11 -m venv $venv }
 }
 
-$pyproject = Join-Path $repo 'pyproject.toml'
-$requirements = & $python -c @"
-import sys, tomllib
-project = tomllib.load(open(sys.argv[1], 'rb'))['project']
-extras = project['optional-dependencies']
-print('\n'.join(project['dependencies'] + extras['reader'] + extras['mcp'] + extras['search']))
-"@ $pyproject
-if ($LASTEXITCODE -ne 0) { throw 'Reading the dependencies from pyproject.toml failed.' }
-
-Invoke-Checked 'Installing the core dependencies' {
-  & $python -m pip install --disable-pip-version-check --quiet $PyInstaller @($requirements -split "`r?`n" | Where-Object { $_ })
+$lock = Join-Path $desktop 'core\requirements-core.txt'
+# --only-binary: every locked package installs from a wheel, so nothing is
+# built from source with unlocked build tools.
+Invoke-Checked 'Installing the locked core dependencies' {
+  & $python -m pip install --disable-pip-version-check --quiet `
+    --require-hashes --only-binary ':all:' -r $lock
 }
 
 Invoke-Checked 'PyInstaller' {

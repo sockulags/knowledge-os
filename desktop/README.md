@@ -54,11 +54,20 @@ npm run dist
 This needs Windows, Node.js 22 or newer, and Python 3.11 reachable as
 `py -3.11` (the Python launcher from the python.org installer). No virtual
 environment has to be prepared: `build:core` creates its own in
-`build-core\venv`, installs the dependencies listed in `pyproject.toml`
-(including the `reader` and `mcp` extras) and a pinned PyInstaller into it,
-and freezes Knowledge OS from this checkout with `core\kos-core.spec`. It then
-runs the frozen core once as a smoke test, including starting `kos mcp`.
-`build-core\` and `dist\` are git-ignored.
+`build-core\venv`, installs the core's dependencies and PyInstaller into it
+from `core\requirements-core.txt`, and freezes Knowledge OS from this checkout
+with `core\kos-core.spec`. It then runs the frozen core once as a smoke test,
+including starting `kos mcp`. `build-core\` and `dist\` are git-ignored.
+
+`core\requirements-core.txt` pins every Python package the core is built
+with, transitive ones included, by version and sha256, and pip installs it
+with `--require-hashes` and wheels only, so two builds of the same commit
+freeze the same packages. `scripts\lock-core.ps1` generates it from
+`pyproject.toml` (with the `reader`, `mcp`, and `search` extras) and
+`core\build-requirements.in`; it needs [uv](https://docs.astral.sh/uv/). Run
+it after changing those dependencies, or to take newer versions, and commit
+the result. `tests/test_core_lock.py` fails when a dependency in
+`pyproject.toml` is missing from the lock.
 
 The installer is an unsigned, per-user NSIS installer (no administrator
 prompt) for the app "Knowledge OS". It installs to

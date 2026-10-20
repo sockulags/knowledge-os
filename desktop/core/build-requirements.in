@@ -1,0 +1,3 @@
+# Build tools for the frozen core, locked together with the core's run-time
+# dependencies into requirements-core.txt by scripts/lock-core.ps1.
+pyinstaller==6.22.3
