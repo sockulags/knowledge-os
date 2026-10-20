@@ -619,6 +619,19 @@ def _workspace(args: argparse.Namespace) -> Workspace:
     return Workspace.discover(getattr(args, "root", None))
 
 
+def _use_utf8_streams() -> None:
+    """Write UTF-8 even when stdout/stderr are redirected on Windows.
+
+    A redirected stream otherwise uses the ANSI code page (cp1252), which
+    cannot encode characters such as an arrow or CJK text in a record title.
+    Newline translation is left as it is.
+    """
+    for stream, errors in ((sys.stdout, "strict"), (sys.stderr, "replace")):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors=errors)
+
+
 def _write_stdout(text: str) -> None:
     stdout_buffer = getattr(sys.stdout, "buffer", None)
     if stdout_buffer is None:
@@ -789,6 +802,7 @@ def _clone(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _use_utf8_streams()
     parser = build_parser()
     args = parser.parse_args(argv)
     warning = path_warning()
