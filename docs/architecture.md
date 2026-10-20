@@ -470,6 +470,25 @@ answer `422 validation`.
   "content_sha256"}` for the retired decision. A reindex failure after both
   canonical writes is reported in `index` like any other write.
 
+The observation review routes call the same core functions as `kos discovery
+retain`, `reject`, and `promote`, with the same guard and error mapping, and
+take the CLI's flags as body fields. Every body carries `expected_sha256`,
+the observation as it was shown; a changed file answers `409 conflict`
+before the core is called. A request that carries `agent` answers `403
+forbidden`: only a person reviews an observation. The answer is what the
+command's `--json` prints plus `index_error` and `commit`; the written
+Markdown is byte for byte what the command writes. No `reviewer` is recorded
+unless the body sends one, as with `--reviewer`.
+
+- `POST /api/discoveries/{id}/retain`: `{"expected_sha256", "reason"?,
+  "reviewer"?}`. A general-scope observation is refused, as in the CLI.
+- `POST /api/discoveries/{id}/reject`: `{"expected_sha256", "reason",
+  "reviewer"?}`; `reason` is required.
+- `POST /api/discoveries/{id}/promote`: `{"expected_sha256", "target_id",
+  "title", "scope", "reason"?, "reviewer"?, "acknowledge_related"?,
+  "allow_scope_broadening"?}`. The answer adds `target_id` and
+  `acknowledged_related`; the commit holds the discovery and the new draft.
+
 `POST /api/preview` renders unsaved editor text for the preview toggle:
 `{"body": "...", "path": "optional record path for link resolution"}`
 answers `{"html": ...}`, rendered the way the record page renders a saved

@@ -81,9 +81,16 @@ ADAPTER_WRITE_ENTRY_POINTS = {
     # (index_refresh.py) through ``kos index``'s own entry point, which takes
     # the workspace lock; only the adapter may import it.
     "knowledge_os.index": {"rebuild_indexes"},
-    # Decide lists observations waiting for review with their review packet;
-    # the packet is read-only, and no discovery write is reachable.
-    "knowledge_os.discovery": {"DiscoveryError", "pending_review_details"},
+    # Decide lists observations waiting for review with their review packet,
+    # and a person retains, rejects, or promotes one through the same core
+    # functions ``kos discovery`` calls; ``discovery add`` stays unreachable.
+    "knowledge_os.discovery": {
+        "DiscoveryError",
+        "pending_review_details",
+        "promote_discovery",
+        "reject_discovery",
+        "retain_discovery",
+    },
     "knowledge_os.structure": {
         "ChangedFile",
         "DeleteBlocker",

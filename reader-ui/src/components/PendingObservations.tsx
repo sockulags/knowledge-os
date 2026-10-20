@@ -1,10 +1,179 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Bot, Check, ChevronRight, Copy, Eye, FolderKanban } from "lucide-react";
 import { api } from "../api/client";
-import type { PendingObservation, PendingObservationsPayload } from "../api/types";
+import type { DecisionLanguage, PendingObservation, PendingObservationsPayload, PropertyRow } from "../api/types";
+import { observations, type ObservationReview } from "../api/write";
+import { showsOutcome, type RunResult } from "../lib/pendingActions";
+import { pendingActions, useOnPendingSettled, usePendingEntries, type DecisionEntry } from "../lib/pendingStore";
 import { Callout } from "./Callout";
 import { Markdown } from "./Markdown";
+
+type ReviewAction = "retain" | "reject" | "promote";
+
+/** The pending-queue key of an observation (see lib/pendingStore.ts). */
+export const observationKey = (id: string) => `observation:${id}`;
+
+// The queue's notice reads an outcome's notice; an observation has no Status row.
+const NO_STATUS: PropertyRow = { label: "", value: null };
+
+/** Retain, reject, or promote an observation in one step: the row goes at
+ * once and the request waits out the undo window, like a decision action.
+ * Undo drops it before anything reaches the core. */
+export function startObservationReview(
+  row: Pick<PendingObservation, "id" | "title">,
+  action: ReviewAction,
+  request: ObservationReview,
+  labels: Record<string, string>,
+  noticeLabels: DecisionLanguage["labels"],
+): void {
+  const notice = (labels[`notice_${action}`] ?? "").replace("{title}", row.title);
+  pendingActions.schedule({
+    key: observationKey(row.id),
+    kind: action,
+    meta: {
+      recordId: observationKey(row.id),
+      outcome: { notice, summary: notice, status: NO_STATUS },
+      labels: noticeLabels,
+      allowReason: false,
+    },
+    run: async (_extra, options): Promise<RunResult> => {
+      const outcome = await observations.review(row.id, action, request, options);
+      if (outcome.ok) return { ok: true };
+      return { ok: false, error: outcome.failure.error, detail: outcome.failure.detail };
+    },
+  });
+}
+
+function ReviewActions({
+  row,
+  labels,
+  noticeLabels,
+}: {
+  row: PendingObservation;
+  labels: Record<string, string>;
+  noticeLabels: DecisionLanguage["labels"];
+}) {
+  const [mode, setMode] = useState<"idle" | "reject" | "promote">("idle");
+  const [reason, setReason] = useState("");
+  const promote = row.actions.promote;
+  const [title, setTitle] = useState(promote.title);
+  const [targetId, setTargetId] = useState(promote.target_id);
+  const [general, setGeneral] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
+
+  const start = (action: ReviewAction, request: Omit<ObservationReview, "expected_sha256">) =>
+    startObservationReview(row, action, { expected_sha256: row.content_sha256, ...request }, labels, noticeLabels);
+
+  if (mode === "reject") {
+    const ready = reason.trim() !== "";
+    return (
+      <form
+        className="space-y-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (ready) start("reject", { reason: reason.trim() });
+        }}
+      >
+        <label className="block text-[13px] text-(--color-text-muted)">
+          {labels.reason_label}
+          <input
+            className="kos-input mt-1 block w-full px-2 py-1 text-sm"
+            required
+            autoFocus
+            placeholder={labels.reason_placeholder}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </label>
+        <div className="flex gap-2">
+          <button type="submit" className="kos-btn kos-btn-primary kos-btn-sm" disabled={!ready}>
+            {labels.confirm_reject}
+          </button>
+          <button type="button" className="kos-btn kos-btn-ghost kos-btn-sm" onClick={() => setMode("idle")}>
+            {labels.cancel}
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  if (mode === "promote") {
+    const ready = title.trim() !== "" && targetId.trim() !== "" && (!promote.acknowledge_related || acknowledged);
+    return (
+      <form
+        className="space-y-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!ready) return;
+          start("promote", {
+            target_id: targetId.trim(),
+            title: title.trim(),
+            scope: general ? "general" : row.scope,
+            acknowledge_related: promote.acknowledge_related && acknowledged,
+            allow_scope_broadening: promote.allow_scope_broadening && general,
+          });
+        }}
+      >
+        <label className="block text-[13px] text-(--color-text-muted)">
+          {labels.promote_title}
+          <input
+            className="kos-input mt-1 block w-full px-2 py-1 text-sm"
+            required
+            autoFocus
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </label>
+        <label className="block text-[13px] text-(--color-text-muted)">
+          {labels.promote_id}
+          <input
+            className="kos-input mt-1 block w-full px-2 py-1 font-mono text-sm"
+            required
+            value={targetId}
+            onChange={(event) => setTargetId(event.target.value)}
+          />
+        </label>
+        {promote.allow_scope_broadening && (
+          <label className="flex items-center gap-2 text-[13px] text-(--color-text-muted)">
+            <input type="checkbox" checked={general} onChange={(event) => setGeneral(event.target.checked)} />
+            {(labels.promote_general ?? "").replace("{project}", row.project.title)}
+          </label>
+        )}
+        {promote.acknowledge_related && (
+          <label className="flex items-center gap-2 text-[13px] text-(--color-text-muted)">
+            <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
+            {labels.acknowledge_related}
+          </label>
+        )}
+        <div className="flex gap-2">
+          <button type="submit" className="kos-btn kos-btn-primary kos-btn-sm" disabled={!ready}>
+            {labels.confirm_promote}
+          </button>
+          <button type="button" className="kos-btn kos-btn-ghost kos-btn-sm" onClick={() => setMode("idle")}>
+            {labels.cancel}
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {row.actions.retain && (
+        <button type="button" className="kos-btn kos-btn-secondary kos-btn-sm" onClick={() => start("retain", {})}>
+          {labels.act_retain}
+        </button>
+      )}
+      <button type="button" className="kos-btn kos-btn-secondary kos-btn-sm" onClick={() => setMode("reject")}>
+        {labels.act_reject}
+      </button>
+      <button type="button" className="kos-btn kos-btn-secondary kos-btn-sm" onClick={() => setMode("promote")}>
+        {labels.act_promote}
+      </button>
+    </div>
+  );
+}
 
 /** Copies text, through a hidden text area where the clipboard API is missing
  * (an insecure context or an older browser). Resolves false when both fail. */
@@ -58,7 +227,17 @@ function CopyLine({ text, labels }: { text: string; labels: Record<string, strin
   );
 }
 
-function ObservationRow({ row, labels }: { row: PendingObservation; labels: Record<string, string> }) {
+function ObservationRow({
+  row,
+  labels,
+  noticeLabels,
+  failed,
+}: {
+  row: PendingObservation;
+  labels: Record<string, string>;
+  noticeLabels: DecisionLanguage["labels"];
+  failed: DecisionEntry | null;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <li className="kos-card px-5 py-4" data-testid="observation-row">
@@ -129,6 +308,16 @@ function ObservationRow({ row, labels }: { row: PendingObservation; labels: Reco
         </div>
       )}
 
+      <div className="mt-4 space-y-3 border-t border-(--color-border) pt-3.5" data-testid="observation-actions">
+        {failed?.failure && (
+          <Callout tone="danger">
+            <p>{(labels.failed ?? "").replace("{title}", row.title)}</p>
+            <p className="mt-1 whitespace-pre-wrap break-words">{failed.failure.detail}</p>
+          </Callout>
+        )}
+        <ReviewActions key={failed?.id ?? 0} row={row} labels={labels} noticeLabels={noticeLabels} />
+      </div>
+
       <div className="mt-4 space-y-2 border-t border-(--color-border) pt-3.5 text-xs">
         <p className="text-(--color-text-muted)">{labels.agent}</p>
         <CopyLine text={row.agent_phrase} labels={labels} />
@@ -148,25 +337,47 @@ function ObservationRow({ row, labels }: { row: PendingObservation; labels: Reco
 
 /**
  * Observations agents left that nobody has reviewed yet, each with its review
- * packet and the command or agent request that reviews it. Read-only: the app
- * cannot retain, reject, or promote yet. Loads on its own so the rest of
- * Decide never waits on it, and shows nothing while loading, on a failed
- * read, or when nothing waits.
+ * packet, Keep / Dismiss / Turn into a page, and the command or agent request
+ * that does the same. A review leaves the list at once and is sent after the
+ * undo window; a refusal brings the row back with the reason. Loads on its
+ * own so the rest of Decide never waits on it, and shows nothing while
+ * loading, on a failed read, or when nothing waits. `onCount` hears how many
+ * observations still wait on screen.
  */
-export function PendingObservations() {
-  const [payload, setPayload] = useState<PendingObservationsPayload | null>(null);
+export function PendingObservations({ onCount }: { onCount?: (count: number) => void }) {
+  const [loaded, setLoaded] = useState<{ payload: PendingObservationsPayload; loadedAt: number } | null>(null);
+  const [generation, setGeneration] = useState(0);
+  const entries = usePendingEntries();
+  const reload = useCallback(() => setGeneration((value) => value + 1), []);
+  useOnPendingSettled(reload);
   useEffect(() => {
     let current = true;
+    const loadedAt = Date.now();
     api.pendingObservations().then(
-      (value) => current && setPayload(value),
+      (payload) => current && setLoaded({ payload, loadedAt }),
       () => undefined,
     );
     return () => {
       current = false;
     };
-  }, []);
+  }, [generation]);
 
-  if (payload === null || payload.count === 0) return null;
+  const acted = new Set(
+    loaded === null
+      ? []
+      : entries.filter((entry) => showsOutcome(entry, loaded.loadedAt)).map((entry) => entry.meta.recordId),
+  );
+  const rows = loaded === null ? [] : loaded.payload.items.filter((row) => !acted.has(observationKey(row.id)));
+  const waiting = loaded === null ? 0 : Math.max(loaded.payload.count - (loaded.payload.items.length - rows.length), 0);
+  useEffect(() => onCount?.(waiting), [onCount, waiting]);
+
+  if (loaded === null || waiting === 0) return null;
+  const payload = loaded.payload;
+  const failures = new Map(
+    entries
+      .filter((entry) => entry.state === "failed" && entry.key.startsWith("observation:"))
+      .map((entry) => [entry.meta.recordId, entry]),
+  );
   return (
     <section className="mt-8" aria-label={payload.heading} data-testid="pending-observations">
       <h2 className="kos-heading">{payload.heading}</h2>
@@ -178,8 +389,14 @@ export function PendingObservations() {
         </div>
       )}
       <ul className="mt-4 space-y-3">
-        {payload.items.map((row) => (
-          <ObservationRow key={row.id} row={row} labels={payload.labels} />
+        {rows.map((row) => (
+          <ObservationRow
+            key={row.id}
+            row={row}
+            labels={payload.labels}
+            noticeLabels={payload.notice_labels}
+            failed={failures.get(observationKey(row.id)) ?? null}
+          />
         ))}
       </ul>
     </section>

@@ -5,6 +5,7 @@
 // page can show a conflict, lint issues, or a refusal in place.
 
 import type {
+  ObservationReviewResult,
   ProposedWriteResult,
   ResolveResult,
   SemanticStatus,
@@ -208,6 +209,31 @@ export const changes = {
     send<WriteResult>("POST", `${changePath(id)}/accept`, { expected_sha256: expected }, false, options),
   discard: (id: string, expected: string, options?: SendOptions) =>
     send<{ discarded: string }>("POST", `${changePath(id)}/discard`, { expected_sha256: expected }, false, options),
+};
+
+/** What a person sends to review an observation: the fields `kos discovery
+ * retain|reject|promote` takes as flags, and the observation as shown. */
+export interface ObservationReview {
+  expected_sha256: string;
+  /** Required to reject; optional otherwise. */
+  reason?: string;
+  target_id?: string;
+  title?: string;
+  scope?: string;
+  acknowledge_related?: boolean;
+  allow_scope_broadening?: boolean;
+}
+
+/** Reviewing an observation. Never sends `agent`: the core refuses agents here. */
+export const observations = {
+  review: (id: string, action: "retain" | "reject" | "promote", request: ObservationReview, options?: SendOptions) =>
+    send<ObservationReviewResult>(
+      "POST",
+      `/api/discoveries/${encodeURIComponent(id)}/${action}`,
+      request,
+      false,
+      options,
+    ),
 };
 
 /** A 202 write answer: held back for review, nothing written yet. */

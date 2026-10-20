@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   ArrowRight,
@@ -155,6 +156,7 @@ export function Decide() {
   const [params, setParams] = useSearchParams();
   const project = params.get("project");
   const entries = usePendingEntries();
+  const [observationsWaiting, setObservationsWaiting] = useState(0);
   // The list stays on screen while it reloads after an action.
   const inbox = useApi(
     async () => {
@@ -250,7 +252,12 @@ export function Decide() {
 
       {items.length === 0 && changeRows.length > 0 ? null : items.length === 0 ? (
         <div className="mt-8">
-          <EmptyState title={data.empty.title} body={data.empty.body} icon={<Inbox size={28} strokeWidth={1.5} />} action={<></>} />
+          <EmptyState
+            title={(observationsWaiting > 0 && data.empty.title_observations) || data.empty.title}
+            body={data.empty.body}
+            icon={<Inbox size={28} strokeWidth={1.5} />}
+            action={<></>}
+          />
         </div>
       ) : (
         <ul className="mt-6 space-y-3">
@@ -260,7 +267,7 @@ export function Decide() {
         </ul>
       )}
 
-      <PendingObservations />
+      <PendingObservations onCount={setObservationsWaiting} />
     </div>
   );
 }

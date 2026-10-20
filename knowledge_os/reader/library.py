@@ -10,8 +10,9 @@ Reads never write to the workspace. The only writes are ``create_record``,
 ``edit_record``, ``accept_record``, ``withdraw_record``, and
 ``supersede_record``, plus the structure changes ``create_project``,
 ``create_folder``, ``rename_page``, ``move_page``, ``move_folder``,
-``delete_page``, and ``delete_folder``, at the
-end of this module, which hand the request to the core's own ``capture``,
+``delete_page``, and ``delete_folder``, and the observation reviews
+``retain_observation``, ``reject_observation``, and ``promote_observation``
+(``kos discovery retain|reject|promote``), at the end of this module, which hand the request to the core's own ``capture``,
 ``update``, ``decision accept``, ``decision withdraw``, ``supersede``, and
 ``structure`` mutations (shared lock, staged validation,
 SHA-256 guard, index refresh) and translate the core's errors into one
@@ -53,7 +54,13 @@ from knowledge_os.attachments import (
 )
 from knowledge_os.agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity, parse_agent_reference
 from knowledge_os.context_policy import trust_label
-from knowledge_os.discovery import DiscoveryError, pending_review_details
+from knowledge_os.discovery import (
+    DiscoveryError,
+    pending_review_details,
+    promote_discovery,
+    reject_discovery,
+    retain_discovery,
+)
 from knowledge_os.gitsetup import ConnectOutcome, InitOutcome, RemoteCheck, SetupStatus
 from knowledge_os.gitsync import CommitOutcome, ConflictFile, GitSyncError, ResolveOutcome, SyncOutcome, SyncStatus
 from knowledge_os.index import rebuild_indexes, search_index, validate_index
@@ -189,10 +196,15 @@ __all__ = [
     "ReviewRule",
     "review_policy",
     "review_rules",
-    # Observations waiting for review, read-only.
+    # Observations waiting for review, and the person's review of them.
     "PendingDiscovery",
     "RelatedRecordView",
     "pending_discoveries",
+    "DiscoveryWriteResult",
+    "retain_observation",
+    "reject_observation",
+    "promote_observation",
+    "suggest_record_id",
     "review_check",
     "proposed_changes",
     "proposed_change",
@@ -1995,3 +2007,193 @@ def pending_discoveries(workspace: Workspace) -> tuple[list[PendingDiscovery], s
         )
         for document, packet, related in details
     ], None
+
+
+def suggest_record_id(library: Library, title: str) -> str:
+    """A free lowercase kebab-case ID for a new page titled ``title``."""
+
+    wanted = kebab(title, 80, "page")
+    candidate, number = wanted, 2
+    while candidate in library.records_by_id:
+        candidate = f"{wanted}-{number}"
+        number += 1
+    return candidate
+
+
+@dataclass(frozen=True)
+class DiscoveryWriteResult:
+    """What ``kos discovery retain|reject|promote --json`` prints, plus the
+    commit. ``target_id`` and ``acknowledged_related`` are set by a promotion
+    only; ``index_error`` when the files were written but reindexing failed."""
+
+    id: str
+    status: str
+    index_count: int | None
+    target_id: str | None = None
+    acknowledged_related: tuple[str, ...] = ()
+    index_error: str | None = None
+    commit: CommitOutcome | None = None
+
+
+@dataclass(frozen=True)
+class _OnDisk:
+    path: str  # workspace-relative POSIX
+    title: str
+    type: str
+    status: str
+    sha256: str
+
+
+def _on_disk(workspace: Workspace) -> dict[str, _OnDisk]:
+    documents, _issues = validate_workspace(workspace)
+    return {
+        document.metadata["id"]: _OnDisk(
+            _relative_or_absolute(workspace, document.path),
+            str(document.metadata.get("title") or document.metadata["id"]),
+            str(document.metadata.get("type") or ""),
+            str(document.metadata.get("status") or ""),
+            content_sha256(document.path),
+        )
+        for document in documents
+    }
+
+
+def _discovery_error(exc: Exception) -> WriteError:
+    detail = str(exc)
+    if detail.startswith("discovery not found") or "is not a discovery" in detail:
+        return WriteError("not_found", detail)
+    if "already exists" in detail or "created by another writer" in detail:
+        return WriteError("duplicate", detail)
+    if detail.startswith("invalid discovery transition"):
+        return WriteError("conflict", detail)
+    return WriteError("validation", detail)
+
+
+def _review_discovery(
+    workspace: Workspace,
+    record_id: str,
+    expected_sha256: str,
+    call: Callable[[], DiscoveryWriteResult],
+    message: Callable[[_OnDisk, dict[str, _OnDisk]], str],
+    target_id: str | None = None,
+) -> DiscoveryWriteResult:
+    """Run one core discovery review, then commit the files it wrote.
+
+    ``expected_sha256`` is the observation as the person saw it: a changed
+    file is refused before the core is called, so nobody reviews text they
+    did not read. (The core takes the workspace lock itself, so this check
+    narrows the window rather than closing it.)
+    """
+
+    _require_sha(expected_sha256, "expected_sha256")
+    before = _on_disk(workspace)
+    seen = before.get(record_id)
+    if seen is None:
+        raise WriteError("not_found", f"discovery not found: {record_id}")
+    if seen.type != "discovery":
+        raise WriteError("not_found", f"record {record_id!r} is not a discovery")
+    if seen.sha256 != expected_sha256:
+        raise WriteError(
+            "conflict",
+            "This observation changed after it was shown, so nothing was done. Reload Decide and review it again.",
+            current_sha256=seen.sha256,
+        )
+    try:
+        result = call()
+    except (ValueError, WorkspaceError, MetadataError, OSError, sqlite3.Error) as exc:
+        after = _on_disk(workspace)
+        current = after.get(record_id)
+        if current is None or current.sha256 == expected_sha256:
+            raise _discovery_error(exc) from exc
+        # The core wrote the Markdown and then could not refresh the indexes:
+        # the review stands, so commit it and say why the index lags.
+        result = DiscoveryWriteResult(
+            record_id,
+            "promoted" if target_id is not None else current.status,
+            None,
+            target_id=target_id if target_id in after else None,
+            index_error=str(exc),
+        )
+    else:
+        after = _on_disk(workspace)
+    paths = [after[record_id].path]
+    if result.target_id is not None and result.target_id in after:
+        paths.append(after[result.target_id].path)
+    commit = gitsync.auto_commit(workspace, paths, message(seen, after))
+    return replace(result, commit=commit)
+
+
+def retain_observation(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    reason: str | None = None,
+    reviewer: str | None = None,
+) -> DiscoveryWriteResult:
+    """``kos discovery retain``: keep it as a reviewed observation."""
+
+    def call() -> DiscoveryWriteResult:
+        status, count = retain_discovery(workspace, record_id, reviewer=reviewer, reason=reason)
+        return DiscoveryWriteResult(record_id, status, count)
+
+    return _review_discovery(
+        workspace, record_id, expected_sha256, call, lambda seen, _after: f"Retain observation {seen.title}"
+    )
+
+
+def reject_observation(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    reason: str,
+    reviewer: str | None = None,
+) -> DiscoveryWriteResult:
+    """``kos discovery reject --reason``."""
+
+    def call() -> DiscoveryWriteResult:
+        status, count = reject_discovery(workspace, record_id, reason=reason, reviewer=reviewer)
+        return DiscoveryWriteResult(record_id, status, count)
+
+    return _review_discovery(
+        workspace, record_id, expected_sha256, call, lambda seen, _after: f"Reject observation {seen.title}"
+    )
+
+
+def promote_observation(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    target_id: str,
+    title: str,
+    scope: str,
+    reason: str | None = None,
+    reviewer: str | None = None,
+    acknowledge_related: bool = False,
+    allow_scope_broadening: bool = False,
+) -> DiscoveryWriteResult:
+    """``kos discovery promote``: a new draft page from the observation."""
+
+    def call() -> DiscoveryWriteResult:
+        created, count, related_ids = promote_discovery(
+            workspace,
+            record_id,
+            target_id=target_id,
+            title=title,
+            scope=scope,
+            reviewer=reviewer,
+            reason=reason,
+            acknowledge_related=acknowledge_related,
+            allow_scope_broadening=allow_scope_broadening,
+        )
+        return DiscoveryWriteResult(
+            record_id, "promoted", count, target_id=created, acknowledged_related=tuple(related_ids)
+        )
+
+    def message(seen: _OnDisk, after: dict[str, _OnDisk]) -> str:
+        new_title = after[target_id].title if target_id in after else target_id
+        return f"Promote observation {seen.title} to {new_title}"
+
+    return _review_discovery(workspace, record_id, expected_sha256, call, message, target_id=target_id)
