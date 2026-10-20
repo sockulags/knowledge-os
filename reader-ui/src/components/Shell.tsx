@@ -12,6 +12,7 @@ import { SyncBar, SyncFailureBanner } from "./SyncBar";
 import { StructureProvider } from "./Structure";
 import { UndoNotices } from "./UndoNotices";
 import { useSync, type SyncState } from "../hooks/useSync";
+import { usePageReload } from "../hooks/usePageReload";
 import { MAC, isQuickSwitchShortcut } from "../lib/quickSwitch";
 import { showsOutcome } from "../lib/pendingActions";
 import { pendingActions, useOnPendingSettled, usePendingEntries } from "../lib/pendingStore";
@@ -70,9 +71,10 @@ export function Shell() {
   const [agentOpen, setAgentOpen] = useState(false);
   const agentAvailable = agentBridge() !== null;
 
-  // Bumped after a sync pulls changes, which remounts the page so it
-  // re-reads what the pull changed.
-  const [dataVersion, setDataVersion] = useState(0);
+  // After a sync pulls changes the page remounts so it re-reads what the
+  // pull changed, but not while it holds unsaved edits (hooks/usePageReload.ts).
+  const pageReload = usePageReload();
+  const requestPageReload = pageReload.request;
 
   // When the nav request started, so a decision action that finished before
   // it no longer needs subtracting from the Decide count.
@@ -92,8 +94,8 @@ export function Shell() {
   const sync = useSync(
     useCallback(() => {
       loadNav();
-      setDataVersion((value) => value + 1);
-    }, [loadNav]),
+      requestPageReload();
+    }, [loadNav, requestPageReload]),
   );
   const refreshNav = loadNav;
 
@@ -134,9 +136,9 @@ export function Shell() {
   useEffect(() => {
     if (pendingActions.pendingCount() === 0) return;
     void pendingActions.flushAll().then((sent) => {
-      if (sent > 0) setDataVersion((value) => value + 1);
+      if (sent > 0) requestPageReload();
     });
-  }, [location.pathname]);
+  }, [location.pathname, requestPageReload]);
   useEffect(() => {
     prepareSession();
     const flush = () => void pendingActions.flushAll({ keepalive: true });
@@ -174,9 +176,9 @@ export function Shell() {
   const structureChanged = useCallback(
     (reloadPage: boolean) => {
       loadNav();
-      if (reloadPage) setDataVersion((value) => value + 1);
+      if (reloadPage) requestPageReload();
     },
-    [loadNav],
+    [loadNav, requestPageReload],
   );
 
   return (
@@ -258,7 +260,12 @@ export function Shell() {
           </div>
         </header>
         <SyncFailureBanner sync={sync} />
-        <main key={dataVersion}>
+        {pageReload.waiting && (
+          <p role="status" className="border-b border-(--color-border) px-4 py-2 text-sm text-(--color-text-muted)">
+            New changes came in. This page reloads once your edits are saved.
+          </p>
+        )}
+        <main key={pageReload.version}>
           <Outlet context={{ refreshNav, sync, nav } satisfies ShellContext} />
         </main>
       </div>
