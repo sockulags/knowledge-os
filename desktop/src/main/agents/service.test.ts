@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -40,6 +40,15 @@ const missingProvider: AgentProvider = {
     version: null,
     message: 'Not here.'
   })
+}
+
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
 }
 
 describe('AgentService', () => {
@@ -98,6 +107,42 @@ describe('AgentService', () => {
     expect(events.some((event) => event.type === 'text' && event.text === 'hi')).toBe(true)
     service.close()
     await expect(service.prompt('echo hi')).rejects.toMatchObject({ kind: 'closed' })
+  })
+
+  it('stops the processes the agent started when the conversation closes', async () => {
+    const { root, fetchBytes } = adapters()
+    const pidFile = join(root, 'child.pid')
+    const withChild: AgentProvider = {
+      ...mockProvider,
+      launchSpec: () => ({
+        command: process.execPath,
+        args: [MOCK_AGENT],
+        env: { MOCK_CHILD: pidFile }
+      })
+    }
+    service = new AgentService(
+      testHost,
+      { root, fetchBytes },
+      { name: 'test', version: '0' },
+      () => undefined,
+      [withChild]
+    )
+    await service.installAdapter('mock')
+    await service.start('mock', {
+      root: process.cwd(),
+      kosMcp: kosMcpCommand('kos', {}, 'r.json', process.cwd())
+    })
+    // The pid is written before the agent answers `initialize`.
+    expect(existsSync(pidFile)).toBe(true)
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    expect(isRunning(pid)).toBe(true)
+    service.close()
+    const deadline = Date.now() + 5000
+    while (isRunning(pid) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    if (isRunning(pid)) process.kill(pid)
+    expect(isRunning(pid)).toBe(false)
   })
 
   it('runs kos mcp from the app’s own core, labelled as the app, for one knowledge base', () => {

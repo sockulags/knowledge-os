@@ -5,6 +5,9 @@
 //   MOCK_RECORD=<file>     append one JSON line per request it receives
 //   MOCK_AUTH=required     refuse session/new with ACP's auth-required error
 //   MOCK_LOAD=1            advertise session/load
+//   MOCK_CHILD=<file>      start a process that never exits on its own and
+//                          write its pid there, like the agent and `kos mcp`
+//                          an adapter starts
 //
 // A prompt's text is a command:
 //   echo <text>    stream <text> as the agent's message
@@ -17,7 +20,8 @@
 // Plain JavaScript run by Node, so it has no return types to declare.
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
-import { appendFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { appendFileSync, writeFileSync } from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 import {
   AgentSideConnection,
@@ -46,6 +50,19 @@ function pickEnv() {
   return Object.fromEntries(
     names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]])
   )
+}
+
+if (process.env.MOCK_CHILD) {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+    windowsHide: true,
+    // On Windows, outside the job object Node puts its children in, which
+    // would end it together with this process: the agent's own children
+    // (`kos mcp` under claude.exe) are not in one. On POSIX, in this
+    // process's group, as a real adapter's children are.
+    detached: process.platform === 'win32'
+  })
+  writeFileSync(process.env.MOCK_CHILD, String(child.pid))
 }
 
 let sessions = 0
