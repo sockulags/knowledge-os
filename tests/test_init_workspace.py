@@ -23,10 +23,6 @@ from knowledge_os.cli import main as kos_main
 from knowledge_os.init_workspace import LAYOUT_DIRS, README_CONTENT, WorkspaceInitError, init_workspace
 from knowledge_os.reader.app import STATIC_APP_DIR
 
-#: This module's own end-to-end port, distinct from every other reader test
-#: module's fixed port.
-PORT = 8840
-
 
 def _kos(*argv: str) -> tuple[int, str, str]:
     stdout, stderr = io.StringIO(), io.StringIO()
@@ -134,7 +130,7 @@ class ReaderServesNewWorkspaceTests(unittest.TestCase):
             # The child runs from the system temp directory, not from this
             # repository, so cwd discovery cannot reach the repository's own
             # knowledge-os.toml.
-            with serve(root, PORT, cwd=Path(tempfile.gettempdir())) as base_url:
+            with serve(root, cwd=Path(tempfile.gettempdir())) as base_url:
                 with urllib.request.urlopen(f"{base_url}/api/workspace") as response:
                     workspace = json.loads(response.read())
                 self.assertEqual(workspace["name"], "fresh-kb")

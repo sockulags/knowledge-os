@@ -15,8 +15,6 @@ from knowledge_os.init_workspace import init_workspace
 from knowledge_os.templates import BUILT_IN, built_in_files, fill, list_templates, parse_template
 from knowledge_os.workspace import Workspace
 
-PORT = 8881
-
 
 def _names(workspace: Workspace) -> list[str]:
     return [template.name for template in list_templates(workspace)]
@@ -104,7 +102,7 @@ class TemplatesApiTests(unittest.TestCase):
             create_workspace(root)
             (root / "templates").mkdir()
             (root / "templates" / "daily.md").write_text("---\ndescription: One day\n---\nLog for {{date}}\n", encoding="utf-8")
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 with urllib.request.urlopen(f"{base_url}/api/templates", timeout=10) as response:
                     payload = json.loads(response.read())
 

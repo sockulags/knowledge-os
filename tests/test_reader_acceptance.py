@@ -35,9 +35,6 @@ from knowledge_os.reader.cli import MISSING_EXTRA
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 
-#: This unit's assigned end-to-end port (see the batch brief: ten sibling
-#: agents each own a distinct port; this one is 8822).
-PORT = 8822
 
 #: Tooling/environment artifacts that are not part of "the workspace" a
 #: person reads: bytecode caches and editable-install metadata are a
@@ -106,7 +103,7 @@ class ServeRealWorkspaceByteIdenticalTests(unittest.TestCase):
         # indifferent to since it compares before/after, not against zero).
         before = _workspace_snapshot(REPOSITORY)
 
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             routes = [
                 "/",
                 "/p/knowledge-os",
@@ -272,7 +269,7 @@ class PlainInstallExcludesTheReaderTests(unittest.TestCase):
             "dependencies, not the command itself, are what's missing",
         )
         result = subprocess.run(
-            [str(script), "--root", str(REPOSITORY), "--port", "8829"],
+            [str(script), "--root", str(REPOSITORY), "--port", "0"],
             text=True,
             capture_output=True,
             check=False,

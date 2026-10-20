@@ -20,8 +20,6 @@ from reader_support import (
     write_decision_fixture,
 )
 
-PORT = 8838
-
 
 def _get(base_url: str, path: str) -> dict:
     with urllib.request.urlopen(base_url + path, timeout=5) as response:
@@ -30,7 +28,7 @@ def _get(base_url: str, path: str) -> dict:
 
 class WorkspaceHealthTests(unittest.TestCase):
     def test_real_corpus_lint_is_clean(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             data = _get(base_url, "/api/workspace")
             self.assertEqual(data["health"]["issue_count"], 0)
             self.assertTrue(data["health"]["lint_ok"])
@@ -38,7 +36,7 @@ class WorkspaceHealthTests(unittest.TestCase):
 
 class NavTests(unittest.TestCase):
     def test_quick_find_index_covers_records_skills_and_docs(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             data = _get(base_url, "/api/nav")
             kinds = {entry["kind"] for entry in data["record_index"]}
             self.assertIn("decision", kinds)
@@ -51,7 +49,7 @@ class NavTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_decision_fixture(root)
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/nav")
                 by_id = {entry["id"]: entry for entry in data["record_index"]}
                 project = by_id[FIXTURE_PROJECT_ID]
@@ -65,7 +63,7 @@ class NavTests(unittest.TestCase):
                 self.assertEqual(groups["decisions"], "Decisions")
 
     def test_sidebar_copy_comes_from_the_string_table(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             language = _get(base_url, "/api/nav")["language"]
             self.assertEqual(language["sidebar_resize_label"], strings.SIDEBAR_RESIZE_LABEL)
             self.assertEqual(language["sidebar_resize_hint"], strings.SIDEBAR_RESIZE_HINT)
@@ -78,20 +76,20 @@ class NavTests(unittest.TestCase):
             root = Path(directory)
             write_decision_fixture(root)
             (root / "projects" / FIXTURE_PROJECT_ID / "README.md").unlink()
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/nav")
                 projects = [entry for entry in data["record_index"] if entry["group"] == "projects"]
                 self.assertEqual([entry["id"] for entry in projects], [FIXTURE_PROJECT_ID])
                 self.assertEqual(projects[0]["kind_label"], "Project")
 
     def test_skills_and_repo_docs_sections_are_populated(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             data = _get(base_url, "/api/nav")
             self.assertEqual(len(data["skills"]), 4)
             self.assertGreater(len(data["repo_docs"]), 0)
 
     def test_project_tree_is_nested_under_the_knowledge_os_project(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             data = _get(base_url, "/api/nav")
             project = next(p for p in data["projects"] if p["id"] == "knowledge-os")
             self.assertEqual(project["tree"]["name"], "")
@@ -109,7 +107,7 @@ class HomeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_decision_fixture(root)
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/home")
                 waiting_ids = {r["id"] for r in data["waiting_on_you"]}
                 in_force_ids = {r["id"] for r in data["in_force"]}

@@ -27,8 +27,6 @@ from knowledge_os.init_workspace import init_workspace
 from knowledge_os.reader import library
 from knowledge_os.workspace import Workspace
 
-PORT = 8847
-
 
 class _Servers:
     """Loopback endpoints for failure tests, closed by the test's cleanups."""
@@ -471,7 +469,7 @@ class SetupApiTests(GitTestCase):
         root = init_workspace(self.base / "kb")
         remote = self.base / "remote.git"
         git(self.base, "init", "--quiet", "--bare", "-b", "main", str(remote))
-        with serve(root, PORT) as base:
+        with serve(root) as base:
             code, setup = self.request(base, "GET", "/api/sync/setup")
             self.assertEqual(code, 200)
             self.assertEqual(setup["state"], "init")

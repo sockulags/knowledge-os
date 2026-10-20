@@ -11,6 +11,8 @@ optionally serve it. Stage-B units build all of their end-to-end tests on
 from __future__ import annotations
 
 import os
+import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -153,7 +155,40 @@ def write_decision_fixture(root: Path) -> None:
     rebuild_indexes(Workspace(root))
 
 
-def _poll_until_serving(base_url: str, process: subprocess.Popen, timeout: float) -> None:
+#: The line uvicorn logs once it listens; with ``--port 0`` it names the
+#: port the operating system picked.
+_LISTENING = re.compile(r"Uvicorn running on http://127\.0\.0\.1:(\d+)")
+
+
+def free_port() -> int:
+    """Return a port that nothing listened on a moment ago.
+
+    For tests that need a port number with no server behind it. A server
+    started through :func:`serve` never needs one: it binds port 0 and
+    reports the port it got.
+    """
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def _wait_for_port(log, process: subprocess.Popen, deadline: float) -> int:
+    """Read the server's own output until it says which port it listens on."""
+
+    while time.monotonic() < deadline:
+        log.seek(0)
+        match = _LISTENING.search(log.read())
+        if match:
+            return int(match.group(1))
+        exit_code = process.poll()
+        if exit_code is not None:
+            raise RuntimeError(f"kos-read exited early with code {exit_code} before listening")
+        time.sleep(0.05)
+    raise RuntimeError("kos-read did not report a listening port in time")
+
+
+def _poll_until_serving(base_url: str, process: subprocess.Popen, deadline: float) -> None:
     """Poll ``/api/workspace``, not ``/``: the bare root serves the built
     React app's ``index.html`` and answers 503 before ``npm run build`` has
     ever run (see ``app.py``'s SPA fallback), which would make every test
@@ -161,7 +196,6 @@ def _poll_until_serving(base_url: str, process: subprocess.Popen, timeout: float
     with no frontend build. The API route is always live once the process
     accepts connections at all."""
 
-    deadline = time.monotonic() + timeout
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         exit_code = process.poll()
@@ -173,21 +207,25 @@ def _poll_until_serving(base_url: str, process: subprocess.Popen, timeout: float
         except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
             last_error = exc
             time.sleep(0.1)
-    raise RuntimeError(f"kos-read did not start serving {base_url} within {timeout}s") from last_error
+    raise RuntimeError(f"kos-read did not start serving {base_url} in time") from last_error
 
 
 @contextmanager
 def serve(
     root: Path,
-    port: int,
     *,
     timeout: float = 15.0,
     cwd: Path | None = None,
     refresh_index: bool = False,
 ) -> Iterator[str]:
-    """Start ``kos-read --root root --port port`` and yield its base URL.
+    """Start ``kos-read --root root --port 0`` and yield its base URL.
 
-    Polls until the port answers an HTTP request before yielding, and
+    The operating system picks a free port and the server reports it in its
+    output, so test files that run at the same time can never reach each
+    other's servers. Read the port from the URL when a test needs it
+    (``urllib.parse.urlsplit(base_url).port``).
+
+    Polls until the server answers before yielding, and
     always terminates the subprocess in a ``finally``, even if the caller's
     test raises. Output is captured to a temporary file (not a pipe) so a
     long test session issuing many requests cannot deadlock the child on a
@@ -203,7 +241,7 @@ def serve(
 
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(REPOSITORY) + os.pathsep + environment.get("PYTHONPATH", "")
-    base_url = f"http://127.0.0.1:{port}"
+    environment["PYTHONUNBUFFERED"] = "1"
     log = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
     # No `cwd=root`: `--root` is always passed explicitly above, so
     # Workspace.discover() never falls back to the process's current
@@ -216,7 +254,7 @@ def serve(
     # returned, intermittently raising PermissionError: [WinError 32] from
     # the temp directory's own removal. Leaving `cwd` at the parent's
     # default avoids taking that handle on `root` at all.
-    command = [sys.executable, "-m", "knowledge_os.reader", "--root", str(root), "--port", str(port)]
+    command = [sys.executable, "-m", "knowledge_os.reader", "--root", str(root), "--port", "0"]
     if not refresh_index:
         command.append("--no-index-refresh")
     process = subprocess.Popen(
@@ -229,7 +267,9 @@ def serve(
     )
     try:
         try:
-            _poll_until_serving(base_url, process, timeout)
+            deadline = time.monotonic() + timeout
+            base_url = f"http://127.0.0.1:{_wait_for_port(log, process, deadline)}"
+            _poll_until_serving(base_url, process, deadline)
         except RuntimeError as exc:
             log.seek(0)
             raise RuntimeError(f"{exc}\n--- kos-read output ---\n{log.read()}") from None

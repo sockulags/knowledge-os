@@ -14,17 +14,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from reader_support import REPOSITORY
+from reader_support import REPOSITORY, free_port
 
 from knowledge_os.init_workspace import init_workspace
 
-#: This module's own end-to-end port, distinct from every other reader test
-#: module's fixed port.
-LIFELINE_PORT = 8841
-
-
 class StdinLifelineTests(unittest.TestCase):
     def test_reader_exits_when_its_stdin_closes(self) -> None:
+        port = free_port()
         with tempfile.TemporaryDirectory() as tmp:
             root = init_workspace(Path(tmp) / "lifeline-kb")
             environment = os.environ.copy()
@@ -37,7 +33,7 @@ class StdinLifelineTests(unittest.TestCase):
                     "--root",
                     str(root),
                     "--port",
-                    str(LIFELINE_PORT),
+                    str(port),
                     "--exit-on-stdin-eof",
                 ],
                 env=environment,
@@ -50,7 +46,7 @@ class StdinLifelineTests(unittest.TestCase):
                 while True:
                     self.assertIsNone(process.poll(), "kos-read exited before serving")
                     try:
-                        urllib.request.urlopen(f"http://127.0.0.1:{LIFELINE_PORT}/api/workspace", timeout=1).close()
+                        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/workspace", timeout=1).close()
                         break
                     except (urllib.error.URLError, ConnectionError, TimeoutError):
                         self.assertLess(time.monotonic(), deadline, "kos-read did not start serving")
