@@ -607,7 +607,18 @@ it, and their updater reads the GitHub feed from `app-update.yml`.
 The start page opens a folder, creates a new knowledge base in an empty folder
 with `kos init`, and lists the ten most recently opened knowledge bases. The
 list is stored in `recent-workspaces.json` in Electron's user-data folder. The
-File menu has the same actions plus Close Knowledge Base.
+File menu has the same actions plus Close Knowledge Base. An entry whose
+folder has been moved or deleted is marked "Folder not found", and every entry
+has a Remove button (×, after the entry in tab order) that takes it off the
+list without touching the folder.
+
+The main process writes its diagnostics, such as core start failures, update
+checks, and files it could not save, to `logs/main.log` in the user-data
+folder as well as to the console. The file starts over at about 1 MB and the
+two previous files are kept as `main.log.1` and `main.log.2`
+(`src/main/logger.ts`). Help → Open Log Folder opens that folder, and Help →
+About Knowledge OS shows the app, Electron, Chromium, and Node.js versions and
+the log folder's path.
 
 On start, the app reopens the most recently opened knowledge base when its
 folder still exists and still has its `knowledge-os.toml` marker

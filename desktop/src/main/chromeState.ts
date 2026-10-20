@@ -111,6 +111,34 @@ export function noAnswerDialog(): {
   }
 }
 
+export interface AboutInfo {
+  version: string
+  electron: string
+  chrome: string
+  node: string
+  logDir: string
+}
+
+/** Help → About Knowledge OS: the version, what it runs on, and where its log is. */
+export function aboutDialog(info: AboutInfo): {
+  type: 'info'
+  title: string
+  message: string
+  detail: string
+  buttons: string[]
+  noLink: true
+} {
+  const text = SHELL_TEXT.about
+  return {
+    type: 'info',
+    title: text.title,
+    message: fillText(text.message, { version: info.version }),
+    detail: fillText(text.detail, { ...info }),
+    buttons: [text.ok],
+    noLink: true
+  }
+}
+
 /** Whether `noAnswerDialog`'s button `response` leaves the page. */
 export function leavesAnyway(response: number): boolean {
   return response === 1

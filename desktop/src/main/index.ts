@@ -15,12 +15,13 @@ import {
   shell
 } from 'electron'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
-import { existsSync, statSync } from 'fs'
+import { existsSync, mkdirSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { SHELL_TEXT } from '../shared/shellText'
 import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
 import appIcon from '../../build/icon.ico?asset'
 import {
+  aboutDialog,
   answerWithin,
   LeaveGuard,
   leavesAnyway,
@@ -37,6 +38,7 @@ import { createCloneWindow, type CloneWindow } from './cloneWindow'
 import { INITIAL_CLOSE_STATE, nextCloseState, type CloseAction, type CloseEvent } from './closeFlow'
 import { flushReaderActions } from './flushReader'
 import { isFrom } from './ipcSender'
+import { initLog, log, logDir } from './logger'
 import {
   buildMenus,
   COMMAND,
@@ -56,7 +58,7 @@ import {
   type CoreFailure
 } from './pythonCore'
 import { bundledCore, findRepoRoot, interpreterCandidates } from './pythonInterpreter'
-import { addRecent, loadRecent, saveRecent } from './recentWorkspaces'
+import { addRecent, loadRecent, markMissing, removeRecent, saveRecent } from './recentWorkspaces'
 import { decideStartup, notAKnowledgeBaseNotice, type PathKind } from './reopen'
 import {
   fetchWriteToken,
@@ -86,6 +88,16 @@ if (process.env['KOS_DESKTOP_USER_DATA']) {
 const singleInstance = app.requestSingleInstanceLock()
 if (!singleInstance) app.quit()
 
+// Diagnostics also go to a rotating file, since the installed app has no console.
+const logsFolder = join(app.getPath('userData'), 'logs')
+if (singleInstance) {
+  initLog(logsFolder)
+  log.info(
+    `Knowledge OS ${app.getVersion()} starting (${app.isPackaged ? 'installed' : 'development'}, ` +
+      `Electron ${process.versions.electron}, ${process.platform} ${process.arch})`
+  )
+}
+
 const repoRoot = findRepoRoot(app.getAppPath(), existsSync)
 const pythonEnv = pythonEnvironment(process.env, repoRoot)
 const recentFile = join(app.getPath('userData'), 'recent-workspaces.json')
@@ -97,7 +109,7 @@ let core: CoreProcess | null = null
 let pythonExecutable: string | null = null
 let recent: RecentWorkspace[] = loadRecent(recentFile)
 let settings: AppSettings = loadSettings(settingsFile)
-let state: ShellState = { kind: 'start', recent }
+let state: ShellState = startState()
 /** Closing the window, quitting, and restarting to update (see closeFlow.ts). */
 let closeState = INITIAL_CLOSE_STATE
 /** Increments per open request so a slow, superseded start is discarded. */
@@ -229,7 +241,7 @@ async function publishRuntime(started: CoreProcess, root: string): Promise<void>
     })
     publishedCorePid = pid
   } catch (error) {
-    console.error('could not write the runtime file for agents', error)
+    log.error('could not write the runtime file for agents', error)
   }
 }
 
@@ -266,7 +278,17 @@ function setState(next: ShellState): void {
   buildMenu()
 }
 
+/** The start page's state, with recent folders that are gone marked as missing. */
+function startState(notice?: string): ShellState {
+  const shown = markMissing(recent, pathKind)
+  return notice === undefined
+    ? { kind: 'start', recent: shown }
+    : { kind: 'start', recent: shown, notice }
+}
+
 function showError(root: string | null, failure: CoreFailure): void {
+  log.error(`error screen (${failure.error}) for ${root ?? 'no folder'}: ${failure.message}`)
+  if (failure.detail !== '') log.error(failure.detail)
   setState({ kind: 'error', root, ...failure, recent })
 }
 
@@ -337,8 +359,8 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
   }
   if (!result.ok) {
     if (reopened !== null && result.failure.error === 'invalid-workspace') {
-      console.error('could not reopen the last knowledge base:', result.failure.message)
-      setState({ kind: 'start', recent, notice: notAKnowledgeBaseNotice(reopened) })
+      log.error('could not reopen the last knowledge base:', result.failure.message)
+      setState(startState(notAKnowledgeBaseNotice(reopened)))
     } else {
       showError(root, result.failure)
     }
@@ -365,7 +387,7 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
   try {
     saveRecent(recentFile, recent)
   } catch (error) {
-    console.error('could not save the recent workspaces list', error)
+    log.error('could not save the recent workspaces list', error)
   }
   setState({ kind: 'ready', root, name: started.name, url: started.url, recent })
   void publishRuntime(started, root)
@@ -382,7 +404,19 @@ async function showStart(): Promise<void> {
   core = null
   unpublishRuntime()
   await previous?.stop()
-  setState({ kind: 'start', recent })
+  setState(startState())
+}
+
+/** Drops `root` from the recent list, for a folder that moved or is no longer wanted there. */
+function forgetRecent(root: string): void {
+  recent = removeRecent(recent, root)
+  try {
+    saveRecent(recentFile, recent)
+  } catch (error) {
+    log.error('could not save the recent workspaces list', error)
+  }
+  if (state.kind === 'start') setState(startState(state.notice))
+  else buildMenu()
 }
 
 async function pickFolder(title: string, buttonLabel: string): Promise<string | null> {
@@ -430,7 +464,7 @@ function changeSettings(change: Partial<AppSettings>): void {
   try {
     saveSettings(settingsFile, settings)
   } catch (error) {
-    console.error('could not save the settings', error)
+    log.error('could not save the settings', error)
   }
   buildMenu()
 }
@@ -524,9 +558,38 @@ function runCommand(command: string): void {
     case COMMAND.restartToUpdate:
       if (updateState().phase === 'ready') restartToUpdate()
       return
+    case COMMAND.openLogFolder:
+      return openLogFolder()
+    case COMMAND.about:
+      return void showAbout()
     default:
       referat?.run(command)
   }
+}
+
+function openLogFolder(): void {
+  const folder = logDir() ?? logsFolder
+  try {
+    mkdirSync(folder, { recursive: true })
+  } catch (error) {
+    log.error('could not create the log folder', error)
+  }
+  void shell.openPath(folder).then((problem) => {
+    if (problem !== '') log.error(`could not open the log folder ${folder}: ${problem}`)
+  })
+}
+
+async function showAbout(): Promise<void> {
+  const options = aboutDialog({
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    logDir: logDir() ?? logsFolder
+  })
+  const window = mainWindow
+  if (window !== null && !window.isDestroyed()) await dialog.showMessageBox(window, options)
+  else await dialog.showMessageBox(options)
 }
 
 function currentMenus(): MenuSpec[] {
@@ -621,7 +684,7 @@ function createWindow(): void {
     leaveGuard.reset()
     openGeneration++
     stopCoreSync()
-    state = { kind: 'start', recent }
+    state = startState()
     if (closeFlow({ type: 'window-closed' }) === 'install') installDownloadedUpdate()
   })
 
@@ -730,7 +793,7 @@ function registerIpc(): void {
     try {
       saveSettings(settingsFile, settings)
     } catch (error) {
-      console.error('could not save the settings', error)
+      log.error('could not save the settings', error)
     }
   })
   handle(IPC.getState, async () => state)
@@ -749,6 +812,10 @@ function registerIpc(): void {
     if (typeof root !== 'string' || !recent.some((item) => item.root === root)) return
     await openWorkspace(root)
   })
+  handle(IPC.removeRecent, async (root) => {
+    if (typeof root !== 'string' || !recent.some((item) => item.root === root)) return
+    forgetRecent(root)
+  })
 }
 
 // Stop the core on every way out of the main process. A hard crash that
@@ -762,7 +829,7 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
 }
 process.on('uncaughtException', (error) => {
   stopCoreSync()
-  console.error(error)
+  log.error('uncaught exception', error)
   app.exit(1)
 })
 app.on('before-quit', () => {
@@ -793,7 +860,7 @@ function startup(): void {
   if (decision.kind === 'open') {
     void openWorkspace(decision.root, decision.reopened ? (recent[0] ?? null) : null)
   } else if (decision.notice !== null) {
-    setState({ kind: 'start', recent, notice: decision.notice })
+    setState(startState(decision.notice))
   }
 }
 

@@ -2,8 +2,9 @@
 // folder. Only Node built-ins are used so the module is unit-testable.
 
 import { readFileSync } from 'fs'
-import type { RecentWorkspace } from '../shared/types'
+import type { RecentEntry, RecentWorkspace } from '../shared/types'
 import { writeFileAtomic } from './atomicFile'
+import type { PathKind } from './reopen'
 
 export const MAX_RECENT = 10
 
@@ -23,6 +24,23 @@ export function addRecent(
 ): RecentWorkspace[] {
   const rest = list.filter((item) => !sameRoot(item.root, entry.root, platform))
   return [entry, ...rest].slice(0, MAX_RECENT)
+}
+
+/** Drop the entry for the folder `root`, if the list has one. */
+export function removeRecent(
+  list: RecentWorkspace[],
+  root: string,
+  platform: NodeJS.Platform = process.platform
+): RecentWorkspace[] {
+  return list.filter((item) => !sameRoot(item.root, root, platform))
+}
+
+/** The list as the start page shows it: a folder that is no longer there is marked missing. */
+export function markMissing(
+  list: RecentWorkspace[],
+  pathKind: (path: string) => PathKind
+): RecentEntry[] {
+  return list.map((item) => ({ ...item, missing: pathKind(item.root) !== 'directory' }))
 }
 
 function isRecentWorkspace(value: unknown): value is RecentWorkspace {

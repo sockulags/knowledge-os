@@ -31,7 +31,15 @@ export const SHELL_TEXT = {
     help: 'Help',
     checkForUpdates: 'Check for Updates…',
     checkAutomatically: 'Check for Updates Automatically',
-    restartToUpdate: 'Restart to Update ({version})'
+    restartToUpdate: 'Restart to Update ({version})',
+    openLogFolder: 'Open Log Folder',
+    about: 'About Knowledge OS'
+  },
+  about: {
+    title: 'About Knowledge OS',
+    message: 'Knowledge OS {version}',
+    detail: 'Electron {electron}, Chromium {chrome}, Node.js {node}\n\nLog files: {logDir}',
+    ok: 'OK'
   },
   update: {
     readyMessage: 'Knowledge OS {version} is ready to install.',

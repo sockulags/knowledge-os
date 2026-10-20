@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  aboutDialog,
   addNotice,
   answerWithin,
   LeaveGuard,
@@ -175,5 +176,22 @@ describe('LeaveGuard', () => {
     await leave.confirm()
     leave.reset()
     expect(leave.unloadPrevented().allow).toBe(false)
+  })
+})
+
+describe('aboutDialog', () => {
+  it('shows the version, the runtime, and where the log is', () => {
+    const dialog = aboutDialog({
+      version: '0.8.6',
+      electron: '43.2.0',
+      chrome: '140.0.0.0',
+      node: '24.1.0',
+      logDir: 'C:\\Users\\me\\AppData\\Roaming\\knowledge-os-desktop\\logs'
+    })
+    expect(dialog.title).toBe('About Knowledge OS')
+    expect(dialog.message).toBe('Knowledge OS 0.8.6')
+    expect(dialog.detail).toContain('Electron 43.2.0, Chromium 140.0.0.0, Node.js 24.1.0')
+    expect(dialog.detail).toContain('knowledge-os-desktop\\logs')
+    expect(dialog.buttons).toEqual(['OK'])
   })
 })

@@ -28,7 +28,9 @@ export const COMMAND = {
   fullScreen: 'view:full-screen',
   checkForUpdates: 'help:check-for-updates',
   checkAutomatically: 'help:check-automatically',
-  restartToUpdate: 'help:restart-to-update'
+  restartToUpdate: 'help:restart-to-update',
+  openLogFolder: 'help:open-log-folder',
+  about: 'help:about'
 } as const
 
 const RECENT_PREFIX = 'file:recent:'
@@ -90,7 +92,10 @@ export function buildMenus(input: MenuInput): MenuSpec[] {
       label: text.checkAutomatically,
       checked: input.checkForUpdates,
       enabled: input.updatesSupported
-    }
+    },
+    separator,
+    { command: COMMAND.openLogFolder, label: text.openLogFolder },
+    { command: COMMAND.about, label: text.about }
   ]
   if (input.updateReadyVersion !== null) {
     help.push(separator, {

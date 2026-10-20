@@ -18,6 +18,7 @@
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { SHELL_TEXT } from '../shared/shellText'
+import { log as appLog } from './logger'
 import {
   INITIAL_UPDATE_STATE,
   canRestartToUpdate,
@@ -47,8 +48,8 @@ let active = false
 let simulated: string | null = null
 
 function log(text: string, error?: unknown): void {
-  if (error !== undefined) console.error(`[updater] ${text}`, error)
-  else console.log(`[updater] ${text}`)
+  if (error !== undefined) appLog.error(`[updater] ${text}`, error)
+  else appLog.info(`[updater] ${text}`)
 }
 
 function dispatch(event: UpdateEvent): void {
