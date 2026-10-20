@@ -1,7 +1,16 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { useDialogFocus } from "../hooks/useDialogFocus";
+
+/** A second action offered next to the main one (Discard beside Save). */
+export interface DialogAction {
+  label: string;
+  tone?: "neutral" | "danger";
+  onClick: () => void;
+}
 
 /** A small modal confirmation: what will happen, then Cancel or the action.
- * Escape and the backdrop cancel unless the action is running. */
+ * Escape and the backdrop cancel unless the action is running. Focus stays
+ * inside while it is open and goes back to what opened it on close. */
 export function ConfirmDialog({
   title,
   children,
@@ -10,6 +19,7 @@ export function ConfirmDialog({
   busy = false,
   confirmDisabled = false,
   hideConfirm = false,
+  alternative,
   cancelLabel = "Cancel",
   workingLabel = "Working…",
   onConfirm,
@@ -23,12 +33,14 @@ export function ConfirmDialog({
   confirmDisabled?: boolean;
   /** Only explain (why something cannot be done): the one button closes it. */
   hideConfirm?: boolean;
+  alternative?: DialogAction;
   cancelLabel?: string;
   workingLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(panelRef);
 
   useEffect(() => {
     // Focus a field if the dialog asks for one, otherwise Cancel, so a
@@ -57,6 +69,17 @@ export function ConfirmDialog({
           <button type="button" data-cancel onClick={onCancel} disabled={busy} className="kos-btn kos-btn-ghost">
             {cancelLabel}
           </button>
+          {alternative && (
+            <button
+              type="button"
+              data-alternative
+              onClick={alternative.onClick}
+              disabled={busy}
+              className={`kos-btn ${alternative.tone === "danger" ? "kos-btn-danger" : "kos-btn-secondary"}`}
+            >
+              {alternative.label}
+            </button>
+          )}
           {!hideConfirm && (
             <button
               type="button"

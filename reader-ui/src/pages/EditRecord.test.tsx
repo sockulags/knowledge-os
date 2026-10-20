@@ -75,7 +75,10 @@ function renderEditor() {
       {
         path: "/",
         element: <Outlet context={{ refreshNav: vi.fn(), sync: {}, nav: null }} />,
-        children: [{ path: "r/:recordId/edit", element: <EditRecord /> }],
+        children: [
+          { path: "r/:recordId/edit", element: <EditRecord /> },
+          { path: "r/:recordId", element: <p>The page</p> },
+        ],
       },
     ],
     { initialEntries: ["/r/note/edit"] },
@@ -203,5 +206,51 @@ describe("EditRecord", () => {
     await user.click(saveButton());
 
     expect(await screen.findByRole("button", { name: "Reload current version" })).toBeTruthy();
+  });
+
+  it("saves and then leaves from the unsaved-changes dialog", async () => {
+    const user = userEvent.setup();
+    vi.mocked(write.edit).mockResolvedValueOnce(written("sha-2") as never);
+    renderEditor();
+
+    const text = await screen.findByLabelText("Page text");
+    await user.type(text, " world");
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(await screen.findByRole("button", { name: "Save and leave" }));
+
+    expect(await screen.findByText("The page")).toBeTruthy();
+    expect(write.edit).toHaveBeenCalledWith("note", { expected_sha256: "sha-1", body: "Hello world" });
+  });
+
+  it("stays in the editor with the conflict when Save and leave cannot save", async () => {
+    const user = userEvent.setup();
+    vi.mocked(write.edit).mockResolvedValueOnce(conflict as never);
+    renderEditor();
+
+    const text = (await screen.findByLabelText("Page text")) as HTMLTextAreaElement;
+    await user.type(text, " world");
+    vi.mocked(api.record).mockResolvedValue(theirs());
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(await screen.findByRole("button", { name: "Save and leave" }));
+
+    expect(await screen.findByRole("heading", { name: "This page changed while you were editing" })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByText("The page")).toBeNull();
+    expect(text.value).toBe("Hello world");
+  });
+
+  it("does not offer Save and leave while an attachment is still being stored", async () => {
+    const user = userEvent.setup();
+    vi.mocked(write.attach).mockReturnValueOnce(new Promise(() => undefined) as never);
+    renderEditor();
+
+    const text = (await screen.findByLabelText("Page text")) as HTMLTextAreaElement;
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, { target: { files: [new File(["png"], "shot.png", { type: "image/png" })] } });
+    await waitFor(() => expect(text.value).toContain("Attaching shot.png"));
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    const saveAndLeave = (await screen.findByRole("button", { name: "Save and leave" })) as HTMLButtonElement;
+    expect(saveAndLeave.disabled).toBe(true);
   });
 });
