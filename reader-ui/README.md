@@ -37,7 +37,9 @@ npm test
 Runs the `src/**/*.test.ts` unit tests with Node's built-in test runner
 (Node 22.18 or newer, which strips TypeScript types itself). Only pure
 modules are tested this way, such as the quick switcher's ranking and
-grouping in `src/lib/quickSwitch.ts`; test files are excluded from `tsc`.
+grouping in `src/lib/quickSwitch.ts`. Then it runs the `src/**/*.test.tsx`
+component and hook tests with Vitest in jsdom (`vitest.config.ts`), with the
+API modules mocked. Test files are excluded from `tsc`.
 
 ## Quick switcher
 

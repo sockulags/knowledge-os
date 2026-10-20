@@ -115,6 +115,8 @@ function Editor({
   const [sha, setSha] = useState(editing.content_sha256!);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [nonMaterial, setNonMaterial] = useState(false);
+  // An attachment still being stored leaves a placeholder link in the text.
+  const [uploading, setUploading] = useState(false);
 
   const changes = metadataChanges(saved, draft);
   const bodyChanged = draft.body !== saved.body;
@@ -122,14 +124,19 @@ function Editor({
   const needsConfirmation = editing.body_change_needs_confirmation && bodyChanged;
   const { blocker, allowNextNavigation } = useUnsavedChanges(dirty);
   const navigate = useNavigate();
+  const canSave = dirty && status.kind !== "saving" && !uploading && !(needsConfirmation && !nonMaterial);
 
   const save = useCallback(async () => {
-    if (!dirty || status.kind === "saving" || (needsConfirmation && !nonMaterial)) return;
+    if (!canSave) return;
+    // What this save sends. The text stays editable meanwhile, so the draft
+    // may move on; only `saved` takes this snapshot, and whatever was typed
+    // since still reads as unsaved.
+    const sent = { ...draft, title: draft.title.trim() };
     setStatus({ kind: "saving" });
     const outcome = await write.edit(record.id, {
       expected_sha256: sha,
       ...(Object.keys(changes).length > 0 ? { metadata: changes } : {}),
-      ...(bodyChanged ? { body: draft.body } : {}),
+      ...(bodyChanged ? { body: sent.body } : {}),
       ...(needsConfirmation ? { confirm_non_material: true, change_reference: interfaceReference("edit") } : {}),
     });
     if (outcome.ok && isProposed(outcome.data)) {
@@ -142,9 +149,7 @@ function Editor({
       const written = outcome.data as WriteResult;
       // The returned hash is the revision now on disk: the next save sends it.
       setSha(written.content_sha256);
-      const next = { ...draft, title: draft.title.trim() };
-      setSaved(next);
-      setDraft(next);
+      setSaved(sent);
       setNonMaterial(false);
       setStatus({ kind: "saved", at: new Date(), indexError: written.index.error });
       if ("title" in changes) refreshNav();
@@ -154,10 +159,8 @@ function Editor({
       setStatus({ kind: "failed", failure: outcome.failure });
     }
   }, [
-    dirty,
-    status.kind,
+    canSave,
     needsConfirmation,
-    nonMaterial,
     record.id,
     sha,
     changes,
@@ -193,10 +196,10 @@ function Editor({
         <span className="text-sm text-(--color-text-faint)" aria-live="polite">
           {status.kind === "saving" && "Saving…"}
           {status.kind === "saved" && !dirty && `Saved ${status.at.toLocaleTimeString()}`}
-          {status.kind !== "saving" && dirty && "Unsaved changes"}
+          {status.kind !== "saving" && dirty && (uploading ? "Attaching a file…" : "Unsaved changes")}
         </span>
         <SecondaryButton onClick={onClose}>Close</SecondaryButton>
-        <PrimaryButton onClick={() => void save()} disabled={!dirty || status.kind === "saving" || (needsConfirmation && !nonMaterial)}>
+        <PrimaryButton onClick={() => void save()} disabled={!canSave}>
           Save
         </PrimaryButton>
       </div>
@@ -254,6 +257,7 @@ function Editor({
           onChange={update("body")}
           path={editing.path}
           attachTo={{ record_id: record.id }}
+          onUploadingChange={setUploading}
         />
       </div>
 

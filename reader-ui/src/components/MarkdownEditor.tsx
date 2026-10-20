@@ -1,4 +1,4 @@
-import { useRef, useState, type ClipboardEvent, type DragEvent } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { Paperclip } from "lucide-react";
 import { write, type AttachTarget } from "../api/write";
 import { Markdown } from "./Markdown";
@@ -31,12 +31,14 @@ function uploadName(file: File, pasted: boolean): string {
  * rendered by the core (POST /api/preview), so it matches the record page.
  * With `attachTo`, images and files can be pasted, dropped, or chosen: each
  * is stored in the `assets/` folder next to the page and linked where the
- * cursor was. */
+ * cursor was. While a file is stored its link is only a placeholder, so
+ * `onUploadingChange` lets the page hold back saving until it is done. */
 export function MarkdownEditor({
   value,
   onChange,
   path,
   attachTo,
+  onUploadingChange,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -44,6 +46,8 @@ export function MarkdownEditor({
   path?: string;
   /** Where attached files go; without it the editor attaches nothing. */
   attachTo?: AttachTarget;
+  /** Called with true when the first upload starts and false when the last ends. */
+  onUploadingChange?: (uploading: boolean) => void;
 }) {
   const [mode, setMode] = useState<"write" | "preview">("write");
   const [preview, setPreview] = useState<{ html: string } | { error: string } | null>(null);
@@ -55,6 +59,13 @@ export function MarkdownEditor({
   // The latest text, for uploads that finish after more typing.
   const valueRef = useRef(value);
   valueRef.current = value;
+
+  const isUploading = uploading > 0;
+  const uploadingChangedRef = useRef(onUploadingChange);
+  uploadingChangedRef.current = onUploadingChange;
+  useEffect(() => {
+    uploadingChangedRef.current?.(isUploading);
+  }, [isUploading]);
 
   async function showPreview() {
     setMode("preview");
@@ -159,7 +170,7 @@ export function MarkdownEditor({
               title="Attach an image or a file. You can also paste or drop one into the text."
             >
               <Paperclip className="size-3.5" aria-hidden />
-              {uploading > 0 ? "Attaching…" : "Attach file"}
+              {isUploading ? "Attaching…" : "Attach file"}
             </button>
             <input
               ref={fileInputRef}
