@@ -40,8 +40,9 @@ agent, and they record this agent as the author in provenance. They need no Pyth
    destination project in the proposal.
 2. After approval, save an approved lesson or preference with `write_note` (title, content,
    project and folder when it belongs to a project, `status: draft` unless the person asked for it
-   to be current). To change an existing page, `read_page` it and send the complete new content
-   with its `content_sha256` as `expected_sha256`.
+   to be current). Save a standing preference or working agreement with `destination: memory`
+   (and `project` when it applies to one project). To change an existing page, `read_page` it
+   and send the complete new content with its `content_sha256` as `expected_sha256`.
 3. Save an approved decision with `propose_decision`, with `supersedes` when it replaces a decision
    in force. It is stored as a proposal that governs nothing until the person accepts it in the
    app's Decide inbox; say so. There is no tool to accept, withdraw, or supersede, and approval to
@@ -51,8 +52,7 @@ agent, and they record this agent as the author in provenance. They need no Pyth
 
 If a tool reports `app_not_open` or `app_not_responding`, nothing was written: tell the person to
 open the Knowledge OS app with their knowledge base and offer to save again then. Do not fall back
-to the CLI to write while the app is closed. A preference that must live in `memory/` has no MCP
-tool; use the CLI fallback for it.
+to the CLI to write while the app is closed.
 
 ## CLI fallback
 
@@ -167,7 +167,7 @@ path with `--project-path`; never invent a folder that the user did not approve.
 Invoke the storage boundary only after the approved file exists:
 
 ```powershell
-& $python[0] $python[1] -m knowledge_os --root "$env:KNOWLEDGE_OS_ROOT" capture "$candidate" --json
+& $python[0] $python[1] -m knowledge_os --root "$env:KNOWLEDGE_OS_ROOT" capture "$candidate" --writer agent --json
 ```
 
 For an approved nested project destination, append `--project-path
@@ -176,11 +176,15 @@ For an approved nested project destination, append `--project-path
 POSIX shells use the same selected launcher variable, including the documented `python3` fallback:
 
 ```sh
-"$python_cmd" -m knowledge_os --root "$KNOWLEDGE_OS_ROOT" capture "$candidate" --json
+"$python_cmd" -m knowledge_os --root "$KNOWLEDGE_OS_ROOT" capture "$candidate" --writer agent --json
 ```
 
 For an approved nested project destination, append `--project-path
 "$approved_project_path"`.
+
+`--writer agent` applies the knowledge base's review rules: when a rule holds the write back, the
+result's `action` is `waiting_for_review`, nothing is written yet, and a person accepts or discards
+the change in the app's Decide inbox; say so and do not capture it again.
 
 Call once per approved candidate; never pass an unapproved batch. Report the exact returned fields
 that identify the outcome and record, preserving their values without inference; dump the full JSON

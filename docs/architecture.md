@@ -564,9 +564,17 @@ top level only), `writes` (`create`, `edit`, or `any`, the default), and
 decides; no match is direct. A write is an agent's when it carries `agent`,
 Referat's when a create carries `referat-meeting` provenance, and otherwise a
 person's. Rules govern note creates and edits through the local API (the app,
-`kos mcp`, and the Referat import); decisions are never held back, and CLI
-commands write directly. A rule file that cannot be read refuses every write
-it could govern (`422 validation`) instead of letting it through.
+`kos mcp`, and the Referat import). On the command line they apply only when
+the caller says it is an agent: `kos capture` and `kos update` with `--writer
+agent` (or `agent:<client>`) store the same proposal when a rule holds the
+write back (`--json` answers `{"action": "waiting_for_review", "id",
+"proposal", "path", "rule"}`, and nothing is committed, as for every CLI
+write); without `--writer` they write directly. Memory pages count as
+`general` whatever their scope. Decisions are never held back, and agents
+cannot edit them: `PATCH /api/records/{id}` with `agent` on a decision is
+`403 forbidden`, as is `kos update --writer agent`. A rule file that cannot be
+read refuses every write it could govern (`422 validation`) instead of
+letting it through, and `kos lint` reports it.
 
 A held-back write is validated by applying it to a disposable staged copy of
 the workspace with the direct write's rules, so every refusal is the same as
