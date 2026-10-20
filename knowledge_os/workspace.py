@@ -660,11 +660,34 @@ def workspace_mutation_lock(workspace: Workspace) -> Iterator[None]:
         handle.close()
 
 
+STAGED_CONTENT_SUFFIXES = {".md", ".markdown"}
+
+
+def _copy_markdown_or_placeholder(source: str, destination: str) -> str:
+    """Copy Markdown; leave an empty file of the same name for anything else.
+
+    Validation reads only Markdown, but it still sees every other file's name
+    and whether it is a link, and staged structure changes move and delete
+    attachments, so each one keeps its place without its bytes.
+    """
+
+    if Path(source).suffix.lower() in STAGED_CONTENT_SUFFIXES:
+        return shutil.copy2(source, destination)
+    with open(destination, "xb"):
+        pass
+    return destination
+
+
 @contextmanager
 def stage_workspace(workspace: Workspace) -> Iterator[Workspace]:
-    """Create a disposable candidate workspace for intended-state validation."""
+    """Create a disposable candidate workspace for intended-state validation.
 
-    temporary = tempfile.TemporaryDirectory(prefix="kos-stage-", dir=workspace.root.parent)
+    The copy lives in the system temp directory, never next to the knowledge
+    base, and holds attachments only as empty placeholders, so its cost does
+    not grow with their size.
+    """
+
+    temporary = tempfile.TemporaryDirectory(prefix="kos-stage-")
     stage_root = Path(temporary.name)
     try:
         shutil.copy2(workspace.root / "knowledge-os.toml", stage_root / "knowledge-os.toml")
@@ -672,7 +695,7 @@ def stage_workspace(workspace: Workspace) -> Iterator[Workspace]:
             source = workspace.root / directory
             destination = stage_root / directory
             if source.is_dir():
-                shutil.copytree(source, destination, symlinks=True)
+                shutil.copytree(source, destination, symlinks=True, copy_function=_copy_markdown_or_placeholder)
             else:
                 destination.mkdir(parents=True)
         yield Workspace(stage_root)
