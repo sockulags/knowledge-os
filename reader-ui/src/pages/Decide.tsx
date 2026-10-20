@@ -20,6 +20,7 @@ import { Callout, LoadError } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { DecisionGuideToggle } from "../components/DecisionGuide";
 import { EmptyState } from "../components/EmptyState";
+import { ReviewRules } from "../components/ReviewRules";
 import { useShell } from "../components/Shell";
 import { loadErrorMessage } from "../lib/language";
 import { useApi } from "../hooks/useApi";
@@ -198,6 +199,8 @@ export function Decide() {
       <div className="mt-5">
         <DecisionGuideToggle language={data.language} defaultOpen={data.count === 0 && changesData.count === 0} />
       </div>
+
+      <ReviewRules variant="full" />
 
       {data.projects.length > 1 && (
         <nav className="mt-6 flex flex-wrap items-center gap-2" aria-label={data.filter_label}>

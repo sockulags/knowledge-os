@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
+import type { ReviewRulesPayload } from "../api/types";
 import type { AgentBridge, AgentEvent } from "../lib/agentBridge";
+
+const reviewRules = vi.hoisted(() => ({ current: { rules: [], error: null } as ReviewRulesPayload }));
+
+vi.mock("../api/client", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../api/client")>();
+  return { ...original, api: { ...original.api, reviewRules: async () => reviewRules.current } };
+});
 
 vi.mock("../api/write", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/write")>()),
@@ -98,5 +106,48 @@ describe("AgentPanel permission question", () => {
     expect(button("Always allow").className).toContain("kos-btn-secondary");
     expect(button("Always allow").className).not.toContain("kos-btn-primary");
     expect(button("Reject").className).toContain("kos-btn-secondary");
+  });
+});
+
+describe("AgentPanel review rules", () => {
+  it("says under the header that agent writes land directly when there are no rules", async () => {
+    reviewRules.current = { rules: [], error: null };
+    await loadPanel();
+    const line = within(await screen.findByTestId("review-rules")).getByRole("button", {
+      name: "No review rules: agent and person writes land directly.",
+    });
+    fireEvent.click(line);
+    expect(screen.getByTestId("review-rules").querySelector("pre")?.textContent).toContain('writer = "agent"');
+  });
+
+  it("opens the rules that apply", async () => {
+    reviewRules.current = {
+      rules: [
+        {
+          number: 1,
+          writer: "agent",
+          project: null,
+          folder: null,
+          writes: "any",
+          action: "review",
+          description: "Rule 1: notes by agents wait for review in Decide.",
+        },
+      ],
+      error: null,
+    };
+    await loadPanel();
+    const section = await screen.findByTestId("review-rules");
+    const toggle = within(section).getByRole("button", { name: "1 review rule applies." });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(within(section).getByText("Rule 1: notes by agents wait for review in Decide.")).toBeTruthy();
+  });
+
+  it("says when the rules cannot be used", async () => {
+    reviewRules.current = { rules: [], error: "review rule 1: writer must be agent" };
+    await loadPanel();
+    const section = await screen.findByTestId("review-rules");
+    fireEvent.click(within(section).getByRole("button", { name: "The review rules cannot be used." }));
+    expect(within(section).getByText(/review rule 1: writer must be agent/)).toBeTruthy();
   });
 });

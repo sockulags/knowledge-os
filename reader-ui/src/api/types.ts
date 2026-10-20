@@ -730,6 +730,24 @@ export interface ChangesPayload {
   notice_labels: DecisionLanguage["labels"];
 }
 
+/** `GET /api/review/rules`: the review rules in `knowledge-os.toml`, in order. */
+export interface ReviewRule {
+  number: number;
+  writer: string;
+  project: string | null;
+  folder: string | null;
+  writes: "create" | "edit" | "any";
+  action: "review" | "direct";
+  /** One sentence: what the rule covers and what happens to those writes. */
+  description: string;
+}
+
+export interface ReviewRulesPayload {
+  rules: ReviewRule[];
+  /** Why the rule file cannot be used; then every write it could govern is refused. */
+  error: string | null;
+}
+
 export interface ChangeDetail extends ProposedChange {
   /** A new page, rendered. */
   body_html: string | null;

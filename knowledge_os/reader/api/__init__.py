@@ -151,4 +151,5 @@ def build_api_routes() -> list[Route]:
         Route("/api/changes/{change_id}/accept", changes.accept_view, methods=["POST"], name="api-change-accept"),
         Route("/api/changes/{change_id}/discard", changes.discard_view, methods=["POST"], name="api-change-discard"),
         Route("/api/review/check", changes.check_view, name="api-review-check"),
+        Route("/api/review/rules", changes.rules_view, name="api-review-rules"),
     ]
