@@ -186,7 +186,12 @@ export function describeConformance(provider: AgentProvider): void {
       answers = ['allow']
       await session.prompt('permission')
       const question = events.find((event) => event.type === 'permission')
-      expect(question).toMatchObject({ type: 'permission', title: 'write_note' })
+      // With what the tool would do, so the person sees it before choosing.
+      expect(question).toMatchObject({
+        type: 'permission',
+        title: 'write_note',
+        input: { title: 'Retry policy', content: 'Retry twice, then stop.' }
+      })
       expect(text(events)).toBe('chose allow')
 
       answers = [null]
@@ -218,6 +223,22 @@ export function describeConformance(provider: AgentProvider): void {
         })
         expect(text(events)).toBe('chose reject')
       }
+    })
+
+    it('reads the tool from the earlier report when the request names only the call', async () => {
+      const { session, events } = await open()
+      await session.prompt('permission-codex read_page')
+      expect(events.some((event) => event.type === 'permission')).toBe(false)
+      expect(text(events)).toBe('chose allow')
+
+      answers = ['reject']
+      await session.prompt('permission-codex write_note')
+      expect(events.find((event) => event.type === 'permission')).toMatchObject({
+        title: 'mcp.knowledge-os.write_note',
+        toolCallId: 'call-2',
+        input: { server: 'knowledge-os', tool: 'write_note', arguments: { id: 'retry-policy' } }
+      })
+      expect(text(events)).toBe('chose allowchose reject')
     })
 
     it('cancels a running turn', async () => {

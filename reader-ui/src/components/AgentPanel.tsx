@@ -20,8 +20,8 @@ import {
 import type { NavPayload } from "../api/types";
 import { write } from "../api/write";
 import type { AgentContext, AgentMode } from "../lib/agentPrompt";
-import { pagesUsed, permissionQuestion, toolLabel } from "../lib/agentPrompt";
-import { agentStore, useAgent, type TranscriptItem } from "../lib/agentStore";
+import { pagesUsed, permissionDetails, permissionQuestion, toolLabel } from "../lib/agentPrompt";
+import { agentStore, useAgent, type PermissionAsk, type TranscriptItem } from "../lib/agentStore";
 import { AgentReview } from "./AgentReview";
 import { Markdown } from "./Markdown";
 
@@ -79,6 +79,83 @@ function PageChips({ label, ids, titles }: { label: string; ids: string[]; title
           {titles.get(id) ?? id}
         </Link>
       ))}
+    </div>
+  );
+}
+
+/** How much of a long text a permission question shows before "Show all". */
+const PREVIEW_CHARS = 600;
+
+/** Text that may be long: the first PREVIEW_CHARS characters, with a toggle for the rest. */
+function LongText({ text, label, mono = false }: { text: string; label: string; mono?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > PREVIEW_CHARS;
+  return (
+    <div>
+      <pre
+        aria-label={label}
+        className={`max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-[5px] bg-(--color-bg-sidebar) px-2 py-1.5 text-xs text-(--color-text) ${
+          mono ? "font-mono" : "font-sans"
+        }`}
+      >
+        {long && !expanded ? `${text.slice(0, PREVIEW_CHARS)}…` : text}
+      </pre>
+      {long && (
+        <button
+          type="button"
+          className="mt-1 text-xs text-(--color-text-faint) hover:text-(--color-text)"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "Show less" : `Show all (${text.length} characters)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** What the agent would do with the tool: the page it would write, the command it would run, or its arguments. */
+function PermissionInput({ title, input }: { title: string; input: unknown }) {
+  const details = permissionDetails(title, input);
+  if (details === null) return null;
+  if (details.kind === "page") {
+    return (
+      <div className="mt-2 space-y-1" data-testid="agent-permission-input">
+        {details.where && <p className="text-xs text-(--color-text-muted)">{details.where}</p>}
+        {details.title && <p className="font-medium text-(--color-text)">{details.title}</p>}
+        {details.body && <LongText text={details.body} label="Text it would write" />}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2" data-testid="agent-permission-input">
+      <LongText text={details.text} label={details.kind === "command" ? "Command it would run" : "What it would send"} mono />
+    </div>
+  );
+}
+
+/**
+ * A permission question while the agent waits. Allowing once is the main
+ * answer; allowing from now on stays a secondary choice, so it is never the
+ * button the eye lands on first.
+ */
+function PermissionCard({ ask }: { ask: PermissionAsk }) {
+  return (
+    <div className="kos-card mt-2 px-3 py-2.5 text-sm" data-testid="agent-permission">
+      <p className="font-medium text-(--color-text)">{permissionQuestion(ask.title)}</p>
+      <p className="mt-0.5 text-xs text-(--color-text-faint)">{ask.title}</p>
+      <PermissionInput title={ask.title} input={ask.input} />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {ask.options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            className={`kos-btn kos-btn-sm ${option.kind === "allow_once" ? "kos-btn-primary" : "kos-btn-secondary"}`}
+            onClick={() => void agentStore.answer(ask.requestId, option.id)}
+          >
+            {option.name}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -159,22 +236,7 @@ function Item({
       {item.text !== "" && <AgentMarkdown text={item.text} done={item.done} />}
       {waiting.map((ask) => (
         // Where the agent is waiting: after what it has said so far.
-        <div key={ask.requestId} className="kos-card mt-2 px-3 py-2.5 text-sm" data-testid="agent-permission">
-          <p className="font-medium text-(--color-text)">{permissionQuestion(ask.title)}</p>
-          <p className="mt-0.5 text-xs text-(--color-text-faint)">{ask.title}</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {ask.options.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={`kos-btn kos-btn-sm ${option.kind.startsWith("allow") ? "kos-btn-primary" : "kos-btn-secondary"}`}
-                onClick={() => void agentStore.answer(ask.requestId, option.id)}
-              >
-                {option.name}
-              </button>
-            ))}
-          </div>
-        </div>
+        <PermissionCard key={ask.requestId} ask={ask} />
       ))}
       {item.done && (
         <>

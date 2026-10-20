@@ -10,6 +10,7 @@
 //   echo <text>    stream <text> as the agent's message
 //   tool           report a tool call that completes
 //   permission     ask for permission, then say which option came back
+//   permission-codex TOOL  the same, asking about a reported call by id only
 //   wait           keep the turn open until it is cancelled
 //   crash          exit at once, mid-turn
 
@@ -114,12 +115,41 @@ const connection = new AgentSideConnection(
         })
         return { stopReason: 'end_turn' }
       }
-      // `permission [TITLE]`: ask to use a tool, `write_note` unless named.
-      if (text === 'permission' || text.startsWith('permission ')) {
-        const title = text.split(' ')[1] ?? 'write_note'
+      // `permission [TITLE]`: ask to use a tool, `write_note` unless named, the
+      // way claude-agent-acp does: title and input on the request.
+      // `permission-codex TOOL`: report a `kos mcp` tool call, then ask about it
+      // by id only, the way codex-acp does.
+      if (
+        text === 'permission' ||
+        text.startsWith('permission ') ||
+        text.startsWith('permission-codex ')
+      ) {
+        const [command, name] = text.split(' ')
+        let toolCall
+        if (command === 'permission-codex') {
+          await client.sessionUpdate({
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: 'tool_call',
+              toolCallId: 'call-2',
+              title: `mcp.knowledge-os.${name}`,
+              kind: 'execute',
+              status: 'pending',
+              rawInput: { server: 'knowledge-os', tool: name, arguments: { id: 'retry-policy' } }
+            }
+          })
+          toolCall = { toolCallId: 'call-2', kind: 'execute', status: 'pending' }
+        } else {
+          toolCall = {
+            toolCallId: 'call-2',
+            title: name ?? 'write_note',
+            status: 'pending',
+            rawInput: { title: 'Retry policy', content: 'Retry twice, then stop.' }
+          }
+        }
         const answer = await client.requestPermission({
           sessionId: params.sessionId,
-          toolCall: { toolCallId: 'call-2', title, status: 'pending' },
+          toolCall,
           options: [
             { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
             { optionId: 'reject', name: 'Reject', kind: 'reject_once' }

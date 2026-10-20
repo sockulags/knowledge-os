@@ -42,6 +42,8 @@ export interface PermissionAsk {
   /** The tool call it is about, whose row shows the answer once given. */
   toolCallId: string | null;
   title: string;
+  /** What the tool would do: its arguments as the agent sent them (absent in older saved conversations). */
+  input?: unknown;
   options: { id: string; name: string; kind: string }[];
   /** "allowed", "allowed from now on", "refused", or "cancelled"; null while it waits. */
   answer: string | null;
@@ -227,6 +229,7 @@ class AgentStore {
           requestId: event.requestId,
           toolCallId: event.toolCallId ?? null,
           title: event.title,
+          input: event.input ?? null,
           options: event.options,
           answer: null,
         };
