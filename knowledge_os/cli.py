@@ -15,7 +15,7 @@ from .context import ContextRequest, build_context
 from .context_policy import trust_label
 from .context_verify import verify_context_package
 from .documentation_init import DocumentationInitError, init_global, init_repo
-from .init_workspace import init_workspace
+from .init_workspace import init_workspace, next_steps
 from .discovery import (
     add_discovery,
     inspect_discovery,
@@ -1182,7 +1182,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.as_json:
                 print(json.dumps({"root": str(created)}, ensure_ascii=False, sort_keys=True))
             else:
-                print(f"Initialized workspace at {created}")
+                print(next_steps(created), end="")
             return 0
         if args.command == "clone":
             return _clone(args)

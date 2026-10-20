@@ -38,8 +38,9 @@ contract.
 
 A knowledge base does not have to live in this repository. `kos init PATH`
 creates an empty, valid workspace in a new or empty folder: the
-`knowledge-os.toml` marker, the managed directories with their README files, a
-`.gitignore` for the generated indexes, and fresh indexes. It refuses a folder that
+`knowledge-os.toml` marker, the managed directories with their README files, an
+`AGENTS.md` guide for agents working in the folder, a `.gitignore` for the
+generated indexes, and fresh indexes, and prints the next steps. It refuses a folder that
 is not empty, that already is a workspace, or that lies inside another
 workspace. The workspace name defaults to the folder name in kebab-case; pass
 `--name` to choose it.
