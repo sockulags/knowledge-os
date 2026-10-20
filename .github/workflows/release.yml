@@ -9,7 +9,8 @@ name: Release
 #   desktop/package.json) on the checked-out commit, with the installer,
 #   latest.yml, and the blockmap attached, and publishes it, so installed apps
 #   find the update at their next check.
-# The installer is unsigned (issue #87).
+# The installer is unsigned (issue #87). Nothing is built until every check in
+# ci.yml passes on the same commit.
 
 on:
   workflow_dispatch:
@@ -23,7 +24,11 @@ permissions:
   contents: read
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
   build-windows:
+    needs: checks
     runs-on: windows-latest
     permissions:
       contents: write
