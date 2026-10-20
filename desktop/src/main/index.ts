@@ -22,7 +22,11 @@ import { SHELL_TEXT } from '../shared/shellText'
 import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
 import appIcon from '../../build/icon.ico?asset'
 import {
+  answerWithin,
   LeaveGuard,
+  leavesAnyway,
+  NO_ANSWER,
+  noAnswerDialog,
   UNSAVED_ACTION,
   UPDATE_ACTION,
   unsavedChangesDialog,
@@ -138,9 +142,10 @@ const agents = new AgentService(
 /**
  * Whether the reader holds unsaved edits: its editor cancels `beforeunload`
  * then, so a synthetic one tells without leaving the page. Only the reader
- * is asked; the start page never holds edits.
+ * is asked; the start page never holds edits. A reader that does not answer
+ * within 1.5 s gives `NO_ANSWER`, and the person is asked.
  */
-async function readerHasUnsavedChanges(): Promise<boolean> {
+async function readerHasUnsavedChanges(): Promise<boolean | typeof NO_ANSWER> {
   const window = mainWindow
   if (window === null || window.isDestroyed()) return false
   const url = window.webContents.getURL()
@@ -151,14 +156,25 @@ async function readerHasUnsavedChanges(): Promise<boolean> {
     return event.defaultPrevented
   })()`
   const answer = window.webContents.executeJavaScript(probe).then((value) => value === true)
-  const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500))
-  return Promise.race([answer, timeout])
+  return answerWithin(answer, 1500)
+}
+
+/** Asks whether to leave a reader that did not say if it holds unsaved edits. */
+async function askLeaveUnresponsive(): Promise<boolean> {
+  const window = mainWindow
+  const options = noAnswerDialog()
+  const { response } =
+    window !== null && !window.isDestroyed()
+      ? await dialog.showMessageBox(window, options)
+      : await dialog.showMessageBox(options)
+  return leavesAnyway(response)
 }
 
 /** Asks before anything leaves the page while the reader holds unsaved edits. */
 const leaveGuard = new LeaveGuard({
   hasUnsavedChanges: readerHasUnsavedChanges,
-  ask: () => chrome?.ask(unsavedChangesDialog) ?? Promise.resolve(UNSAVED_ACTION.keep)
+  ask: () => chrome?.ask(unsavedChangesDialog) ?? Promise.resolve(UNSAVED_ACTION.keep),
+  askNoAnswer: askLeaveUnresponsive
 })
 
 /** Keeping the edits also cancels a pending "Restart to update" or quit. */

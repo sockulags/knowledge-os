@@ -64,11 +64,68 @@ export function unsavedChangesDialog(id: number): ChromeDialog {
   }
 }
 
+/** What `hasUnsavedChanges` gives when the page did not answer in time. */
+export const NO_ANSWER = 'no-answer'
+
+/** `answer`, or `NO_ANSWER` when it has not settled within `timeoutMs`. */
+export async function answerWithin<T>(
+  answer: Promise<T>,
+  timeoutMs: number
+): Promise<T | typeof NO_ANSWER> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<typeof NO_ANSWER>((resolve) => {
+    timer = setTimeout(() => resolve(NO_ANSWER), timeoutMs)
+  })
+  try {
+    return await Promise.race([answer, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * The question when the page does not say whether it holds unsaved edits.
+ * It is a native message box, since the window's own dialogs are drawn by
+ * the page that is not answering. Staying is the default.
+ */
+export function noAnswerDialog(): {
+  type: 'warning'
+  title: string
+  message: string
+  detail: string
+  buttons: string[]
+  defaultId: number
+  cancelId: number
+  noLink: true
+} {
+  const text = SHELL_TEXT.unsaved
+  return {
+    type: 'warning',
+    title: text.title,
+    message: text.noAnswerMessage,
+    detail: text.noAnswerDetail,
+    buttons: [text.cancel, text.leaveAnyway],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true
+  }
+}
+
+/** Whether `noAnswerDialog`'s button `response` leaves the page. */
+export function leavesAnyway(response: number): boolean {
+  return response === 1
+}
+
 export interface LeaveGuardHooks {
-  /** Whether the page would object to being left (its `beforeunload` handler). */
-  hasUnsavedChanges: () => Promise<boolean>
+  /**
+   * Whether the page would object to being left (its `beforeunload` handler),
+   * or `NO_ANSWER` when it did not say in time.
+   */
+  hasUnsavedChanges: () => Promise<boolean | typeof NO_ANSWER>
   /** Shows the unsaved-changes dialog and resolves with the chosen action. */
   ask: () => Promise<string>
+  /** Asks whether to leave a page that did not answer; true leaves it. */
+  askNoAnswer: () => Promise<boolean>
 }
 
 /**
@@ -108,7 +165,7 @@ export class LeaveGuard {
   private async check(objected: boolean): Promise<boolean> {
     // Already confirmed, and the page has not been left yet: no second question.
     if (this.approved && !objected) return true
-    let dirty = objected
+    let dirty: boolean | typeof NO_ANSWER = objected
     if (!dirty) {
       try {
         dirty = await this.hooks.hasUnsavedChanges()
@@ -116,6 +173,12 @@ export class LeaveGuard {
         // A page that cannot answer (still loading, crashed) holds nothing to lose.
         dirty = false
       }
+    }
+    if (dirty === NO_ANSWER) {
+      // A page that hangs may still hold edits: never assume it is clean.
+      if (!(await this.hooks.askNoAnswer())) return false
+      this.approved = true
+      return true
     }
     if (!dirty) return true
     const choice = await this.hooks.ask()
