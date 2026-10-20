@@ -6,6 +6,7 @@ import { sync as syncApi } from "../api/write";
 import { Callout } from "../components/Callout";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useShell } from "../components/Shell";
+import { SyncPicture } from "../components/SyncPicture";
 import { SyncSetupPanel } from "../components/SyncSetup";
 import { relativeTime } from "../hooks/useSync";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
@@ -61,6 +62,7 @@ function StatusDetails({ status }: { status: SyncStatus }) {
   const branch = status.branch ?? "main";
   return (
     <>
+      <SyncPicture status={status} />
       <dl className="kos-card mb-6 divide-y divide-(--color-border) px-4 py-0.5">
         <Row label="Branch">{status.branch ?? "Not on a branch"}</Row>
         <Row label="Syncs with">{status.upstream ?? "Nothing yet"}</Row>
