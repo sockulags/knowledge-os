@@ -10,6 +10,8 @@ are results too (``is_error``), shaped ``{"ok": false, "error": KIND,
   closed). Nothing was written.
 - ``app_not_responding``: a runtime file exists but no running app answers
   for it. Nothing was written.
+- ``wrong_knowledge_base``: the app has another knowledge base open than the
+  one the conversation started in. Nothing was written.
 - ``request_failed``: the app stopped answering during a request. A write may
   or may not have happened; read the page again before retrying.
 - ``not_found``, ``conflict`` (adds ``current_sha256``), ``duplicate``,
@@ -88,6 +90,10 @@ _APP_NEXT_STEP = {
     ),
     "app_not_responding": (
         "Ask the person to open (or restart) the Knowledge OS app with a knowledge base open, then try again."
+    ),
+    "wrong_knowledge_base": (
+        "Tell the person the app switched to another knowledge base. Ask them to open the one this "
+        "conversation started in again, or start a new conversation in the knowledge base now open."
     ),
     "request_failed": (
         "Ask the person to check that the Knowledge OS app is still open. Read the page again before retrying, "
