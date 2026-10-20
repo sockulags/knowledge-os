@@ -17,7 +17,6 @@ import {
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
-import { pathToFileURL } from 'url'
 import { SHELL_TEXT } from '../shared/shellText'
 import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
 import appIcon from '../../build/icon.ico?asset'
@@ -35,6 +34,7 @@ import {
 import { ConversationStore } from './agents/conversations'
 import { AgentService, electronLaunchHost, kosMcpCommand } from './agents/service'
 import { createCloneWindow, type CloneWindow } from './cloneWindow'
+import { INITIAL_CLOSE_STATE, nextCloseState, type CloseAction, type CloseEvent } from './closeFlow'
 import { flushReaderActions } from './flushReader'
 import { isFrom } from './ipcSender'
 import {
@@ -46,6 +46,7 @@ import {
   type MenuSpec
 } from './menuModel'
 import { decideNavigation } from './navigation'
+import { pageUrl } from './pageUrl'
 import { createReferatPlugin, type ReferatPlugin } from './plugins/referat'
 import {
   CoreProcess,
@@ -97,10 +98,8 @@ let pythonExecutable: string | null = null
 let recent: RecentWorkspace[] = loadRecent(recentFile)
 let settings: AppSettings = loadSettings(settingsFile)
 let state: ShellState = { kind: 'start', recent }
-/** Set by "Restart to update" until the window closes or the person keeps editing. */
-let restartPending = false
-/** Set once quitting starts, so a close held back to flush the reader resumes the quit. */
-let quitRequested = false
+/** Closing the window, quitting, and restarting to update (see closeFlow.ts). */
+let closeState = INITIAL_CLOSE_STATE
 /** Increments per open request so a slow, superseded start is discarded. */
 let openGeneration = 0
 /** The optional Referat plugin, created once the app is ready. */
@@ -111,8 +110,6 @@ let cloneWindow: CloneWindow | null = null
 let publishedCorePid: number | null = null
 /** The main window's title bar, menu, notices, and dialogs, created once the app is ready. */
 let chrome: MainWindowChrome | null = null
-/** Set once closing the window has passed the unsaved-changes question. */
-let closeConfirmed = false
 /** The core URL of the last reader the window was sent to, for the chrome's IPC. */
 let readerUrl: string | null = null
 /** The in-app agent (issue #90): at most one session, in the open knowledge base. */
@@ -177,11 +174,16 @@ const leaveGuard = new LeaveGuard({
   askNoAnswer: askLeaveUnresponsive
 })
 
+/** Moves the close flow on and gives the action for the caller to carry out. */
+function closeFlow(event: CloseEvent): CloseAction {
+  const { state: next, action } = nextCloseState(closeState, event)
+  closeState = next
+  return action
+}
+
 /** Keeping the edits also cancels a pending "Restart to update" or quit. */
 function keepEditing(): void {
-  restartPending = false
-  quitRequested = false
-  closeConfirmed = false
+  closeFlow({ type: 'keep-editing' })
 }
 
 /** Shows `url` in the main window once unsaved edits are dealt with; false when they were kept. */
@@ -196,18 +198,9 @@ async function navigateMain(url: string): Promise<boolean> {
   return went
 }
 
-const startPageUrl =
-  !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
-    ? process.env['ELECTRON_RENDERER_URL']
-    : pathToFileURL(join(__dirname, '../renderer/index.html')).href
-const referatPageUrl =
-  !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
-    ? `${process.env['ELECTRON_RENDERER_URL'].replace(/\/+$/, '')}/referat.html`
-    : pathToFileURL(join(__dirname, '../renderer/referat.html')).href
-const clonePageUrl =
-  !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
-    ? `${process.env['ELECTRON_RENDERER_URL'].replace(/\/+$/, '')}/clone.html`
-    : pathToFileURL(join(__dirname, '../renderer/clone.html')).href
+const devServer = (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) || null
+const rendererDir = join(__dirname, '../renderer')
+const startPageUrl = pageUrl('index', devServer, rendererDir)
 
 function stopCoreSync(): void {
   unpublishRuntime()
@@ -449,13 +442,12 @@ function changeSettings(change: Partial<AppSettings>): void {
  */
 function restartToUpdate(): void {
   const window = mainWindow
-  if (window === null || window.isDestroyed()) {
+  const hasWindow = window !== null && !window.isDestroyed()
+  const action = closeFlow({ type: 'restart-requested', hasWindow })
+  if (action === 'stop-core-and-install') {
     stopCoreSync()
     installDownloadedUpdate()
-    return
-  }
-  restartPending = true
-  window.close()
+  } else if (action === 'close-window') window?.close()
 }
 
 /** Update news is a quiet notice under the title bar, never a modal box. */
@@ -594,36 +586,26 @@ function createWindow(): void {
     }
   })
   mainWindow = window
-  closeConfirmed = false
+  closeFlow({ type: 'window-created' })
   chrome?.attach(window)
   window.on('ready-to-show', () => window.show())
-  // Every close (the window's close button, Alt+F4, File → Exit, quitting,
-  // Restart to update) first deals with unsaved edits in the reader; keeping
-  // them keeps the window and cancels a pending restart or quit. Then the
-  // reader writes the decision actions still waiting for Undo, and only then
-  // does the window close for real (which stops the core, and afterwards
-  // starts a pending update's installer).
-  let closing = false
+  // Every close first deals with unsaved edits in the reader and flushes its
+  // pending decision actions; see closeFlow.ts for the whole sequence.
   window.on('close', (event) => {
-    if (closeConfirmed) return
+    const action = closeFlow({ type: 'close-requested' })
+    if (action === 'let-close') return
     event.preventDefault()
-    if (closing) return
-    closing = true
+    if (action !== 'ask') return
     void leaveGuard.leave(
       () => {
         const flushed = state.kind === 'ready' ? flushReaderActions(window) : Promise.resolve()
         void flushed.finally(() => {
-          closing = false
-          if (window.isDestroyed()) return
-          closeConfirmed = true
-          if (quitRequested) app.quit()
-          else window.close()
+          const next = closeFlow({ type: 'flushed', windowGone: window.isDestroyed() })
+          if (next === 'quit') app.quit()
+          else if (next === 'close-window') window.close()
         })
       },
-      () => {
-        closing = false
-        keepEditing()
-      }
+      () => closeFlow({ type: 'close-kept' })
     )
   })
   // The window shows the start page or the reader; the core has no use
@@ -634,10 +616,7 @@ function createWindow(): void {
     openGeneration++
     stopCoreSync()
     state = { kind: 'start', recent }
-    if (restartPending) {
-      restartPending = false
-      installDownloadedUpdate()
-    }
+    if (closeFlow({ type: 'window-closed' }) === 'install') installDownloadedUpdate()
   })
 
   const guard = (event: Electron.Event, url: string): void => {
@@ -656,7 +635,7 @@ function createWindow(): void {
       event.preventDefault()
       return
     }
-    closeConfirmed = false
+    closeFlow({ type: 'unload-objected' })
     if (retry !== null) void leaveGuard.leave(retry, keepEditing, true)
     else keepEditing()
   })
@@ -781,7 +760,7 @@ process.on('uncaughtException', (error) => {
   app.exit(1)
 })
 app.on('before-quit', () => {
-  quitRequested = true
+  closeFlow({ type: 'quit-requested' })
 })
 app.on('will-quit', () => {
   agents.close()
@@ -846,14 +825,14 @@ app.whenReady().then(() => {
   referat = createReferatPlugin({
     mainWindow: () => mainWindow,
     coreUrl: () => (state.kind === 'ready' ? state.url : null),
-    pageUrl: referatPageUrl,
+    pageUrl: pageUrl('referat', devServer, rendererDir),
     preloadPath: join(__dirname, '../preload/referat.js'),
     notify: (notice) => chrome?.showNotice({ key: 'referat', actions: [], ...notice }),
     navigateMain
   })
   cloneWindow = createCloneWindow({
     mainWindow: () => mainWindow,
-    pageUrl: clonePageUrl,
+    pageUrl: pageUrl('clone', devServer, rendererDir),
     preloadPath: join(__dirname, '../preload/clone.js'),
     defaultParent: () => join(app.getPath('documents'), 'Knowledge bases'),
     python: ensurePython,
