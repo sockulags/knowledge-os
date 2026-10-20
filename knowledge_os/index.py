@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .model import Document
-from .workspace import Workspace, atomic_write, format_issues, validate_workspace, workspace_mutation_lock
+from .workspace import (
+    Workspace,
+    WorkspaceError,
+    atomic_write,
+    format_issues,
+    replace_file,
+    validate_workspace,
+    workspace_mutation_lock,
+)
 
 
 def _record_kind(metadata: dict[str, Any]) -> str:
@@ -93,7 +101,12 @@ def _rebuild_indexes_locked(workspace: Workspace) -> int:
     try:
         _build_sqlite(temp_sqlite, workspace, documents)
         atomic_write(catalog_path, _catalog(workspace, documents))
-        temp_sqlite.replace(sqlite_path)
+        replace_file(temp_sqlite, sqlite_path)
+    except OSError as exc:
+        raise WorkspaceError(
+            f"the index files in {indexes} could not be replaced; another program may still have them open. "
+            f"Close it and run 'kos index' again: {exc}"
+        ) from exc
     finally:
         temp_sqlite.unlink(missing_ok=True)
     return len(documents)
