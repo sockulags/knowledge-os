@@ -197,6 +197,59 @@ ul.choices button:focus-visible {
 
 /* The first-run choices: a title (with its shortcut) over one sentence on
    when to pick it. The suggested first choice gets the accent colour. */
+/* A recent entry opens on click; its Remove button sits at the row's end and
+   shows on hover or keyboard focus (it stays reachable with Tab either way). */
+ul.recent li {
+  display: flex;
+  align-items: stretch;
+}
+
+ul.recent button.open {
+  flex: 1;
+  min-width: 0;
+}
+
+ul.recent .title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+ul.recent .badge {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--amber-text);
+  background: var(--amber-bg);
+  border-radius: 4px;
+  padding: 0 6px;
+}
+
+ul.recent li.missing .title {
+  color: var(--muted);
+}
+
+ul.recent button.remove {
+  display: block;
+  width: auto;
+  flex: none;
+  text-align: center;
+  padding: 0 16px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--faint);
+  opacity: 0;
+}
+
+ul.recent li:hover button.remove,
+ul.recent li.missing button.remove,
+ul.recent button.remove:focus-visible {
+  opacity: 1;
+}
+
+ul.recent button.remove:hover {
+  color: var(--text);
+}
+
 ul.choices button {
   padding: 14px 18px;
 }

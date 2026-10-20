@@ -32,6 +32,7 @@ const api: DesktopApi = {
   createWorkspace: () => ipcRenderer.invoke(IPC.createWorkspace),
   cloneWorkspace: () => ipcRenderer.invoke(IPC.cloneWorkspace),
   openRecent: (root) => ipcRenderer.invoke(IPC.openRecent, root),
+  removeRecent: (root) => ipcRenderer.invoke(IPC.removeRecent, root),
   showStart: () => ipcRenderer.invoke(IPC.showStart),
   retry: () => ipcRenderer.invoke(IPC.retry),
   agent: {

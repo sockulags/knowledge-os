@@ -6,6 +6,7 @@ export const IPC = {
   createWorkspace: 'workspace:create',
   cloneWorkspace: 'workspace:clone',
   openRecent: 'workspace:open-recent',
+  removeRecent: 'workspace:remove-recent',
   showStart: 'workspace:show-start',
   retry: 'workspace:retry',
   getSidebarWidth: 'reader:get-sidebar-width',
@@ -36,6 +37,11 @@ export interface RecentWorkspace {
   lastOpened: string
 }
 
+/** A recent entry on the start page; `missing` when its folder is gone (moved or deleted). */
+export interface RecentEntry extends RecentWorkspace {
+  missing: boolean
+}
+
 export type ErrorKind =
   'python-missing' | 'core-missing' | 'invalid-workspace' | 'early-exit' | 'create-failed'
 
@@ -43,7 +49,7 @@ export type ErrorKind =
 export type ShellState =
   | {
       kind: 'start'
-      recent: RecentWorkspace[]
+      recent: RecentEntry[]
       /** Why the last knowledge base was not reopened on start, if it was not. */
       notice?: string
     }
@@ -80,6 +86,8 @@ export interface DesktopApi {
   /** Shows the Clone Knowledge Base window. */
   cloneWorkspace: () => Promise<void>
   openRecent: (root: string) => Promise<void>
+  /** Removes a knowledge base from the recent list; its folder is left alone. */
+  removeRecent: (root: string) => Promise<void>
   showStart: () => Promise<void>
   /** Retries the failed action shown on the error screen, re-checking Python first. */
   retry: () => Promise<void>

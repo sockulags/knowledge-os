@@ -95,6 +95,34 @@ describe('buildMenus', () => {
     expect(matchAccelerator(press('r', { control: true }), packaged)).toBeNull()
   })
 
+  it('has a Help menu with the log folder and About', () => {
+    const help = buildMenus(base).at(-1)
+    expect(help?.label).toBe('Help')
+    expect(help?.items.map((item) => item.label ?? '—')).toEqual([
+      'Check for Updates…',
+      'Check for Updates Automatically',
+      '—',
+      'Open Log Folder',
+      'About Knowledge OS'
+    ])
+    expect(help?.items.find((item) => item.label === 'Open Log Folder')?.command).toBe(
+      COMMAND.openLogFolder
+    )
+    expect(help?.items.find((item) => item.label === 'About Knowledge OS')?.command).toBe(
+      COMMAND.about
+    )
+    // The packaged app keeps them: they are what troubleshooting there relies on.
+    const packaged = buildMenus({ ...base, developerItems: false }).at(-1)
+    expect(packaged?.items.map((item) => item.command)).toEqual(
+      expect.arrayContaining([COMMAND.openLogFolder, COMMAND.about])
+    )
+    const [, , , helpView] = menuViews(buildMenus(base))
+    expect(helpView.items.slice(-2)).toEqual([
+      { id: COMMAND.openLogFolder, type: 'normal', label: 'Open Log Folder', enabled: true },
+      { id: COMMAND.about, type: 'normal', label: 'About Knowledge OS', enabled: true }
+    ])
+  })
+
   it('offers Restart to Update only once an update is ready', () => {
     const help = (input: MenuInput): Array<string | undefined> =>
       buildMenus(input)[3].items.map((item) => item.command)
