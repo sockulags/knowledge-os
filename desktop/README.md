@@ -54,11 +54,20 @@ npm run dist
 This needs Windows, Node.js 22 or newer, and Python 3.11 reachable as
 `py -3.11` (the Python launcher from the python.org installer). No virtual
 environment has to be prepared: `build:core` creates its own in
-`build-core\venv`, installs the dependencies listed in `pyproject.toml`
-(including the `reader` and `mcp` extras) and a pinned PyInstaller into it,
-and freezes Knowledge OS from this checkout with `core\kos-core.spec`. It then
-runs the frozen core once as a smoke test, including starting `kos mcp`.
-`build-core\` and `dist\` are git-ignored.
+`build-core\venv`, installs the core's dependencies and PyInstaller into it
+from `core\requirements-core.txt`, and freezes Knowledge OS from this checkout
+with `core\kos-core.spec`. It then runs the frozen core once as a smoke test,
+including starting `kos mcp`. `build-core\` and `dist\` are git-ignored.
+
+`core\requirements-core.txt` pins every Python package the core is built
+with, transitive ones included, by version and sha256, and pip installs it
+with `--require-hashes` and wheels only, so two builds of the same commit
+freeze the same packages. `scripts\lock-core.ps1` generates it from
+`pyproject.toml` (with the `reader`, `mcp`, and `search` extras) and
+`core\build-requirements.in`; it needs [uv](https://docs.astral.sh/uv/). Run
+it after changing those dependencies, or to take newer versions, and commit
+the result. `tests/test_core_lock.py` fails when a dependency in
+`pyproject.toml` is missing from the lock.
 
 The installer is an unsigned, per-user NSIS installer (no administrator
 prompt) for the app "Knowledge OS". It installs to
@@ -442,6 +451,27 @@ The installer is not signed. For updates this means:
   change. A release signed with a new certificate can be installed over an
   unsigned one, but after that, every update must be signed by that publisher.
 
+### Electron fuses
+
+electron-builder flips these [fuses](https://www.electronjs.org/docs/latest/tutorial/fuses)
+in the packaged `knowledge-os.exe` (`electronFuses` in `electron-builder.yml`):
+
+| Fuse | Set to | Why |
+| --- | --- | --- |
+| `RunAsNode` | on | The ACP adapters run through `ELECTRON_RUN_AS_NODE`. |
+| `EnableCookieEncryption` | on | Cookies on disk are encrypted with the OS key. |
+| `EnableNodeOptionsEnvironmentVariable` | off | Nothing uses `NODE_OPTIONS`; children still inherit it. |
+| `EnableNodeCliInspectArguments` | off | No `--inspect` into the app's main process. |
+| `EnableEmbeddedAsarIntegrityValidation` | on | `app.asar` must match the hash in the .exe. |
+| `OnlyLoadAppFromAsar` | on | The app loads only from `app.asar`. |
+
+`GrantFileProtocolExtraPrivileges` keeps Electron's default, since the start
+page is a `file://` page. Because `RunAsNode` stays on, anything that can set
+the environment of `knowledge-os.exe` can still run it as Node (inspect
+arguments included, in that mode); that is the price of running the adapters
+without a separate Node. `npx @electron/fuses read --app
+dist\win-unpacked\knowledge-os.exe` shows the fuses of a build.
+
 ## Releasing a new version
 
 Nothing is uploaded by `npm run dist` (it passes `--publish never`); the
@@ -455,7 +485,10 @@ release is made by hand:
    match `pyproject.toml`), and `desktop/package.json` with its lock
    file (`npm version X.Y.Z --no-git-tag-version` in `desktop/` updates both).
    The app's version, which the updater compares, is the one in
-   `desktop/package.json`.
+   `desktop/package.json`. The core's Python packages come from
+   `desktop/core/requirements-core.txt`, not from whatever is newest at build
+   time; to ship newer ones, run `scripts\lock-core.ps1` and commit the lock
+   (see [Building the Windows installer](#building-the-windows-installer)).
 2. Commit, merge, and build from a clean checkout of that commit in a shell
    where `MAIN_VITE_KOS_UPDATE_TEST_FEED` is not set: `npm ci`, then
    `npm run dist`. Or let GitHub Actions do steps 2 and 3: run the
@@ -655,7 +688,10 @@ page. Alt or F10 moves the focus to the menu (with underlined access keys),
 Alt+letter opens a menu, arrow keys, Home, End, and first letters move
 through it, Enter or Space runs an item, and Escape goes back one level and
 then to the page. On macOS the same model is also the native application
-menu, which the system expects there.
+menu, which the system expects there. View → Reload and Toggle Developer
+Tools, with their shortcuts, exist only in development (`npm run dev` and
+`npm start`); the packaged app leaves them out and opens its windows with
+`devTools: false`.
 
 No shell path uses `dialog.showMessageBox` any more. Update news and the
 Referat plugin's messages are quiet notices under the title bar that never

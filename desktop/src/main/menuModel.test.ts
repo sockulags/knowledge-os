@@ -20,7 +20,8 @@ const base: MenuInput = {
   updateReadyVersion: null,
   pluginMenus: [
     { label: 'Referat', items: [{ command: 'referat:record', label: 'Record', enabled: false }] }
-  ]
+  ],
+  developerItems: true
 }
 
 function press(key: string, mods: Partial<KeyInput> = {}): KeyInput {
@@ -63,6 +64,35 @@ describe('buildMenus', () => {
     expect(none).toEqual([{ label: 'No recent knowledge bases', enabled: false }])
     expect(recentIndex('file:recent:0')).toBe(0)
     expect(recentIndex('file:open')).toBeNull()
+  })
+
+  it('leaves Reload and Developer Tools, and their shortcuts, out of the packaged app', () => {
+    const view = (input: MenuInput): Array<string> =>
+      buildMenus(input)[1].items.map((item) => item.label ?? '—')
+    expect(view(base)).toEqual([
+      'Agent',
+      '—',
+      'Reload',
+      'Toggle Developer Tools',
+      '—',
+      'Actual Size',
+      'Zoom In',
+      'Zoom Out',
+      '—',
+      'Toggle Full Screen'
+    ])
+    const packaged = buildMenus({ ...base, developerItems: false })
+    expect(view({ ...base, developerItems: false })).toEqual([
+      'Agent',
+      '—',
+      'Actual Size',
+      'Zoom In',
+      'Zoom Out',
+      '—',
+      'Toggle Full Screen'
+    ])
+    expect(matchAccelerator(press('I', { control: true, shift: true }), packaged)).toBeNull()
+    expect(matchAccelerator(press('r', { control: true }), packaged)).toBeNull()
   })
 
   it('offers Restart to Update only once an update is ready', () => {
