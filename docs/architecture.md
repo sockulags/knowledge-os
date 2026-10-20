@@ -106,9 +106,9 @@ independent of lifecycle status, bounded by `created..updated`. Context trust
 is verified only when this date is present; an `active` or `draft` status does
 not imply verification.
 
-`description` is optional on every record: a non-empty string summing up the
-page, which the reader shows under the title and the editor changes like the
-title.
+`description` is optional on every record (decision
+`record-description-field`): a non-empty string summing up the page, which
+the reader shows under the title and the editor changes like the title.
 
 `record_kind` is optional and is accepted only on `knowledge` and `project`
 records. Its values are `ordinary` and `decision`; absence means `ordinary`.
@@ -1143,11 +1143,13 @@ every acceptance visible. The Claude Code and Codex plugins register the
 server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
 `.codex-plugin/mcp.json`).
 
-The desktop app's own agent (decision `in-app-agent-over-acp`) is one more
+The desktop app's own agent (decision `in-app-agent-provider-isolation`) is one more
 client of this server, not a second interface: the app runs a coding agent
 over the Agent Client Protocol and gives its session `kos mcp --place
 "Knowledge OS app"` as the only MCP server, with the agent's built-in tools
-turned off where the agent allows it. Its writes therefore read "Written by
+turned off where the agent allows it. Codex cannot turn them off and can read
+files outside the knowledge base, so the person turns it on in the panel
+first. Its writes therefore read "Written by
 Claude Code in Knowledge OS app" and carry the same limits as any agent's. See
 "In-app agents (ACP)" in [`desktop/README.md`](../desktop/README.md).
 

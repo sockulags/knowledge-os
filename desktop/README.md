@@ -238,7 +238,7 @@ The agent inside the app (issue #83) talks to a coding agent over the
 [Agent Client Protocol](https://agentclientprotocol.com) (ACP): JSON-RPC over
 the agent process's stdin and stdout, through `@agentclientprotocol/sdk` in the
 main process (`src/main/agents/`). The accepted decision is
-`projects/knowledge-os/decisions/in-app-agent-over-acp.md`.
+`projects/knowledge-os/decisions/in-app-agent-provider-isolation.md`.
 
 **Providers.** Each agent is a provider implementing `AgentProvider`
 (`src/main/agents/contract.ts`); nothing outside its module knows which agent
@@ -259,7 +259,7 @@ it is. A provider says:
 | Provider | Adapter (pinned) | Runs | Limits |
 | --- | --- | --- | --- |
 | Claude Code | `@agentclientprotocol/claude-agent-acp` 0.81.2 (104 packages) | your `claude` (`CLAUDE_CODE_EXECUTABLE`) | no built-in tools (`tools: []`), none of your MCP servers, hooks, or settings (`strictMcpConfig`, `settingSources: []`), and no permission-skipping mode (`allowDangerouslySkipPermissions: false`) |
-| Codex | `@agentclientprotocol/codex-acp` 1.13.1 (19 packages) | your `codex` (`CODEX_PATH`) | starts in `read-only` mode: editing files and network access need your permission; it can still read files in the knowledge base folder, and MCP servers in your own `~/.codex/config.toml` also load |
+| Codex | `@agentclientprotocol/codex-acp` 1.13.1 (19 packages) | your `codex` (`CODEX_PATH`) | starts in `read-only` mode: editing files and network access need your permission, but Codex's read-only sandbox does not limit reads, so it can read any file your account can without asking, and MCP servers in your own `~/.codex/config.toml` also load. The agent panel asks you to turn Codex on before its first session and shows a notice while it is used |
 
 **Adapters are installed on demand**, not shipped: the Claude adapter depends
 on Anthropic's proprietary Claude Agent SDK, which you fetch yourself this

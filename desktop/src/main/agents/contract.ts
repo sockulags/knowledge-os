@@ -1,5 +1,5 @@
 // The contract every in-app agent provider implements (issue #90, decision
-// `in-app-agent-over-acp`).
+// `in-app-agent-provider-isolation`).
 //
 // The app talks to coding agents over the Agent Client Protocol (ACP):
 // JSON-RPC over the agent process's stdin and stdout. A provider says only
