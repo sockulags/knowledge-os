@@ -8,6 +8,7 @@
 // window and answers its IPC for that window only.
 
 import {
+  app,
   BrowserWindow,
   ipcMain,
   nativeTheme,
@@ -90,7 +91,9 @@ export function createPageWindow(options: PageWindowOptions): BrowserWindow {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // No developer tools in the packaged app.
+      devTools: !app.isPackaged
     }
   })
   window.setMenu(null)

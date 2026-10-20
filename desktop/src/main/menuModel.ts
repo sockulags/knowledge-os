@@ -67,6 +67,8 @@ export interface MenuInput {
   updateReadyVersion: string | null
   /** Menus from plugins, placed before Help. */
   pluginMenus: MenuSpec[]
+  /** Reload and Toggle Developer Tools; off in the packaged app. */
+  developerItems: boolean
 }
 
 const separator: MenuSpecItem = { type: 'separator' }
@@ -96,6 +98,13 @@ export function buildMenus(input: MenuInput): MenuSpec[] {
       label: fillText(text.restartToUpdate, { version: input.updateReadyVersion })
     })
   }
+  const developer: MenuSpecItem[] = input.developerItems
+    ? [
+        { command: COMMAND.reload, label: text.reload, accelerator: 'CmdOrCtrl+R' },
+        { command: COMMAND.devTools, label: text.devTools, accelerator: 'CmdOrCtrl+Shift+I' },
+        separator
+      ]
+    : []
   return [
     {
       label: text.file,
@@ -135,9 +144,7 @@ export function buildMenus(input: MenuInput): MenuSpec[] {
           enabled: input.workspaceOpen
         },
         separator,
-        { command: COMMAND.reload, label: text.reload, accelerator: 'CmdOrCtrl+R' },
-        { command: COMMAND.devTools, label: text.devTools, accelerator: 'CmdOrCtrl+Shift+I' },
-        separator,
+        ...developer,
         { command: COMMAND.resetZoom, label: text.resetZoom, accelerator: 'CmdOrCtrl+0' },
         { command: COMMAND.zoomIn, label: text.zoomIn, accelerator: 'CmdOrCtrl+Plus' },
         { command: COMMAND.zoomOut, label: text.zoomOut, accelerator: 'CmdOrCtrl+-' },

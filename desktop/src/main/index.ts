@@ -498,12 +498,15 @@ function runCommand(command: string): void {
       return
     case COMMAND.exit:
       return app.quit()
+    // Developer commands; the packaged app's menu has neither (see currentMenus).
     case COMMAND.reload:
+      if (app.isPackaged) return
       if (window !== null && !window.isDestroyed()) {
         void leaveGuard.leave(() => window.webContents.reload(), keepEditing)
       }
       return
     case COMMAND.devTools:
+      if (app.isPackaged) return
       return window?.webContents.toggleDevTools()
     case COMMAND.resetZoom:
       return setZoomLevel(() => 0)
@@ -535,7 +538,8 @@ function currentMenus(): MenuSpec[] {
     checkForUpdates: settings.checkForUpdates,
     updatesSupported: updatesSupported(),
     updateReadyVersion: update.phase === 'ready' ? update.version : null,
-    pluginMenus: referat !== null ? [referat.menu()] : []
+    pluginMenus: referat !== null ? [referat.menu()] : [],
+    developerItems: !app.isPackaged
   })
 }
 
@@ -582,7 +586,9 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // No developer tools in the packaged app; its menu has no entry for them either.
+      devTools: !app.isPackaged
     }
   })
   mainWindow = window

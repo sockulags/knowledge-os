@@ -664,7 +664,10 @@ page. Alt or F10 moves the focus to the menu (with underlined access keys),
 Alt+letter opens a menu, arrow keys, Home, End, and first letters move
 through it, Enter or Space runs an item, and Escape goes back one level and
 then to the page. On macOS the same model is also the native application
-menu, which the system expects there.
+menu, which the system expects there. View → Reload and Toggle Developer
+Tools, with their shortcuts, exist only in development (`npm run dev` and
+`npm start`); the packaged app leaves them out and opens its windows with
+`devTools: false`.
 
 No shell path uses `dialog.showMessageBox` any more. Update news and the
 Referat plugin's messages are quiet notices under the title bar that never
