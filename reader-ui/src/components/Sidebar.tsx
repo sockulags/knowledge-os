@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
-import { ChevronRight, Home, Inbox, LayoutGrid, Search, BookOpen, FolderClosed, Plus } from "lucide-react";
+import { ChevronRight, FilePlus, Home, Inbox, LayoutGrid, Search, BookOpen, FolderClosed, Plus } from "lucide-react";
 import type { NavPayload } from "../api/types";
 import { SidebarProject } from "./ProjectTree";
 import { useStructure } from "./Structure";
@@ -130,6 +130,7 @@ export function Sidebar({
           active={location.pathname === "/everything"}
         />
         <NavRow to="/search" icon={<Search size={15} />} label="Search" active={location.pathname.startsWith("/search")} />
+        <NavRow to="/new" icon={<FilePlus size={15} />} label="New general page" active={location.pathname === "/new"} />
       </nav>
 
       <Section

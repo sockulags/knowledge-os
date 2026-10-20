@@ -673,6 +673,12 @@ the note, waiting in Decide, lists them under `related`.
 
 ### Page templates
 
+*New general page* (the sidebar entry, route `/new`) creates an ordinary page
+outside any project, in `knowledge/` or `memory/`, through `POST /api/records`
+with `scope: general` and no `project_path`. It offers only note templates,
+since decisions belong to a project, and takes attachments once the page
+exists, from its editor.
+
 *New page* starts from a template. `knowledge_os/templates.py` defines four
 built-in templates, `blank`, `meeting-notes`, `how-to`, and `decision`
 (Context / Decision / Consequences), and reads `templates/<name>.md` files in

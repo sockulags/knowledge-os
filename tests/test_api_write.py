@@ -109,6 +109,22 @@ class WriteApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("created-note", json.dumps(found))
 
+    def test_create_general_pages_without_a_project(self) -> None:
+        # The app's New general page: knowledge/ and memory/, no project_path.
+        status, result = self.create(_note("general-memory-note", type="memory", description="Kept in mind."))
+        self.assertEqual(status, 201, result)
+        self.assertEqual(result["path"], "memory/general-memory-note.md")
+        self.assertIn("description: Kept in mind.", (self.root / result["path"]).read_text(encoding="utf-8"))
+
+        status, result = self.create(_note("general-knowledge-note"))
+        self.assertEqual(status, 201, result)
+        self.assertEqual(result["path"], "knowledge/general-knowledge-note.md")
+
+        # A project_path places only project records.
+        status, result = self.create(_note("misplaced-general-note"), project_path="notes/misplaced-general-note.md")
+        self.assertEqual(status, 422, result)
+        self.assertFalse((self.root / "knowledge" / "misplaced-general-note.md").exists())
+
     def test_create_project_record_honours_project_path(self) -> None:
         metadata = _note(
             "nested-project-note",
