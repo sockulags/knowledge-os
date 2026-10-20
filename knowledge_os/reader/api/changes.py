@@ -208,7 +208,7 @@ async def _act(request: Request, accept: bool) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        expected = _field(payload, "expected_sha256", str, required=False)
+        expected = _field(payload, "expected_sha256", str, required=True)
         workspace = request.app.state.workspace
         change_id = request.path_params["change_id"]
         if accept:

@@ -57,9 +57,15 @@ from typing import Any, Mapping
 
 import yaml
 
-from .capture import CaptureIndexError, capture_record_text
+from .capture import CaptureIndexError, capture_record_text, capture_record_text_locked
 from .model import ID_PATTERN, MetadataError, SHA256_PATTERN, parse_document_text, render_document
-from .mutations import MutationIndexError, MutationResult, StaleRevisionError, update_record_text
+from .mutations import (
+    MutationIndexError,
+    MutationResult,
+    StaleRevisionError,
+    update_record_text,
+    update_record_text_locked,
+)
 from .workspace import (
     Workspace,
     WorkspaceError,
@@ -451,31 +457,33 @@ def accept_proposal(workspace: Workspace, proposal_id: str, *, expected_sha256: 
     multi-file changes this is not crash-atomic: if the process stops after
     the page is written, the proposal is still there and accepting it again
     is refused as a duplicate or a conflict; discard it.
+
+    Loading, checking, writing the page and removing the proposal happen
+    under one workspace lock, so a concurrent discard either wins (and this
+    refuses as not found) or finds nothing left to discard.
     """
 
-    proposal = load_proposal(workspace, proposal_id)
-    _check_unchanged(workspace, proposal, expected_sha256)
-    text = proposal.text()
-    try:
-        if proposal.action == "create":
-            result = capture_record_text(
-                workspace, text, project_path=Path(proposal.project_path) if proposal.project_path else None
-            )
-            outcome = MutationResult(result.id, result.path, result.status, result.sha256, result.index_count)
-        else:
-            outcome = update_record_text(workspace, text, expected_sha256=proposal.base_sha256 or "")
-    except CaptureIndexError as exc:
-        with workspace_mutation_lock(workspace):
-            _remove(workspace, proposal)
-        written = exc.result
-        raise MutationIndexError(
-            str(exc), MutationResult(written.id, written.path, written.status, written.sha256, 0)
-        ) from exc
-    except MutationIndexError:
-        with workspace_mutation_lock(workspace):
-            _remove(workspace, proposal)
-        raise
     with workspace_mutation_lock(workspace):
+        proposal = load_proposal(workspace, proposal_id)
+        _check_unchanged(workspace, proposal, expected_sha256)
+        text = proposal.text()
+        try:
+            if proposal.action == "create":
+                result = capture_record_text_locked(
+                    workspace, text, project_path=Path(proposal.project_path) if proposal.project_path else None
+                )
+                outcome = MutationResult(result.id, result.path, result.status, result.sha256, result.index_count)
+            else:
+                outcome = update_record_text_locked(workspace, text, expected_sha256=proposal.base_sha256 or "")
+        except CaptureIndexError as exc:
+            _remove(workspace, proposal)
+            written = exc.result
+            raise MutationIndexError(
+                str(exc), MutationResult(written.id, written.path, written.status, written.sha256, 0)
+            ) from exc
+        except MutationIndexError:
+            _remove(workspace, proposal)
+            raise
         _remove(workspace, proposal)
     return outcome
 

@@ -299,7 +299,9 @@ class ReviewApiTests(unittest.TestCase):
         self.assertIn("added", [block["kind"] for block in detail["blocks"]])
         self.assertFalse(detail["stale"])
 
-        status, discarded = self.write("POST", f"/api/changes/{change_id}/discard", {})
+        status, discarded = self.write(
+            "POST", f"/api/changes/{change_id}/discard", {"expected_sha256": detail["content_sha256"]}
+        )
         self.assertEqual(status, 200, discarded)
         self.assertNotIn("Added.", (self.root / "projects/acme/edited-page.md").read_text(encoding="utf-8"))
 
