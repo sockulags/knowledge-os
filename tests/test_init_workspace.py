@@ -20,7 +20,13 @@ from pathlib import Path
 from reader_support import REPOSITORY, serve
 
 from knowledge_os.cli import main as kos_main
-from knowledge_os.init_workspace import LAYOUT_DIRS, README_CONTENT, WorkspaceInitError, init_workspace
+from knowledge_os.init_workspace import (
+    AGENTS_CONTENT,
+    LAYOUT_DIRS,
+    README_CONTENT,
+    WorkspaceInitError,
+    init_workspace,
+)
 from knowledge_os.reader.app import STATIC_APP_DIR
 
 
@@ -55,12 +61,31 @@ class InitWorkspaceTests(unittest.TestCase):
             self.assertIn("indexes/catalog.sqlite3", (target / ".gitignore").read_text(encoding="utf-8"))
             self.assertTrue((target / "indexes" / "catalog.sqlite3").is_file())
             self.assertTrue((target / "indexes" / "catalog.md").is_file())
+            self.assertEqual((target / "AGENTS.md").read_text(encoding="utf-8"), AGENTS_CONTENT)
 
             code, out, err = _kos("--root", str(target), "lint")
             self.assertEqual((code, err), (0, ""))
             self.assertIn("Lint OK: 0 managed record(s)", out)
             code, _out, err = _kos("--root", str(target), "index")
             self.assertEqual(code, 0, err)
+
+    def test_text_output_names_the_next_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "my kb"
+            code, out, err = _kos("init", str(target))
+            self.assertEqual((code, err), (0, ""))
+            root = target.resolve()
+            self.assertTrue(out.startswith(f"Initialized workspace at {root}\n"))
+            # A folder with a space is quoted so the commands can be pasted.
+            self.assertIn(f'kos-read --root "{root}"', out)
+            self.assertIn(f'kos --root "{root}" project create', out)
+            self.assertIn(f'kos --root "{root}" capture', out)
+            self.assertIn("AGENTS.md", out)
+
+    def test_agents_guide_states_the_trust_boundaries(self) -> None:
+        for phrase in ("kos search", "inbox/", "proposals/", "--writer agent", "Never get past review", "kos lint"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, AGENTS_CONTENT)
 
     def test_readmes_match_this_repository(self) -> None:
         for directory, content in README_CONTENT.items():
@@ -140,8 +165,10 @@ class ReaderServesNewWorkspaceTests(unittest.TestCase):
 
                 with urllib.request.urlopen(f"{base_url}/api/nav") as response:
                     nav = json.loads(response.read())
-                self.assertEqual((nav["projects"], nav["skills"], nav["repo_docs"]), ([], [], []))
-                self.assertEqual(nav["record_index"], [])
+                self.assertEqual((nav["projects"], nav["skills"]), ([], []))
+                # The agent guide kos init writes is the only repository document.
+                self.assertEqual([doc["path"] for doc in nav["repo_docs"]], ["AGENTS.md"])
+                self.assertEqual([entry["kind"] for entry in nav["record_index"]], ["doc"])
 
                 # This repository's README.md is in the repository-document
                 # tier; the new workspace has none, so it must not be served.

@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { Link } from "react-router";
-import { ArrowRight, FolderKanban } from "lucide-react";
+import { ArrowRight, FilePlus2, FolderKanban } from "lucide-react";
 import { api } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { PageSkeleton } from "../components/Skeleton";
 import { Pill } from "../components/Pill";
 import { Callout, LoadError } from "../components/Callout";
 import { useShell } from "../components/Shell";
+import { useStructure } from "../components/Structure";
 import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
@@ -15,6 +16,7 @@ const INDEX_REFRESH_POLL_MS = 1500;
 
 export function Home() {
   const { nav } = useShell();
+  const structure = useStructure();
   const apiState = useApi(() => api.home(), []);
   const { data, loading } = apiState;
   // Kept while it is asked again, so the notice does not flicker.
@@ -55,6 +57,13 @@ export function Home() {
             )}
           </Callout>
         </div>
+      )}
+
+      {data.projects.length === 0 && (
+        <FirstSteps
+          onNewPage={() => structure.newProject({ thenNewPage: true })}
+          onNewProject={() => structure.newProject()}
+        />
       )}
 
       {data.waiting_on_you.length > 0 && (
@@ -152,5 +161,31 @@ export function Home() {
         </section>
       )}
     </div>
+  );
+}
+
+/** What a knowledge base without a project shows instead of an empty page:
+ * the way to the first page. Pages live in a project, so creating a page here
+ * creates the project first and opens the new page right after. */
+function FirstSteps({ onNewPage, onNewProject }: { onNewPage: () => void; onNewProject: () => void }) {
+  return (
+    <section className="kos-card mt-10 px-6 py-6" aria-labelledby="first-steps-heading" data-testid="first-steps">
+      <h2 id="first-steps-heading" className="kos-heading text-[20px]">
+        Start with a project
+      </h2>
+      <p className="mt-2 text-(--color-text-muted)">
+        Pages live in projects. Make one for a topic, a client, or a piece of work, then write your first page in it.
+      </p>
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button type="button" className="kos-btn kos-btn-primary" onClick={onNewPage}>
+          <FilePlus2 size={15} />
+          Create a page
+        </button>
+        <button type="button" className="kos-btn kos-btn-secondary" onClick={onNewProject}>
+          <FolderKanban size={15} />
+          Create your first project
+        </button>
+      </div>
+    </section>
   );
 }

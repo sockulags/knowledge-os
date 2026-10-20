@@ -36,6 +36,7 @@ import { ConversationStore } from './agents/conversations'
 import { AgentService, electronLaunchHost, kosMcpCommand } from './agents/service'
 import { createCloneWindow, type CloneWindow } from './cloneWindow'
 import { INITIAL_CLOSE_STATE, nextCloseState, type CloseAction, type CloseEvent } from './closeFlow'
+import { createKnowledgeBase } from './createFlow'
 import { flushReaderActions } from './flushReader'
 import { isFrom } from './ipcSender'
 import { initLog, log, logDir } from './logger'
@@ -340,15 +341,7 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
     keepEditing()
     return
   }
-  if (state.kind === 'ready') await flushReaderActions(mainWindow)
-  // An agent session belongs to the knowledge base it was started in.
-  agents.close()
-  const generation = ++openGeneration
-  const previous = core
-  core = null
-  unpublishRuntime()
-  setState({ kind: 'starting', root, recent })
-  await previous?.stop()
+  const generation = await leaveCurrent({ kind: 'starting', root, recent })
 
   const executable = await ensurePython()
   if (executable === null || generation !== openGeneration) return
@@ -391,6 +384,23 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
   }
   setState({ kind: 'ready', root, name: started.name, url: started.url, recent })
   void publishRuntime(started, root)
+}
+
+/**
+ * Stop the open knowledge base, if any, and show `next` in its place. Returns
+ * the new open generation, which a later open or create replaces.
+ */
+async function leaveCurrent(next: ShellState): Promise<number> {
+  if (state.kind === 'ready') await flushReaderActions(mainWindow)
+  // An agent session belongs to the knowledge base it was started in.
+  agents.close()
+  const generation = ++openGeneration
+  const previous = core
+  core = null
+  unpublishRuntime()
+  setState(next)
+  await previous?.stop()
+  return generation
 }
 
 async function showStart(): Promise<void> {
@@ -449,14 +459,15 @@ async function chooseAndCreate(): Promise<void> {
     keepEditing()
     return
   }
-  const executable = await ensurePython()
-  if (executable === null) return
-  const result = await initWorkspace(executable, folder, pythonEnv)
-  if (!result.ok) {
-    showError(null, result.failure)
-    return
-  }
-  await openWorkspace(result.root)
+  await createKnowledgeBase(folder, {
+    showCreating: (root) => leaveCurrent({ kind: 'creating', root, recent }),
+    isCurrent: (generation) => generation === openGeneration,
+    python: ensurePython,
+    init: (executable, root) => initWorkspace(executable, root, pythonEnv),
+    open: (root) => openWorkspace(root),
+    // No folder: Try again on the error screen goes back to the start page.
+    fail: (failure) => showError(null, failure)
+  })
 }
 
 function changeSettings(change: Partial<AppSettings>): void {
