@@ -19,7 +19,7 @@ class SpaContentSecurityPolicyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         app = create_app(Workspace(REPOSITORY), refresh_index=False)
-        cls.client = TestClient(app, base_url="http://127.0.0.1")
+        cls.client = TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
 
     def test_start_page_and_deep_links_carry_the_policy(self) -> None:
         for path in ("/", "/p/knowledge-os", "/search"):
