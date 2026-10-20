@@ -15,10 +15,9 @@ import urllib.error
 import urllib.request
 from contextlib import ExitStack
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from reader_support import serve, write_decision_fixture
-
-PORT = 8843
 
 
 def _get(base_url: str, path: str, *, host: str | None = None) -> tuple[int, object]:
@@ -48,7 +47,8 @@ class HostGuardTests(unittest.TestCase):
         directory = cls._stack.enter_context(tempfile.TemporaryDirectory())
         cls.root = Path(directory)
         write_decision_fixture(cls.root)
-        cls.base_url = cls._stack.enter_context(serve(cls.root, PORT))
+        cls.base_url = cls._stack.enter_context(serve(cls.root))
+        cls.port = urlsplit(cls.base_url).port
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -65,13 +65,13 @@ class HostGuardTests(unittest.TestCase):
         self.assertEqual(result["error"], "forbidden")
 
     def test_loopback_hosts_are_accepted_on_a_get_api_route(self) -> None:
-        for host in (f"127.0.0.1:{PORT}", f"localhost:{PORT}", f"[::1]:{PORT}"):
+        for host in (f"127.0.0.1:{self.port}", f"localhost:{self.port}", f"[::1]:{self.port}"):
             with self.subTest(host=host):
                 status, result = _get(self.base_url, "/api/workspace", host=host)
                 self.assertEqual(status, 200, result)
 
     def test_loopback_hosts_are_accepted_on_the_spa_route(self) -> None:
-        for host in (f"127.0.0.1:{PORT}", f"localhost:{PORT}", f"[::1]:{PORT}"):
+        for host in (f"127.0.0.1:{self.port}", f"localhost:{self.port}", f"[::1]:{self.port}"):
             with self.subTest(host=host):
                 status, _ = _get(self.base_url, "/", host=host)
                 # 200 once the frontend is built, 503 with its "not built"

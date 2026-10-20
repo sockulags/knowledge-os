@@ -28,7 +28,6 @@ from knowledge_os.structure import (
 from knowledge_os.workspace import Workspace
 from reader_support import serve
 
-PORT = 8882
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 )
@@ -151,7 +150,7 @@ class AttachmentApiTests(unittest.TestCase):
         create_project(workspace, "demo", title="Demo", provenance=PROVENANCE)
         create_folder(workspace, "demo", "notes", title="Notes", provenance=PROVENANCE)
         write_page(cls.root, "projects/demo/notes/page.md", "page", "project:demo", "Text.\n")
-        cls._server = serve(cls.root, PORT)
+        cls._server = serve(cls.root)
         cls.base_url = cls._server.__enter__()
         status, session = _request(cls.base_url, "GET", "/api/session")
         assert status == 200, session

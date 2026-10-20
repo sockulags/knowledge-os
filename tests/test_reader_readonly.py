@@ -44,9 +44,6 @@ READER_PACKAGE = REPOSITORY / "knowledge_os" / "reader"
 API_PACKAGE = READER_PACKAGE / "api"
 LIBRARY_MODULE = READER_PACKAGE / "library.py"
 
-#: The reader's assigned end-to-end port for this unit. Ten sibling agents
-#: are each assigned a different port; this one is 8822.
-PORT = 8822
 
 #: The core's write modules. The editable-interface decision lets the
 #: interface write, but only through the core's own mutations and only from
@@ -675,7 +672,7 @@ class ServeReadOnlyTests(unittest.TestCase):
 
             before = workspace_snapshot()
 
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 routes = [
                     "/",
                     "/p/demo",

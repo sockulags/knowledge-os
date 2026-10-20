@@ -8,8 +8,9 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from test_agent_mcp import CALLER, GIT, PORT as _MCP_PORT, IsolatedTestCase, _session_token, git, write_runtime_file
+from test_agent_mcp import CALLER, GIT, IsolatedTestCase, _session_token, git, write_runtime_file
 from test_api_write import TOKEN_HEADER, _request
 
 from knowledge_os.agent_access.tools import call_tool
@@ -31,8 +32,6 @@ from knowledge_os.structure import create_folder, create_project
 from knowledge_os.workspace import Workspace
 from reader_support import serve
 
-PORT = 8883
-MCP_PORT = _MCP_PORT + 30
 PROVENANCE = [{"kind": "fixture", "reference": "test:review"}]
 AGENT = {"kind": "agent-authored", "reference": "agent:claude-code:repo"}
 
@@ -198,7 +197,7 @@ class ReviewApiTests(unittest.TestCase):
         create_project(workspace, "beta", title="Beta", provenance=PROVENANCE)
         with (cls.root / "knowledge-os.toml").open("a", encoding="utf-8") as handle:
             handle.write(RULES)
-        cls._server = serve(cls.root, PORT)
+        cls._server = serve(cls.root)
         cls.base_url = cls._server.__enter__()
         status, session = _request(cls.base_url, "GET", "/api/session")
         assert status == 200, session
@@ -325,10 +324,11 @@ class McpReviewTests(IsolatedTestCase):
         git(self.root, "config", "user.email", "alice@example.invalid")
         git(self.root, "add", "-A")
         git(self.root, "commit", "--quiet", "-m", "Initial knowledge base")
-        self.server = serve(self.root, MCP_PORT)
+        self.server = serve(self.root)
         base_url = self.server.__enter__()
         self.addCleanup(self.server.__exit__, None, None, None)
-        write_runtime_file(self.runtime_path, port=MCP_PORT, token=_session_token(base_url), root=self.root)
+        port = urlsplit(base_url).port
+        write_runtime_file(self.runtime_path, port=port, token=_session_token(base_url), root=self.root)
 
     def test_write_note_says_the_change_waits_for_review(self) -> None:
         result = call_tool("write_note", {"title": "Agent plan", "content": "Plan.\n", "project": "acme"}, CALLER)

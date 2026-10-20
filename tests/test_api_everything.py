@@ -13,8 +13,6 @@ from pathlib import Path
 
 from reader_support import create_workspace, serve, write_record
 
-PORT = 8835
-
 
 def _get(base_url: str, path: str) -> dict:
     with urllib.request.urlopen(base_url + path, timeout=5) as response:
@@ -56,7 +54,7 @@ class EverythingCatalogTests(unittest.TestCase):
                     "reviews": [{"decision": "reject", "date": "2026-08-30", "reason": "Not corroborated."}],
                 },
             )
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything")
                 ids = {entry["id"]: entry for entry in data["entries"]}
                 self.assertIn("raw", ids)
@@ -75,7 +73,7 @@ class EverythingCatalogTests(unittest.TestCase):
             root = Path(directory)
             create_workspace(root)
             (root / "knowledge" / "bad.md").write_text("not a record\n", encoding="utf-8")
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything")
                 self.assertEqual(len(data["broken"]), 1)
                 self.assertEqual(data["broken"][0]["path"], "knowledge/bad.md")
@@ -155,14 +153,14 @@ class FilterAndSortWorkspace:
 class FilterTests(unittest.TestCase):
     def test_type_filter_narrows_to_that_type(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything?type=source")
                 self.assertEqual({e["id"] for e in data["entries"]}, {"cherry-source"})
                 self.assertEqual(data["filters"], {"type": "source"})
 
     def test_status_filter_narrows(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything?status=active")
                 ids = {e["id"] for e in data["entries"]}
                 # Every fixture record above is "active"; a status filter
@@ -172,7 +170,7 @@ class FilterTests(unittest.TestCase):
 
     def test_record_kind_filter_covers_every_non_decision_type(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything?record_kind=decision")
                 self.assertEqual({e["id"] for e in data["entries"]}, {"choice"})
 
@@ -186,19 +184,19 @@ class FilterTests(unittest.TestCase):
 
     def test_scope_filter_narrows_to_one_project(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything?scope=project:demo")
                 self.assertEqual({e["id"] for e in data["entries"]}, {"demo", "choice"})
 
     def test_trust_filter_narrows(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything?trust=verified+durable")
                 self.assertEqual({e["id"] for e in data["entries"]}, {"banana"})
 
     def test_filters_combine(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 # type=project alone matches "demo" and "choice"; adding
                 # record_kind=decision narrows that pair down to "choice".
                 data = _get(base_url, "/api/everything?type=project&record_kind=decision")
@@ -206,14 +204,14 @@ class FilterTests(unittest.TestCase):
 
     def test_unknown_filter_value_is_dropped_not_trusted(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything?type=not-a-real-type")
                 self.assertEqual(data["filters"], {})
                 self.assertEqual({e["id"] for e in data["entries"]}, {"apple", "banana", "cherry-source", "demo", "choice"})
 
     def test_filter_options_only_offer_values_present_in_the_data(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything")
                 type_values = {o["value"] for o in data["filter_options"]["type"]}
                 self.assertEqual(type_values, {"knowledge", "project", "source"})
@@ -226,7 +224,7 @@ class FilterTests(unittest.TestCase):
 class SortTests(unittest.TestCase):
     def test_default_sort_is_title_ascending(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything")
                 self.assertEqual(data["sort"], "title")
                 self.assertEqual(data["dir"], "asc")
@@ -235,7 +233,7 @@ class SortTests(unittest.TestCase):
 
     def test_sort_by_updated_both_directions(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything?sort=updated&dir=asc")
                 ids = [e["id"] for e in data["entries"]]
                 self.assertEqual(ids, ["apple", "banana", "cherry-source", "demo", "choice"])
@@ -246,7 +244,7 @@ class SortTests(unittest.TestCase):
 
     def test_unknown_sort_and_direction_fall_back_to_the_default(self) -> None:
         with FilterAndSortWorkspace() as root:
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/everything?sort=nonsense&dir=sideways")
                 self.assertEqual(data["sort"], "title")
                 self.assertEqual(data["dir"], "asc")

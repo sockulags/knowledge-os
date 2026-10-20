@@ -33,7 +33,6 @@ from knowledge_os.model import content_sha256, parse_document
 from knowledge_os.reader import library
 from knowledge_os.workspace import Workspace, validate_workspace
 
-PORT = 8846
 GIT = shutil.which("git")
 
 
@@ -452,7 +451,7 @@ class SyncApiTests(GitTestCase):
         library.run_sync(b)
         self.edit(a, "api-note", created.path, "A over HTTP.\n")
         library.run_sync(a)
-        with serve(b.root, PORT) as base:
+        with serve(b.root) as base:
             code, status = self.request(base, "GET", "/api/sync/status")
             self.assertEqual(code, 200)
             self.assertTrue(status["available"])

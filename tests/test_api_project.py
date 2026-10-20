@@ -24,8 +24,6 @@ from reader_support import (
     write_record,
 )
 
-PORT = 8832
-
 
 def _get(base_url: str, path: str) -> tuple[int, dict]:
     try:
@@ -46,7 +44,7 @@ class RealCorpusProjectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_decision_fixture(root)
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 status, data = _get(base_url, f"/api/projects/{FIXTURE_PROJECT_ID}")
                 self.assertEqual(status, 200)
 
@@ -70,7 +68,7 @@ class RealCorpusProjectTests(unittest.TestCase):
         unlike the meaning-groups' own tree which used to exclude
         decisions entirely."""
 
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             _status, data = _get(base_url, "/api/projects/knowledge-os")
 
             def _collect_ids(node: dict) -> set[str]:
@@ -94,19 +92,19 @@ class ProjectDisplayNameTests(unittest.TestCase):
     keeps the full, unmodified record title."""
 
     def test_document_breadcrumb_and_applies_to_use_the_short_name(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             _status, data = _get(base_url, "/api/records/openknowledge-pivot")
             self.assertEqual(data["breadcrumb"][-1]["label"], "Knowledge OS")
             self.assertEqual(data["properties"]["applies_to"]["value"], "Knowledge OS")
 
     def test_everything_project_column_uses_the_short_name(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             _status, data = _get(base_url, "/api/everything")
             entry = next(e for e in data["entries"] if e["id"] == "openknowledge-pivot")
             self.assertEqual(entry["project_title"], "Knowledge OS")
 
     def test_the_overview_page_itself_keeps_its_full_title(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             status, data = _get(base_url, "/api/projects/knowledge-os")
             self.assertEqual(status, 200)
             self.assertEqual(data["title"], "Knowledge OS project overview")
@@ -114,7 +112,7 @@ class ProjectDisplayNameTests(unittest.TestCase):
 
 class ProjectNotFoundTests(unittest.TestCase):
     def test_unknown_project_id_is_404_json(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             status, data = _get(base_url, "/api/projects/does-not-exist")
             self.assertEqual(status, 404)
             self.assertIn("does-not-exist", data["detail"])
@@ -142,7 +140,7 @@ class EmptyGroupTests(unittest.TestCase):
                     "provenance": [{"kind": "fixture", "reference": "demo"}],
                 },
             )
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 status, data = _get(base_url, "/api/projects/demo")
                 self.assertEqual(status, 200)
                 for slug in ("governing", "proposed", "historical"):

@@ -25,7 +25,6 @@ from knowledge_os import mutations as mutations_module
 from knowledge_os.reader import library
 from knowledge_os.workspace import Workspace, WorkspaceError, validate_workspace
 
-PORT = 8843
 SCOPE = f"project:{FIXTURE_PROJECT_ID}"
 
 
@@ -56,7 +55,7 @@ class DecisionApiTests(unittest.TestCase):
         directory = cls._stack.enter_context(tempfile.TemporaryDirectory())
         cls.root = Path(directory)
         write_decision_fixture(cls.root)
-        cls.base_url = cls._stack.enter_context(serve(cls.root, PORT))
+        cls.base_url = cls._stack.enter_context(serve(cls.root))
         status, session = _request(cls.base_url, "GET", "/api/session")
         assert status == 200, session
         cls.token = session["write_token"]

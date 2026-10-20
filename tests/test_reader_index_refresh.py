@@ -23,8 +23,6 @@ from knowledge_os.reader.index_refresh import IndexRefresher
 from knowledge_os.reader.library import load_library
 from knowledge_os.workspace import Workspace
 
-PORT = 8881
-
 
 def _metadata(record_id: str, **overrides: object) -> dict[str, object]:
     metadata: dict[str, object] = {
@@ -154,7 +152,7 @@ class ServerRefreshTests(unittest.TestCase):
             rebuild_indexes(Workspace(root))
             path.write_text(path.read_text(encoding="utf-8").replace("Original", "Xylophone"), encoding="utf-8")
 
-            with serve(root, PORT, refresh_index=True) as base_url:
+            with serve(root, refresh_index=True) as base_url:
                 deadline = time.monotonic() + 10
                 while True:
                     with urllib.request.urlopen(base_url + "/api/workspace", timeout=5) as response:
