@@ -118,7 +118,11 @@ decisions, where Accept writes it and Discard drops it, each in one click with
 Undo. An edit whose page changed in the meantime can only be discarded.
 Agents are told in the tool result that their write waits for review; an
 agent on the command line passes `--writer agent` to `kos capture` or `kos
-update` to get the same treatment. `kos lint` checks the rules. See
+update` to get the same treatment. On the command line, `kos proposal list`
+and `kos proposal show ID` list and show proposed changes, and `kos proposal
+accept|discard ID --expected-sha256 HASH` (the hash `show` prints) accepts or
+discards one as Decide does, without the Git commit. `kos lint` checks the
+rules. See
 "Configurable review" in [`docs/architecture.md`](docs/architecture.md).
 
 ## Sync a knowledge base with Git

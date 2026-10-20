@@ -22,12 +22,13 @@ from .discovery import (
     promote_discovery,
     reject_discovery,
     retain_discovery,
-    review_packet,
+    review_details,
 )
 from .index import rebuild_indexes, search_index
 from .ingest import ingest_source
 from .model import Document, MetadataError, content_sha256, parse_document_text, render_document
 from .mutations import (
+    StaleRevisionError,
     accept_decision,
     neutral_withdrawal_reference,
     supersede_decision,
@@ -52,8 +53,12 @@ from .structure import (
 from .review import (
     Proposal,
     ReviewError,
+    accept_proposal,
     agent_writer,
+    discard_proposal,
+    list_proposals,
     load_policy,
+    load_proposal,
     needs_review,
     page_place,
     propose,
@@ -76,6 +81,28 @@ def _writer_option(parser: argparse.ArgumentParser) -> None:
         help="an agent is writing: apply the review rules in knowledge-os.toml, and store a proposed "
         "change in proposals/ when a rule holds the write back",
     )
+
+
+def _json_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json", action="store_true", dest="as_json", help="write one JSON object to stdout")
+
+
+def _print_json(payload: object) -> None:
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=_json_default))
+
+
+def _json_default(value: object) -> object:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()  # type: ignore[union-attr]
+    raise TypeError(f"{type(value).__name__} is not JSON serializable")
+
+
+def mcp_tool_names() -> list[str]:
+    """The tools ``kos mcp`` serves, read from their specs so the help cannot drift."""
+
+    from .agent_access.tools import TOOLS
+
+    return [tool.name for tool in TOOLS]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -110,9 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest = commands.add_parser("ingest", help="ingest one local Markdown or text file")
     ingest.add_argument("path", type=Path)
+    _json_option(ingest)
     _root_option(ingest)
 
     index = commands.add_parser("index", help="validate and rebuild the indexes")
+    _json_option(index)
     _root_option(index)
 
     model = commands.add_parser("model", help="download, check, or remove the model for search by meaning")
@@ -124,6 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     model_commands.add_parser("serve")
 
     lint = commands.add_parser("lint", help="validate all managed records")
+    _json_option(lint)
     _root_option(lint)
 
     search = commands.add_parser("search", help="search the existing FTS index")
@@ -135,6 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = commands.add_parser("inspect", help="inspect one record")
     inspect.add_argument("id")
     inspect.add_argument("--full", action="store_true")
+    _json_option(inspect)
     _root_option(inspect)
 
     context = commands.add_parser("context", help="export or verify a deterministic Markdown context package")
@@ -168,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     _writer_option(update)
     _root_option(update)
 
-    decision = commands.add_parser("decision", help="accept a proposed decision")
+    decision = commands.add_parser("decision", help="accept or withdraw a draft decision")
     _root_option(decision)
     decision_commands = decision.add_subparsers(dest="decision_command", required=True)
     decision_accept = decision_commands.add_parser("accept", help="make a draft decision active")
@@ -221,7 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     discovery_reject = discovery_commands.add_parser("reject", help="reject a discovery with a reason")
     discovery_reject.add_argument("id")
-    discovery_reject.add_argument("--reason")
+    discovery_reject.add_argument("--reason", required=True, help="why the discovery is rejected")
     discovery_reject.add_argument("--reviewer")
     _root_option(discovery_reject)
 
@@ -234,7 +265,37 @@ def build_parser() -> argparse.ArgumentParser:
     discovery_promote.add_argument("--reason")
     discovery_promote.add_argument("--acknowledge-related", action="store_true")
     discovery_promote.add_argument("--allow-scope-broadening", action="store_true")
+    for discovery_parser in (
+        discovery_add,
+        discovery_inspect,
+        discovery_review,
+        discovery_retain,
+        discovery_reject,
+        discovery_promote,
+    ):
+        _json_option(discovery_parser)
     _root_option(discovery_promote)
+
+    proposal = commands.add_parser(
+        "proposal", help="list, show, accept, or discard writes the review rules held back"
+    )
+    _root_option(proposal)
+    proposal_commands = proposal.add_subparsers(dest="proposal_command", required=True)
+    proposal_list = proposal_commands.add_parser("list", help="list the proposed changes in proposals/")
+    proposal_show = proposal_commands.add_parser("show", help="show one proposed change and its SHA-256")
+    proposal_show.add_argument("id", help="the proposal id, as 'kos proposal list' shows it")
+    proposal_accept = proposal_commands.add_parser("accept", help="write a proposed change and remove the proposal")
+    proposal_discard = proposal_commands.add_parser("discard", help="remove a proposed change without writing it")
+    for proposal_parser in (proposal_accept, proposal_discard):
+        proposal_parser.add_argument("id", help="the proposal id, as 'kos proposal list' shows it")
+        proposal_parser.add_argument(
+            "--expected-sha256",
+            required=True,
+            help="the proposal's SHA-256 from 'kos proposal show ID'; refused if the proposal changed since",
+        )
+    for proposal_parser in (proposal_list, proposal_show, proposal_accept, proposal_discard):
+        _json_option(proposal_parser)
+        _root_option(proposal_parser)
 
     _structure_commands(commands)
     _code_commands(commands)
@@ -260,12 +321,9 @@ def build_parser() -> argparse.ArgumentParser:
         "mcp",
         help="serve the agent tools over MCP (stdio) through the running Knowledge OS app",
         description=(
-            "Serve the agent tools (search, read_page, list_projects, list_folder, write_note, "
-            "propose_decision, list_proposed_decisions, and the documentation check's check_documentation, "
-            "read_commit, propose_documentation_decision, mark_documentation_checked, link_repository) over "
-            "MCP on stdin/stdout. Every call goes through "
-            "the local API of the Knowledge OS desktop app and the knowledge base open there; --root is "
-            "ignored and nothing works while the app is closed."
+            f"Serve the agent tools ({', '.join(mcp_tool_names())}) over MCP on stdin/stdout. Every call "
+            "goes through the local API of the Knowledge OS desktop app and the knowledge base open there; "
+            "--root is ignored and nothing works while the app is closed."
         ),
     )
     mcp.add_argument(
@@ -409,6 +467,7 @@ def _run_delete(workspace: Workspace, args: argparse.Namespace) -> int | None:
             "id": result.id,
             "path": result.path,
             "deleted": list(result.deleted),
+            "index_count": result.index_count,
             "changed": [{"id": item.id, "path": item.path, "sha256": item.sha256} for item in result.changed],
         }
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
@@ -470,6 +529,7 @@ def _print_structure(result: StructureResult, as_json: bool) -> None:
             "project": result.project,
             "folder": result.folder,
             "scope_changed": result.scope_changed,
+            "index_count": result.index_count,
             "changed": [
                 {"id": item.id, "old_path": item.old_path, "path": item.path, "sha256": item.sha256}
                 for item in result.changed
@@ -606,7 +666,7 @@ def _run_code(workspace: Workspace, args: argparse.Namespace) -> int:
         result = capture_record_text(
             workspace, render_document(metadata, body).decode("utf-8"), project_path=Path("decisions") / f"{record_id}.md"
         )
-        payload = {"id": result.id, "path": result.path, "sha256": result.sha256, "status": result.status}
+        payload = {"id": result.id, "path": result.path, "sha256": result.sha256, "status": result.status, "index_count": result.index_count}
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True) if args.as_json else f"Proposed decision {result.id} ({result.path})")
         return 0
     if args.code_command == "link":
@@ -628,7 +688,7 @@ def _run_code(workspace: Workspace, args: argparse.Namespace) -> int:
         workspace, render_document(metadata, overview.body).decode("utf-8"), expected_sha256=content_sha256(overview.path)
     )
     if args.as_json:
-        print(json.dumps({"id": result.id, "path": result.path, "sha256": result.sha256, "repositories": value or []}, ensure_ascii=False, sort_keys=True))
+        print(json.dumps({"id": result.id, "path": result.path, "sha256": result.sha256, "repositories": value or [], "index_count": result.index_count}, ensure_ascii=False, sort_keys=True))
     else:
         for link in links:
             checked = f"checked {link.checked[:12]} on {link.checked_on}" if link.checked else "not checked"
@@ -739,16 +799,25 @@ def _print_proposal(proposal: Proposal, as_json: bool) -> None:
     else:
         what = proposal.title if proposal.action == "create" else f"the edit to {proposal.title}"
         print(f"Waiting for review: {what} was not written ({proposal.rule})")
-        print(f"Proposed change: {proposal.path}; a person accepts or discards it in the app")
+        print(f"Proposed change: {proposal.path}; a person accepts or discards it in the app or with 'kos proposal'")
 
 
-def _lint(workspace: Workspace) -> int:
+def _lint(workspace: Workspace, as_json: bool) -> int:
     documents, issues = validate_workspace(workspace)
     findings = [(issue.path, issue.message) for issue in issues]
     try:
         load_policy(workspace)
     except ReviewError as exc:
         findings.append(("knowledge-os.toml", str(exc)))
+    if as_json:
+        _print_json(
+            {
+                "ok": not findings,
+                "record_count": len(documents),
+                "issues": [{"path": str(path), "message": message} for path, message in findings],
+            }
+        )
+        return 1 if findings else 0
     if findings:
         for path, message in findings:
             print(f"ERROR {path}: {message}", file=sys.stderr)
@@ -758,7 +827,7 @@ def _lint(workspace: Workspace) -> int:
     return 0
 
 
-def _inspect(workspace: Workspace, record_id: str, full: bool) -> int:
+def _inspect(workspace: Workspace, record_id: str, full: bool, as_json: bool) -> int:
     documents, issues = validate_workspace(workspace)
     if issues:
         raise ValueError("cannot inspect an invalid corpus; run 'kos lint' for details")
@@ -784,7 +853,169 @@ def _inspect(workspace: Workspace, record_id: str, full: bool) -> int:
         result["verified"] = verified.isoformat() if hasattr(verified, "isoformat") else verified
     if full:
         result["content"] = document.body
-    print(json.dumps(result, ensure_ascii=False, indent=2, default=lambda value: value.isoformat()))
+    if as_json:
+        _print_json(result)
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=lambda value: value.isoformat()))
+    return 0
+
+
+def _proposal_summary(proposal: Proposal) -> dict[str, object]:
+    return {
+        "id": proposal.id,
+        "action": proposal.action,
+        "record_id": proposal.record_id,
+        "title": proposal.title,
+        "path": proposal.path,
+        "sha256": proposal.sha256,
+        "rule": proposal.rule,
+        "proposed_at": proposal.proposed_at,
+        "proposed_by": dict(proposal.proposed_by),
+        "project_path": proposal.project_path,
+        "base_sha256": proposal.base_sha256,
+    }
+
+
+def _run_proposal(workspace: Workspace, args: argparse.Namespace) -> int:
+    """``kos proposal list|show|accept|discard``: the app's Decide actions for proposed changes."""
+
+    command = args.proposal_command
+    if command == "list":
+        proposals, broken = list_proposals(workspace)
+        if args.as_json:
+            _print_json(
+                {
+                    "proposals": [_proposal_summary(item) for item in proposals],
+                    "broken": [{"path": item.path, "message": item.message} for item in broken],
+                }
+            )
+            return 0
+        for item in proposals:
+            print(f"{item.id}\t{item.action}\t{item.record_id}\t{item.title}\t{item.rule}")
+        for item in broken:
+            print(f"ERROR {item.path}: {item.message}", file=sys.stderr)
+        if not proposals and not broken:
+            print("No proposed changes.")
+        return 0
+    if command == "show":
+        proposal = load_proposal(workspace, args.id)
+        if args.as_json:
+            _print_json({**_proposal_summary(proposal), "markdown": proposal.text()})
+            return 0
+        verb = "Create" if proposal.action == "create" else "Edit"
+        print(f"{verb} {proposal.record_id}: {proposal.title}")
+        print(f"Rule: {proposal.rule}")
+        print(f"SHA-256: {proposal.sha256}")
+        print()
+        _write_stdout(proposal.text())
+        return 0
+    if command == "accept":
+        try:
+            result = accept_proposal(workspace, args.id, expected_sha256=args.expected_sha256)
+        except StaleRevisionError as exc:
+            if exc.expected == args.expected_sha256:
+                raise ValueError(f"{exc}; run 'kos proposal show {args.id}' and review it again") from exc
+            raise ValueError(
+                f"{exc}; the page changed after this edit was proposed, so it can only be discarded "
+                "and proposed again against the current page"
+            ) from exc
+        if args.as_json:
+            _print_json(
+                {
+                    "proposal": args.id,
+                    "id": result.id,
+                    "path": result.path,
+                    "sha256": result.sha256,
+                    "status": result.status,
+                    "index_count": result.index_count,
+                }
+            )
+        else:
+            print(f"Accepted proposed change {args.id}: wrote {result.id} ({result.path})")
+            print(f"Index refreshed: {result.index_count} record(s)")
+        return 0
+    proposal = discard_proposal(workspace, args.id, expected_sha256=args.expected_sha256)
+    if args.as_json:
+        _print_json({"proposal": proposal.id, "id": proposal.record_id, "discarded": True})
+    else:
+        print(f"Discarded proposed change {proposal.id} ({proposal.title})")
+    return 0
+
+
+def _run_discovery(workspace: Workspace, args: argparse.Namespace) -> int:
+    command = args.discovery_command
+    if command == "add":
+        record_id, created, count = add_discovery(workspace, args.path)
+        if args.as_json:
+            _print_json({"id": record_id, "created": created, "index_count": count})
+        else:
+            print(f"{'Added' if created else 'Already present'} discovery {record_id}")
+            print(f"Index refreshed: {count} record(s)")
+        return 0
+    if command == "inspect":
+        text = inspect_discovery(workspace, args.id)
+        if args.as_json:
+            _print_json(json.loads(text))
+        else:
+            print(text)
+        return 0
+    if command == "review":
+        packet, related = review_details(workspace, args.id)
+        if args.as_json:
+            _print_json(
+                {
+                    "id": args.id,
+                    "packet": packet,
+                    "related": [
+                        {
+                            "id": item.document.metadata["id"],
+                            "title": item.document.metadata["title"],
+                            "path": workspace.relative(item.document.path),
+                            "matched_terms": list(item.matched_terms),
+                            "reasons": list(item.reasons),
+                        }
+                        for item in related
+                    ],
+                }
+            )
+        else:
+            _write_stdout(packet)
+        return 0
+    if command in {"retain", "reject"}:
+        change = retain_discovery if command == "retain" else reject_discovery
+        status, count = change(workspace, args.id, reviewer=args.reviewer, reason=args.reason)
+        if args.as_json:
+            _print_json({"id": args.id, "status": status, "index_count": count})
+        else:
+            print(f"Discovery {args.id} is now {status}")
+            print(f"Index refreshed: {count} record(s)")
+        return 0
+    target_id, count, related_ids = promote_discovery(
+        workspace,
+        args.id,
+        target_id=args.target_id,
+        title=args.title,
+        scope=args.scope,
+        reviewer=args.reviewer,
+        reason=args.reason,
+        acknowledge_related=args.acknowledge_related,
+        allow_scope_broadening=args.allow_scope_broadening,
+    )
+    if args.as_json:
+        _print_json(
+            {
+                "id": args.id,
+                "status": "promoted",
+                "target_id": target_id,
+                "acknowledged_related": list(related_ids),
+                "index_count": count,
+            }
+        )
+    else:
+        print(f"Promoted discovery {args.id} to new draft {target_id}")
+        if related_ids:
+            print(f"Acknowledged related records: {', '.join(related_ids)}")
+        print(f"Index refreshed: {count} record(s)")
     return 0
 
 
@@ -959,18 +1190,26 @@ def main(argv: list[str] | None = None) -> int:
             return _model(args.model_command)
         workspace = _workspace(args)
         if args.command == "lint":
-            return _lint(workspace)
+            return _lint(workspace, args.as_json)
         if args.command == "index":
             count = rebuild_indexes(workspace)
-            print(f"Index refreshed: {count} record(s); catalog.md and catalog.sqlite3 rebuilt")
             _refresh_semantic_index(workspace)
+            if args.as_json:
+                _print_json({"index_count": count})
+            else:
+                print(f"Index refreshed: {count} record(s); catalog.md and catalog.sqlite3 rebuilt")
             return 0
         if args.command == "ingest":
             record_id, created, count = ingest_source(workspace, args.path)
+            if args.as_json:
+                _print_json({"id": record_id, "created": created, "index_count": count})
+                return 0
             action = "Ingested" if created else "Already ingested"
             print(f"{action} {record_id}")
             print(f"Index refreshed: {count} record(s)")
             return 0
+        if args.command == "proposal":
+            return _run_proposal(workspace, args)
         if args.command == "search":
             if args.limit < 1:
                 raise ValueError("--limit must be at least 1")
@@ -984,9 +1223,11 @@ def main(argv: list[str] | None = None) -> int:
                         f"{result['record_kind']}\t{result['status']}\t{result['scope']}\t"
                         f"{result['path']}\t{result['snippet']}"
                     )
+                if not results:
+                    print("No results.", file=sys.stderr)
             return 0
         if args.command == "inspect":
-            return _inspect(workspace, args.id, args.full)
+            return _inspect(workspace, args.id, args.full, args.as_json)
         deleted = _run_delete(workspace, args)
         if deleted is not None:
             return deleted
@@ -1044,6 +1285,7 @@ def main(argv: list[str] | None = None) -> int:
                             "scope": result.scope,
                             "path": result.path,
                             "status": result.status,
+                            "index_count": result.index_count,
                         },
                         ensure_ascii=False,
                         sort_keys=True,
@@ -1073,6 +1315,7 @@ def main(argv: list[str] | None = None) -> int:
                 "path": result.path,
                 "sha256": result.sha256,
                 "status": result.status,
+                "index_count": result.index_count,
             }
             if args.as_json:
                 print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
@@ -1093,6 +1336,7 @@ def main(argv: list[str] | None = None) -> int:
                 "path": result.path,
                 "sha256": result.sha256,
                 "status": result.status,
+                "index_count": result.index_count,
             }
             if args.as_json:
                 print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
@@ -1114,6 +1358,7 @@ def main(argv: list[str] | None = None) -> int:
                 "path": result.path,
                 "sha256": result.sha256,
                 "status": result.status,
+                "index_count": result.index_count,
             }
             if args.as_json:
                 print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
@@ -1138,6 +1383,7 @@ def main(argv: list[str] | None = None) -> int:
                 "old_id": result.old_id,
                 "old_sha256": result.old_sha256,
                 "old_status": result.old_status,
+                "index_count": result.index_count,
             }
             if args.as_json:
                 print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
@@ -1146,55 +1392,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Index refreshed: {result.index_count} record(s)")
             return 0
         if args.command == "discovery":
-            if args.discovery_command == "add":
-                record_id, created, count = add_discovery(workspace, args.path)
-                action = "Added" if created else "Already present"
-                print(f"{action} discovery {record_id}")
-                print(f"Index refreshed: {count} record(s)")
-                return 0
-            if args.discovery_command == "inspect":
-                print(inspect_discovery(workspace, args.id))
-                return 0
-            if args.discovery_command == "review":
-                _write_stdout(review_packet(workspace, args.id))
-                return 0
-            if args.discovery_command == "retain":
-                status, count = retain_discovery(
-                    workspace,
-                    args.id,
-                    reviewer=args.reviewer,
-                    reason=args.reason,
-                )
-                print(f"Discovery {args.id} is now {status}")
-                print(f"Index refreshed: {count} record(s)")
-                return 0
-            if args.discovery_command == "reject":
-                status, count = reject_discovery(
-                    workspace,
-                    args.id,
-                    reason=args.reason,
-                    reviewer=args.reviewer,
-                )
-                print(f"Discovery {args.id} is now {status}")
-                print(f"Index refreshed: {count} record(s)")
-                return 0
-            if args.discovery_command == "promote":
-                target_id, count, related_ids = promote_discovery(
-                    workspace,
-                    args.id,
-                    target_id=args.target_id,
-                    title=args.title,
-                    scope=args.scope,
-                    reviewer=args.reviewer,
-                    reason=args.reason,
-                    acknowledge_related=args.acknowledge_related,
-                    allow_scope_broadening=args.allow_scope_broadening,
-                )
-                print(f"Promoted discovery {args.id} to new draft {target_id}")
-                if related_ids:
-                    print(f"Acknowledged related records: {', '.join(related_ids)}")
-                print(f"Index refreshed: {count} record(s)")
-                return 0
+            return _run_discovery(workspace, args)
     except (DocumentationInitError, MetadataError, WorkspaceError, ValueError, codedocs.CodeDocsError, SemanticError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

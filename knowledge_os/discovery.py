@@ -519,11 +519,18 @@ def render_review_packet(workspace: Workspace, discovery: Document, related: lis
     return "\n".join(lines)
 
 
-def review_packet(workspace: Workspace, record_id: str) -> str:
+def review_details(workspace: Workspace, record_id: str) -> tuple[str, list[RelatedRecord]]:
+    """The review packet and the related records it lists."""
+
     documents = _validated_documents(workspace, "review a discovery")
     validate_index(workspace, documents)
     discovery = _find_discovery(documents, record_id)
-    return render_review_packet(workspace, discovery, find_related_records(workspace, documents, discovery))
+    related = find_related_records(workspace, documents, discovery)
+    return render_review_packet(workspace, discovery, related), related
+
+
+def review_packet(workspace: Workspace, record_id: str) -> str:
+    return review_details(workspace, record_id)[0]
 
 
 def inspect_discovery(workspace: Workspace, record_id: str) -> str:
