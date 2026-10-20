@@ -27,7 +27,7 @@ selection and update rules in [references/documentation-workflow.md](references/
 ## With the Knowledge OS MCP tools
 
 When the `knowledge-os` MCP server's tools are available in this session (the plugin registers
-`kos mcp`), use them instead of shelling out to `kos`. They act on the knowledge base open in the
+the server), use them instead of the command line. They act on the knowledge base open in the
 Knowledge OS desktop app, go through its validation and conflict checks, and commit every write
 under this agent's name:
 
@@ -36,6 +36,12 @@ under this agent's name:
 - `write_note` to create a page (title, content, project, folder) or to edit one (id, the complete
   new content, and `expected_sha256` from `read_page`). A `conflict` result means the page changed:
   read it again and reapply the change, never overwrite blindly.
+- A write that returns `action: waiting_for_review` is not saved: the knowledge base's review rules
+  held it back and nothing is written yet. Tell the person that the change waits in the app's
+  Decide inbox, where they accept or discard it, and name the `rule` from the result; do not say the
+  page was updated and do not write it again. Before writing, `list_proposed_changes` shows the
+  changes already waiting (`read_proposed_change` shows one in full), so you do not propose the same
+  change twice.
 - `propose_decision` for a decision; it is always a draft that the person accepts or withdraws in
   the app. `list_proposed_decisions` shows what is already waiting. No tool accepts decisions.
 - To keep a project's pages in step with its code: `link_repository` once (the repository's
@@ -50,12 +56,22 @@ The rules for every write below apply to the MCP tools unchanged.
 
 ## CLI fallback
 
-Without the MCP tools, normal work starts by reading the global config and optional repository
-binding. Run `kos search` before `kos inspect` or `kos context`. Select only task-relevant general
-knowledge and memory. Use `kos context` for every bound project affected by the request or changed
-paths. Read the project overview and the nearest relevant folder `README.md` records. Create new
-records with `kos capture`. For an existing record, run `kos inspect` to obtain its exact hash, then
-use `kos update` with that hash.
+Without the MCP tools, run every command as `<python> -m knowledge_os --root <root> ...`, never as
+a bare `kos`. `<python>` is a launcher proven to be Python >=3.11 that imports `knowledge_os`, and
+`<root>` is `KNOWLEDGE_OS_ROOT` or else `workspace` from `~/.knowledge-os/config.toml`; the
+`knowledge-os-capture` skill's CLI fallback shows how to select both and the one-time setup. When
+no launcher or root is available, report the gap and write nothing.
+
+Normal work starts by reading the global config and optional repository binding. Run
+`<python> -m knowledge_os --root <root> search QUERY --json` before `inspect` or `context`. Select
+only task-relevant general knowledge and memory. Use `<python> -m knowledge_os --root <root> context
+--project ID --task TEXT` for every bound project affected by the request or changed paths. Read the
+project overview and the nearest relevant folder `README.md` records. Create new records with
+`<python> -m knowledge_os --root <root> capture PATH --writer agent --json`. For an existing record,
+run `<python> -m knowledge_os --root <root> inspect ID` to obtain its exact hash, then
+`<python> -m knowledge_os --root <root> update PATH --expected-sha256 HASH --writer agent --json`.
+`--writer agent` applies the review rules: a result with `action: waiting_for_review` wrote nothing
+yet, and you report it exactly as for the MCP tools above.
 
 ## Rules for every write
 

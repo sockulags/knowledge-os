@@ -178,8 +178,11 @@ so `--json` output and `kos mcp`'s stdio protocol stay clean) saying how to fix 
 package (`py -3.11 -m pip uninstall knowledge-os`) or reorder PATH. Set `KOS_NO_PATH_WARNING=1` to
 silence it.
 
-Agents reach the knowledge base through `kos mcp` (below), never a bare `kos`; people and scripts
-use the plain `kos` command directly.
+Agents reach the knowledge base through `kos mcp` (below). When those tools are not available, the
+plugin skills run the command line as `<python> -m knowledge_os --root <root> ...`, with a proven
+Python >=3.11 launcher and the root from `KNOWLEDGE_OS_ROOT` or `~/.knowledge-os/config.toml`, and
+never as a bare `kos`, which could reach another install and would look for the workspace in the
+agent's working directory. People and scripts use the plain `kos` command directly.
 
 ## Agents (MCP)
 
@@ -377,17 +380,28 @@ declined or unavailable.
 
 On Windows PowerShell, set `$loadedSkillPath` to the absolute path of the
 loaded `skills/knowledge-os-capture/SKILL.md`, derive `$pluginRoot` from it, and
-use the selected Python 3.11 launcher for setup:
+use the first of `py -3.11` and `py -3` that proves Python >=3.11 for setup. The
+install includes the `mcp` extra so `kos mcp` also runs without the desktop app:
 
 ```powershell
 $loadedSkillPath = '<absolute path to the loaded SKILL.md>'
 $pluginRoot = (Resolve-Path (Join-Path (Split-Path -Parent $loadedSkillPath) '..\..')).Path
-$python = @('py', '-3.11')
-$venv = (& $python[0] $python[1] -c "import sys; print(sys.prefix != sys.base_prefix)").Trim()
+$python = $null
+if (Get-Command py -ErrorAction SilentlyContinue) {
+  foreach ($launcher in @(@('py', '-3.11'), @('py', '-3'))) {
+    & $launcher[0] $launcher[1] -c "import sys; assert sys.version_info >= (3, 11)" 2>$null
+    if ($LASTEXITCODE -eq 0) { $python = $launcher; break }
+  }
+}
+if (-not $python) {
+  Write-Output 'No proven Python >=3.11 launcher; safe-no-op.'
+  exit 0
+}
+$venv = "$(& $python[0] $python[1] -c "import sys; print(sys.prefix != sys.base_prefix)")".Trim()
 if ($venv -eq 'True') {
-  & $python[0] $python[1] -m pip install "$pluginRoot"
+  & $python[0] $python[1] -m pip install "${pluginRoot}[mcp]"
 } elseif ($venv -eq 'False') {
-  & $python[0] $python[1] -m pip install --user "$pluginRoot"
+  & $python[0] $python[1] -m pip install --user "${pluginRoot}[mcp]"
 } else {
   Write-Output 'No valid virtual-environment state; safe-no-op.'
   exit 0
@@ -410,8 +424,8 @@ else
 fi
 venv_state=$("$python_cmd" -c 'import sys; print(sys.prefix != sys.base_prefix)')
 case "$venv_state" in
-  True) "$python_cmd" -m pip install "$plugin_root" ;;
-  False) "$python_cmd" -m pip install --user "$plugin_root" ;;
+  True) "$python_cmd" -m pip install "${plugin_root}[mcp]" ;;
+  False) "$python_cmd" -m pip install --user "${plugin_root}[mcp]" ;;
   *) echo 'No valid virtual-environment state; safe-no-op.'; exit 0 ;;
 esac
 ```

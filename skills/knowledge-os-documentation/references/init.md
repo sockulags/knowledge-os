@@ -9,10 +9,12 @@ Global initialization installs a short managed block in the user-level Codex
 `AGENTS.md` and Claude `CLAUDE.md`. It also writes `~/.knowledge-os/config.toml`.
 These are user-level writes, so require direct user authorization immediately before the command.
 
-Use the fixed command contract:
+Use the fixed command contract. `<python>` is the proven Python >=3.11 launcher described in the
+`knowledge-os-capture` skill's CLI fallback; never run a bare `kos`. Initialization takes the
+workspace or repository as an argument, so these two commands need no `--root`:
 
 ```text
-kos documentation init-global --workspace PATH [--host codex] [--host claude] [--user-home PATH] [--replace] [--json]
+<python> -m knowledge_os documentation init-global --workspace PATH [--host codex] [--host claude] [--user-home PATH] [--replace] [--json]
 ```
 
 Pass one or both host options when selecting the managed files. Use `--user-home PATH` when the
@@ -37,7 +39,7 @@ one or more project bindings. Each binding is a project ID with an optional repo
 path:
 
 ```text
-kos documentation init-repo --repo PATH --project ID[=RELATIVE_PATH] [--project ...] [--user-home PATH] [--replace] [--json]
+<python> -m knowledge_os documentation init-repo --repo PATH --project ID[=RELATIVE_PATH] [--project ...] [--user-home PATH] [--replace] [--json]
 ```
 
 The generated binding file has one project entry under `knowledge_os.projects` for each `--project`
