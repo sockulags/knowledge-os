@@ -593,7 +593,9 @@ rule), followed by the page's complete proposed Markdown. It is committed as
   `metadata_changes` (`title`, `tags`, `related`, `sources`) and `blocks`, a
   paragraph diff of the page now (left) against the proposal (right).
 - `POST /api/changes/{id}/accept` and `/discard` take `{"expected_sha256":
-  <content_sha256>}` (a proposal file changed since is `409`). Accepting
+  <content_sha256>}` (required; a proposal file changed since is `409`).
+  Each runs under one workspace lock from reading the proposal to removing
+  it, so an accept and a discard of the same change never both happen. Accepting
   applies the change with capture's or `kos update`'s rules (an edit whose
   page changed answers `409 conflict`), removes the proposal, and commits both
   as `Accept <title>` or `Accept edit to <title>`; discarding commits
