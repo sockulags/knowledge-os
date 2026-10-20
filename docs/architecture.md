@@ -347,7 +347,11 @@ attempt to restore writes after a caught failure.
 ## Local interface write API
 
 `kos-read` (and the desktop app, which runs the same server) serves a JSON API
-on a loopback address. `GET` routes never write canonical Markdown. When a
+on a loopback address. It cannot be reached from other computers: `--host`
+accepts only a loopback address (`127.0.0.1`, another `127.x.x.x`, `::1`, or
+`localhost`) and exits with an error for anything else, such as `0.0.0.0`, and
+every route refuses a request whose peer address is not loopback, whatever
+`Host` header it sends. `GET` routes never write canonical Markdown. When a
 request finds the search index stale, absent, or unreadable, the server starts
 one background rebuild through `kos index`'s own function, under the same
 lock; it tries once per state of the corpus, skips a corpus that fails `kos
@@ -421,7 +425,9 @@ dev server's loopback origin passes the same checks through its proxy. The
 loopback host check applies to every request the server handles, not only
 writes: a middleware in front of the whole route table refuses any request
 whose `Host` is not loopback, so DNS rebinding can't be used to read the
-JSON API or the served SPA either.
+JSON API or the served SPA either. The same middleware refuses a request whose
+peer address is not loopback, so a client on another computer that sends
+`Host: 127.0.0.1` still cannot read the write token from `GET /api/session`.
 
 The decision lifecycle routes call the same core functions as `kos decision
 accept`, `kos decision withdraw`, and `kos supersede`, with the same guard,

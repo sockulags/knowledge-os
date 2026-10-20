@@ -8,13 +8,16 @@ class, following the same pattern as ``tests/test_api_write.py``.
 
 from __future__ import annotations
 
+import io
 import json
+import sys
 import tempfile
 import unittest
 import urllib.error
 import urllib.request
 from contextlib import ExitStack
 from pathlib import Path
+from unittest import mock
 from urllib.parse import urlsplit
 
 from reader_support import serve, write_decision_fixture
@@ -38,6 +41,85 @@ def _maybe_json(body: bytes) -> object:
         return json.loads(body)
     except ValueError:
         return body.decode("utf-8", errors="replace")
+
+
+class ClientAddressGuardTests(unittest.TestCase):
+    """A client on another computer can send ``Host: 127.0.0.1``; the peer
+    address must be loopback too. Runs in-process with Starlette's
+    TestClient so the peer address can be chosen."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from starlette.testclient import TestClient
+
+        from knowledge_os.reader.app import create_app
+        from knowledge_os.workspace import Workspace
+
+        cls._stack = ExitStack()
+        directory = cls._stack.enter_context(tempfile.TemporaryDirectory())
+        root = Path(directory)
+        write_decision_fixture(root)
+        app = create_app(Workspace.discover(root), refresh_index=False)
+        cls.lan = cls._stack.enter_context(
+            TestClient(app, base_url="http://127.0.0.1", client=("192.168.1.20", 50000))
+        )
+        cls.local = cls._stack.enter_context(
+            TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._stack.close()
+
+    def test_non_loopback_client_is_refused_on_every_route(self) -> None:
+        requests = (
+            ("GET", "/"),
+            ("GET", "/api/workspace"),
+            ("GET", "/api/session"),
+            ("GET", "/api/sync/status"),
+            ("POST", "/api/records"),
+        )
+        for method, path in requests:
+            with self.subTest(method=method, path=path):
+                response = self.lan.request(method, path, headers={"Host": "127.0.0.1"})
+                self.assertEqual(response.status_code, 403, response.text)
+                self.assertEqual(response.json()["error"], "forbidden")
+                self.assertNotIn("token", response.json())
+
+    def test_loopback_client_is_accepted(self) -> None:
+        response = self.local.get("/api/session")
+        self.assertEqual(response.status_code, 200, response.text)
+
+
+class LoopbackAddressTests(unittest.TestCase):
+    def test_classifies_addresses(self) -> None:
+        from knowledge_os.reader.api.write import is_loopback_address
+
+        for value in ("127.0.0.1", "127.8.9.10", "::1", "[::1]", "localhost", "::ffff:127.0.0.1"):
+            with self.subTest(value=value):
+                self.assertTrue(is_loopback_address(value))
+        for value in (None, "", "testclient", "0.0.0.0", "::", "192.168.1.20", "::ffff:10.0.0.1", "evil.example"):
+            with self.subTest(value=value):
+                self.assertFalse(is_loopback_address(value))
+
+
+class ReaderCliHostTests(unittest.TestCase):
+    def _run(self, host: str) -> tuple[int, str]:
+        from knowledge_os.reader import cli
+
+        stderr = io.StringIO()
+        with mock.patch.object(sys, "stderr", stderr), mock.patch("uvicorn.run") as run:
+            code = cli.main(["--host", host, "--root", "does-not-matter-refused-first"])
+        run.assert_not_called()
+        return code, stderr.getvalue()
+
+    def test_non_loopback_host_exits_with_an_error(self) -> None:
+        for host in ("0.0.0.0", "::", "192.168.1.20", "example.com"):
+            with self.subTest(host=host):
+                code, error = self._run(host)
+                self.assertEqual(code, 1)
+                self.assertIn("not a loopback address", error)
+                self.assertIn(host, error)
 
 
 class HostGuardTests(unittest.TestCase):

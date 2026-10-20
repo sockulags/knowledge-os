@@ -25,10 +25,16 @@ from :func:`host_guard` below, so a page reached through DNS rebinding can't
 read the JSON API or the served SPA either. This module's own checks (here,
 via :func:`_same_machine_error`) are what is left once that's covered:
 Origin, Sec-Fetch-Site, and the write token.
+
+The same middleware also refuses any request whose peer address
+(``request.client.host``) is not loopback. ``kos-read`` only binds to
+loopback, but the ``Host`` header is chosen by the client, so this is what
+keeps another computer out even if the server ends up reachable.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import secrets
 from typing import Any
@@ -89,6 +95,29 @@ def _is_loopback_origin(value: str) -> bool:
     return parts.scheme in {"http", "https"} and parts.hostname in _LOOPBACK_HOSTS
 
 
+def is_loopback_address(value: str | None) -> bool:
+    """Whether ``value`` is a loopback IP address (``127.0.0.0/8``, ``::1``,
+    or an IPv4-mapped ``::ffff:127.x.x.x``) or the name ``localhost``."""
+
+    if not value:
+        return False
+    if value.lower() == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(value.strip("[]"))
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return (mapped or address).is_loopback
+
+
+def _is_loopback_client(request: Request) -> bool:
+    # No peer address at all (not something uvicorn produces over TCP) is
+    # refused rather than assumed local.
+    client = request.client
+    return client is not None and is_loopback_address(client.host)
+
+
 async def host_guard(request: Request, call_next: Any) -> Response:
     """Refuse any request (not only writes) whose ``Host`` is not loopback.
 
@@ -97,8 +126,12 @@ async def host_guard(request: Request, call_next: Any) -> Response:
     through DNS rebinding cannot read the workspace either. Uses the same
     ``_is_loopback_host`` helper and error shape as the write checks below,
     so there is exactly one definition of "loopback" for the whole server.
+    It also refuses a peer address that is not loopback, since a client on
+    another computer can send any ``Host`` header it likes.
     """
 
+    if not _is_loopback_client(request):
+        return _error("forbidden", "requests must come from this computer")
     if not _is_loopback_host(request.headers.get("host")):
         return _error("forbidden", "requests must address this server by a loopback host name")
     return await call_next(request)
@@ -107,6 +140,8 @@ async def host_guard(request: Request, call_next: Any) -> Response:
 def _same_machine_error(request: Request) -> Response | None:
     """Refuse requests that a page on another site could have caused."""
 
+    if not _is_loopback_client(request):
+        return _error("forbidden", "requests must come from this computer")
     if not _is_loopback_host(request.headers.get("host")):
         return _error("forbidden", "requests must address this server by a loopback host name")
     origin = request.headers.get("origin")

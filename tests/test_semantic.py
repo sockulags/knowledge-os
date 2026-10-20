@@ -311,7 +311,7 @@ class ReaderSearchTests(unittest.TestCase):
 
         from knowledge_os.reader.app import create_app
 
-        client = TestClient(create_app(self.workspace), base_url="http://127.0.0.1")
+        client = TestClient(create_app(self.workspace), base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
         body = client.get("/api/search", params={"q": "holiday"}).json()
         self.assertEqual(body["results"], [])
         self.assertEqual(body["semantic"]["state"], "stale")
