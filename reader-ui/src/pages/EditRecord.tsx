@@ -14,6 +14,7 @@ import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ConflictCallout, WriteFailureCallout } from "../components/WriteFailureCallout";
+import { ConflictComparison } from "../components/ConflictComparison";
 import {
   Field,
   PrimaryButton,
@@ -55,11 +56,26 @@ function metadataChanges(saved: Draft, draft: Draft): Record<string, unknown> {
   return changes;
 }
 
+const FIELD_LABELS: Record<string, string> = {
+  title: "title",
+  tags: "tags",
+  related: "related pages",
+  sources: "based on",
+};
+
+/** The revision a save is made against: its fields as loaded, and its hash. */
+interface Base {
+  saved: Draft;
+  sha: string;
+}
+
 type Status =
   | { kind: "idle" }
   | { kind: "saving" }
   | { kind: "saved"; at: Date; indexError: string | null }
-  | { kind: "conflict" }
+  // `current` is the version now on disk: "loading" while it is fetched,
+  // null when it could not be (then only a reload is offered).
+  | { kind: "conflict"; current: Base | "loading" | null }
   | { kind: "failed"; failure: WriteFailure };
 
 export function EditRecord() {
@@ -126,15 +142,37 @@ function Editor({
   const navigate = useNavigate();
   const canSave = dirty && status.kind !== "saving" && !uploading && !(needsConfirmation && !nonMaterial);
 
-  const save = useCallback(async () => {
-    if (!canSave) return;
+  /** On a conflict, fetch the version now on disk to compare against. */
+  const loadCurrent = useCallback(async () => {
+    setStatus({ kind: "conflict", current: "loading" });
+    let current: Base | null = null;
+    try {
+      const fresh = (await api.record(record.id)).editing;
+      if (fresh.editable && fresh.metadata && fresh.raw_body !== null && fresh.content_sha256) {
+        current = { saved: draftFrom(fresh.metadata, fresh.raw_body), sha: fresh.content_sha256 };
+      }
+    } catch {
+      current = null;
+    }
+    setStatus({ kind: "conflict", current });
+  }, [record.id]);
+
+  /** Send the draft's differences from `base`, against `base`'s hash. */
+  const submit = useCallback(async (base: Base) => {
+    const changes = metadataChanges(base.saved, draft);
+    const bodyChanged = draft.body !== base.saved.body;
+    const needsConfirmation = editing.body_change_needs_confirmation && bodyChanged;
+    if (!bodyChanged && Object.keys(changes).length === 0) {
+      setStatus({ kind: "idle" });
+      return;
+    }
     // What this save sends. The text stays editable meanwhile, so the draft
     // may move on; only `saved` takes this snapshot, and whatever was typed
     // since still reads as unsaved.
     const sent = { ...draft, title: draft.title.trim() };
     setStatus({ kind: "saving" });
     const outcome = await write.edit(record.id, {
-      expected_sha256: sha,
+      expected_sha256: base.sha,
       ...(Object.keys(changes).length > 0 ? { metadata: changes } : {}),
       ...(bodyChanged ? { body: sent.body } : {}),
       ...(needsConfirmation ? { confirm_non_material: true, change_reference: interfaceReference("edit") } : {}),
@@ -154,22 +192,41 @@ function Editor({
       setStatus({ kind: "saved", at: new Date(), indexError: written.index.error });
       if ("title" in changes) refreshNav();
     } else if (outcome.failure.error === "conflict") {
-      setStatus({ kind: "conflict" });
+      void loadCurrent();
     } else {
       setStatus({ kind: "failed", failure: outcome.failure });
     }
-  }, [
-    canSave,
-    needsConfirmation,
-    record.id,
-    sha,
-    changes,
-    bodyChanged,
-    draft,
-    refreshNav,
-    allowNextNavigation,
-    navigate,
-  ]);
+  }, [editing.body_change_needs_confirmation, record.id, draft, refreshNav, allowNextNavigation, navigate, loadCurrent]);
+
+  const save = useCallback(async () => {
+    if (canSave) await submit({ saved, sha });
+  }, [canSave, submit, saved, sha]);
+
+  /** Build on the version now on disk: from here on the draft is compared
+   * with, and saved against, that version. */
+  const adopt = (current: Base) => {
+    setSaved(current.saved);
+    setSha(current.sha);
+    setNonMaterial(false);
+  };
+  const keepMine = (current: Base) => {
+    adopt(current);
+    void submit(current);
+  };
+  const takeTheirs = (current: Base) => {
+    adopt(current);
+    setDraft(current.saved);
+    setStatus({ kind: "idle" });
+  };
+  const conflictWith = status.kind === "conflict" && status.current !== "loading" ? status.current : null;
+  const keepMineBlocked =
+    conflictWith === null
+      ? null
+      : uploading
+        ? "Wait for the attachment to finish."
+        : editing.body_change_needs_confirmation && draft.body !== conflictWith.saved.body && !nonMaterial
+          ? "Confirm below that your change does not alter what was decided."
+          : null;
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
@@ -204,7 +261,22 @@ function Editor({
         </PrimaryButton>
       </div>
 
-      {status.kind === "conflict" && <ConflictCallout onReload={onReload} onKeepEditing={() => setStatus({ kind: "idle" })} />}
+      {status.kind === "conflict" && status.current === "loading" && (
+        <Callout tone="danger">This page changed while you were editing. Loading the current version…</Callout>
+      )}
+      {status.kind === "conflict" && status.current === null && (
+        <ConflictCallout onReload={onReload} onKeepEditing={() => setStatus({ kind: "idle" })} />
+      )}
+      {conflictWith && (
+        <ConflictComparison
+          theirs={conflictWith.saved.body}
+          mine={draft.body}
+          changedFields={Object.keys(metadataChanges(conflictWith.saved, draft)).map((field) => FIELD_LABELS[field])}
+          keepMineBlocked={keepMineBlocked}
+          onKeepMine={() => keepMine(conflictWith)}
+          onTakeTheirs={() => takeTheirs(conflictWith)}
+        />
+      )}
       {status.kind === "failed" && <WriteFailureCallout failure={status.failure} />}
       {status.kind === "saved" && status.indexError && (
         <Callout>

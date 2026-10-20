@@ -40,6 +40,21 @@ function record(): RecordPayload {
   } as unknown as RecordPayload;
 }
 
+/** The page as another writer left it on disk. */
+function theirs(): RecordPayload {
+  const current = record();
+  current.editing.raw_body = "Hello from the agent";
+  current.editing.metadata = { title: "Note", tags: ["agent"], related: [], sources: [] } as never;
+  current.editing.content_sha256 = "sha-theirs";
+  return current;
+}
+
+const conflict = {
+  ok: false as const,
+  status: 409,
+  failure: { error: "conflict", detail: "The file changed.", current_sha256: "sha-theirs" },
+};
+
 function written(sha: string) {
   return {
     ok: true as const,
@@ -128,5 +143,65 @@ describe("EditRecord", () => {
     await user.keyboard("{Control>}s{/Control}");
     await waitFor(() => expect(write.edit).toHaveBeenCalledTimes(1));
     expect(vi.mocked(write.edit).mock.calls[0][1].body).not.toContain("Attaching");
+  });
+
+  it("shows a conflict next to the current version and keeps the person's text on top of it", async () => {
+    const user = userEvent.setup();
+    vi.mocked(write.edit).mockResolvedValueOnce(conflict as never).mockResolvedValueOnce(written("sha-3") as never);
+    renderEditor();
+
+    const text = (await screen.findByLabelText("Page text")) as HTMLTextAreaElement;
+    await user.type(text, " world");
+    vi.mocked(api.record).mockResolvedValue(theirs());
+    await user.click(saveButton());
+
+    const heading = await screen.findByRole("heading", { name: "This page changed while you were editing" });
+    expect(document.activeElement).toBe(heading.closest("section"));
+    expect(screen.getByRole("heading", { name: "Current version" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your text" })).toBeTruthy();
+    expect(screen.getByText("Hello from the agent")).toBeTruthy();
+    expect(screen.getByText(/Properties that also differ: tags/)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Keep mine on top of the new version" }));
+    await waitFor(() => expect(screen.getByText(/^Saved /)).toBeTruthy());
+    // Against the new revision, with the person's text; their tag removal too.
+    expect(write.edit).toHaveBeenLastCalledWith("note", {
+      expected_sha256: "sha-theirs",
+      metadata: { tags: null },
+      body: "Hello world",
+    });
+    expect(screen.queryByRole("heading", { name: "This page changed while you were editing" })).toBeNull();
+    expect(text.value).toBe("Hello world");
+  });
+
+  it("takes the current version into the editor", async () => {
+    const user = userEvent.setup();
+    vi.mocked(write.edit).mockResolvedValueOnce(conflict as never);
+    renderEditor();
+
+    const text = (await screen.findByLabelText("Page text")) as HTMLTextAreaElement;
+    await user.type(text, " world");
+    vi.mocked(api.record).mockResolvedValue(theirs());
+    await user.click(saveButton());
+
+    await user.click(await screen.findByRole("button", { name: "Take theirs" }));
+    expect(text.value).toBe("Hello from the agent");
+    expect((screen.getByLabelText(/^Tags/) as HTMLInputElement).value).toBe("agent");
+    expect(screen.queryByText("Unsaved changes")).toBeNull();
+    expect(saveButton().disabled).toBe(true);
+    expect(write.edit).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a reload when the current version cannot be loaded", async () => {
+    const user = userEvent.setup();
+    vi.mocked(write.edit).mockResolvedValueOnce(conflict as never);
+    renderEditor();
+
+    const text = (await screen.findByLabelText("Page text")) as HTMLTextAreaElement;
+    await user.type(text, " world");
+    vi.mocked(api.record).mockRejectedValue(new Error("down"));
+    await user.click(saveButton());
+
+    expect(await screen.findByRole("button", { name: "Reload current version" })).toBeTruthy();
   });
 });
