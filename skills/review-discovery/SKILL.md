@@ -1,6 +1,6 @@
 ---
 name: review-discovery
-description: Decide whether an external-agent observation should remain a reviewed discovery, be rejected, or be promoted into a new draft without bypassing the Knowledge OS trust boundary.
+description: Use when an external agent hands back an observation and someone must decide whether to keep it as a reviewed discovery, reject it, or promote it into a new draft ("review this discovery", "should we keep what the agent found", "promote this finding"). Not for saving decisions, lessons or preferences the user stated in the conversation (use knowledge-os-capture), or updating project documentation (use knowledge-os-documentation).
 ---
 
 # Review discovery
@@ -9,7 +9,7 @@ Use this skill when an external agent returns an observation and someone must de
 
 ## Workflow
 
-Run every command as `<python> -m knowledge_os --root <root> ...`, never as a bare `kos`. `<root>` is `KNOWLEDGE_OS_ROOT`, or else `workspace` under `[knowledge_os]` in `~/.knowledge-os/config.toml`; never infer it from the current directory, which is usually another repository. `<python>` is a launcher proven to be Python >=3.11 that imports `knowledge_os`, selected as in the `knowledge-os-capture` skill's CLI fallback. When no root names a directory containing `knowledge-os.toml`, or no launcher is available, do nothing and say what is missing.
+Run every command as `<python> -m knowledge_os --root <root> ...`, never as a bare `kos`. `<root>` is `KNOWLEDGE_OS_ROOT`, or else `workspace` under `[knowledge_os]` in `~/.knowledge-os/config.toml`; never infer it from the current directory, which is usually another repository. `<python>` is a launcher proven to be Python >=3.11 that imports `knowledge_os`, selected as in the `knowledge-os-capture` skill's setup reference (`setup.md`). When no root names a directory containing `knowledge-os.toml`, or no launcher is available, do nothing and say what is missing.
 
 1. Prepare structured Markdown with `type: discovery`, `status: proposed`, a non-empty observation body, non-empty `evidence`, provenance, and the narrowest honest scope. Use `origin.project` only with the matching `project:<id>` scope.
 2. Run `<python> -m knowledge_os --root <root> discovery add PATH`, then `<python> -m knowledge_os --root <root> discovery inspect ID`.
