@@ -31,7 +31,7 @@ function record(): RecordPayload {
       project_id: "demo",
       folder: "",
       raw_body: "Hello",
-      metadata: { title: "Note", tags: [], related: [], sources: [] },
+      metadata: { title: "Note", description: "", tags: [], related: [], sources: [] },
       content_sha256: "sha-1",
       body_change_needs_confirmation: false,
       decision_actions: null,
@@ -44,7 +44,7 @@ function record(): RecordPayload {
 function theirs(): RecordPayload {
   const current = record();
   current.editing.raw_body = "Hello from the agent";
-  current.editing.metadata = { title: "Note", tags: ["agent"], related: [], sources: [] } as never;
+  current.editing.metadata = { title: "Note", description: "", tags: ["agent"], related: [], sources: [] } as never;
   current.editing.content_sha256 = "sha-theirs";
   return current;
 }
@@ -69,12 +69,25 @@ function written(sha: string) {
   };
 }
 
-function renderEditor() {
+/** The quick-find index the pickers search. */
+function entry(id: string, title: string) {
+  return { id, title, kind: "knowledge", status_pill: null, project: null, group: "pages", kind_label: "Page" };
+}
+const nav = {
+  record_index: [
+    entry("note", "Note"),
+    entry("style-guide", "Style guide"),
+    entry("glossary", "Glossary"),
+    { ...entry("writing", "Writing skill"), kind: "skill" },
+  ],
+};
+
+function renderEditor(shellNav: unknown = null) {
   const router = createMemoryRouter(
     [
       {
         path: "/",
-        element: <Outlet context={{ refreshNav: vi.fn(), sync: {}, nav: null }} />,
+        element: <Outlet context={{ refreshNav: vi.fn(), sync: {}, nav: shellNav }} />,
         children: [
           { path: "r/:recordId/edit", element: <EditRecord /> },
           { path: "r/:recordId", element: <p>The page</p> },
@@ -252,5 +265,78 @@ describe("EditRecord", () => {
 
     const saveAndLeave = (await screen.findByRole("button", { name: "Save and leave" })) as HTMLButtonElement;
     expect(saveAndLeave.disabled).toBe(true);
+  });
+
+  it("saves a changed description and removes an emptied one", async () => {
+    const user = userEvent.setup();
+    vi.mocked(write.edit).mockResolvedValueOnce(written("sha-2") as never).mockResolvedValueOnce(written("sha-3") as never);
+    renderEditor();
+
+    const description = (await screen.findByLabelText(/^Description/)) as HTMLTextAreaElement;
+    await user.type(description, "  What this note covers. ");
+    await user.click(saveButton());
+    await waitFor(() => expect(screen.getByText(/^Saved /)).toBeTruthy());
+    expect(write.edit).toHaveBeenCalledWith("note", {
+      expected_sha256: "sha-1",
+      metadata: { description: "What this note covers." },
+    });
+
+    await user.clear(description);
+    await user.click(saveButton());
+    await waitFor(() => expect(write.edit).toHaveBeenCalledTimes(2));
+    expect(write.edit).toHaveBeenLastCalledWith("note", { expected_sha256: "sha-2", metadata: { description: null } });
+  });
+
+  it("picks related pages by title and saves their ids", async () => {
+    const user = userEvent.setup();
+    vi.mocked(write.edit).mockResolvedValueOnce(written("sha-2") as never);
+    renderEditor(nav);
+
+    const related = await screen.findByRole("combobox", { name: "Add to related pages" });
+    await user.type(related, "sty");
+    expect(screen.getByRole("option", { name: /Style guide/ })).toBeTruthy();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "Remove Style guide" })).toBeTruthy();
+
+    // Neither the page itself nor a skill is offered.
+    await user.type(related, "no");
+    expect(screen.queryByRole("option", { name: /^Note/ })).toBeNull();
+    await user.clear(related);
+    await user.type(related, "writ");
+    expect(screen.queryByRole("option", { name: /Writing skill/ })).toBeNull();
+    await user.clear(related);
+
+    await user.type(screen.getByRole("combobox", { name: "Add to based on" }), "glos{Enter}");
+    await user.click(saveButton());
+    await waitFor(() => expect(write.edit).toHaveBeenCalledTimes(1));
+    expect(write.edit).toHaveBeenCalledWith("note", {
+      expected_sha256: "sha-1",
+      metadata: { related: ["style-guide"], sources: ["glossary"] },
+    });
+  });
+
+  it("marks an id no page has as an error before saving", async () => {
+    const user = userEvent.setup();
+    renderEditor(nav);
+
+    const related = await screen.findByRole("combobox", { name: "Add to related pages" });
+    await user.type(related, "no-such-page");
+    await user.click(screen.getByRole("option", { name: "Use the id “no-such-page”" }));
+
+    expect(screen.getByRole("alert").textContent).toContain("No page has the id “no-such-page”");
+    expect(related.getAttribute("aria-invalid")).toBe("true");
+    expect(write.edit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Remove no-such-page" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("flags a saved relation that no longer resolves once the pages are known", async () => {
+    const stale = record();
+    stale.editing.metadata = { title: "Note", description: "", tags: [], related: [], sources: ["gone-page"] } as never;
+    vi.mocked(api.record).mockResolvedValue(stale);
+    renderEditor(nav);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("“gone-page”");
   });
 });

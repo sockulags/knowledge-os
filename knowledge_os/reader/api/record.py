@@ -75,6 +75,7 @@ async def view(request: Request) -> Response:
         {
             "id": record.id,
             "title": record.title,
+            "description": record.description,
             "type": record.type,
             "record_kind": record.record_kind,
             "is_decision": record.is_decision,

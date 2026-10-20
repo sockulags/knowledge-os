@@ -119,6 +119,9 @@ export function Document() {
           </div>
         </div>
         <h1 className="kos-title">{data.title}</h1>
+        {data.description && (
+          <p className="mt-3 text-[17px] leading-relaxed text-(--color-text-muted)">{data.description}</p>
+        )}
 
         {data.lineage.map((callout, index) => (
           <div className="mt-6" key={index}>

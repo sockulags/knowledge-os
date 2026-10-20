@@ -204,6 +204,8 @@ export interface ProjectPayload {
 export interface RecordPayload {
   id: string;
   title: string;
+  /** The optional summary shown under the title. */
+  description: string | null;
   type: string;
   record_kind: string | null;
   is_decision: boolean;
@@ -222,6 +224,8 @@ export interface RecordPayload {
 
 export interface EditableMetadata {
   title: string;
+  /** "" when the page has none. */
+  description: string;
   tags: string[];
   related: string[];
   sources: string[];

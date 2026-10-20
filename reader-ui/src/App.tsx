@@ -5,7 +5,7 @@ import { Project } from "./pages/Project";
 import { DocumentationCheck } from "./pages/DocumentationCheck";
 import { Document } from "./pages/Document";
 import { EditRecord } from "./pages/EditRecord";
-import { NewRecord } from "./pages/NewRecord";
+import { NewGeneralPage, NewRecord } from "./pages/NewRecord";
 import { Compare } from "./pages/Compare";
 import { Search } from "./pages/Search";
 import { Everything } from "./pages/Everything";
@@ -24,6 +24,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Home /> },
       { path: "decide", element: <Decide /> },
+      { path: "new", element: <NewGeneralPage /> },
       { path: "c/:changeId", element: <ChangeDetail /> },
       { path: "p/:projectId", element: <Project /> },
       { path: "p/:projectId/new", element: <NewRecord /> },
