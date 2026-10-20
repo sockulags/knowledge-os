@@ -6,6 +6,7 @@ import hashlib
 import os
 import shutil
 import tempfile
+import time
 import tomllib
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -564,6 +565,65 @@ def _validate_decision_supersession(
             )
 
 
+LOCK_TIMEOUT_ENV = "KOS_LOCK_TIMEOUT"
+DEFAULT_LOCK_TIMEOUT = 120.0
+_LOCK_POLL_SECONDS = 0.1
+
+
+def lock_timeout() -> float:
+    """Seconds a mutation waits for another kos operation: ``KOS_LOCK_TIMEOUT`` or 120."""
+
+    raw = os.environ.get(LOCK_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return DEFAULT_LOCK_TIMEOUT
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise WorkspaceError(f"{LOCK_TIMEOUT_ENV} must be a number of seconds, got {raw!r}") from exc
+    return max(value, 0.0)
+
+
+def _try_lock(handle) -> bool:
+    """Take the lock without waiting; False when another process holds it."""
+
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, PermissionError):
+        return False
+    except OSError as exc:
+        # msvcrt reports a held lock as EACCES or EDEADLK depending on the CRT.
+        if os.name == "nt" and exc.errno in (13, 36):
+            return False
+        raise
+    return True
+
+
+def _acquire_lock(handle, workspace: Workspace) -> None:
+    # Both platforms poll against the same deadline, so a long git sync on one
+    # machine makes the other operation wait instead of failing after a few seconds.
+    timeout = lock_timeout()
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            if _try_lock(handle):
+                return
+        except OSError as exc:
+            raise WorkspaceError(f"could not acquire workspace mutation lock for {workspace.root}: {exc}") from exc
+        if time.monotonic() >= deadline:
+            raise WorkspaceError(
+                f"another kos operation is still changing {workspace.root} (waited {timeout:g} s); "
+                f"try again when it has finished, or raise {LOCK_TIMEOUT_ENV}"
+            )
+        time.sleep(_LOCK_POLL_SECONDS)
+
+
 @contextmanager
 def workspace_mutation_lock(workspace: Workspace) -> Iterator[None]:
     """Serialize cooperating mutations for one workspace across processes."""
@@ -580,17 +640,7 @@ def workspace_mutation_lock(workspace: Workspace) -> Iterator[None]:
             handle.flush()
             os.fsync(handle.fileno())
         handle.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        except OSError as exc:
-            raise WorkspaceError(f"could not acquire workspace mutation lock for {workspace.root}: {exc}") from exc
+        _acquire_lock(handle, workspace)
         locked = True
         yield
     finally:
@@ -630,6 +680,32 @@ def stage_workspace(workspace: Workspace) -> Iterator[Workspace]:
         temporary.cleanup()
 
 
+REPLACE_RETRY_SECONDS = 5.0
+
+
+def replace_file(source: Path, target: Path, retry_seconds: float | None = None) -> None:
+    """``os.replace`` that waits briefly while a reader has ``target`` open.
+
+    Windows refuses to replace a file another handle has open (for example a
+    read-only SQLite search connection) with an access-denied error. Readers
+    close their handles after each query, so a short bounded retry is enough.
+    """
+
+    if retry_seconds is None:
+        retry_seconds = REPLACE_RETRY_SECONDS
+    deadline = time.monotonic() + retry_seconds
+    delay = 0.02
+    while True:
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if os.name != "nt" or time.monotonic() >= deadline:
+                raise
+        time.sleep(delay)
+        delay = min(delay * 2, 0.25)
+
+
 def atomic_write(path: Path, content: bytes) -> None:
     """Atomically replace one file in the canonical or staged workspace."""
 
@@ -646,7 +722,7 @@ def atomic_write(path: Path, content: bytes) -> None:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
+        replace_file(temporary_path, path)
     finally:
         if temporary_path and temporary_path.exists():
             temporary_path.unlink()

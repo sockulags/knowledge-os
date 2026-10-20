@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from .model import Document
-from .workspace import Workspace
+from .workspace import Workspace, replace_file
 
 
 class SemanticError(RuntimeError):
@@ -459,7 +459,7 @@ def update_index(
             connection.commit()
         finally:
             connection.close()
-        temporary.replace(path)
+        replace_file(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
     _cache.clear()

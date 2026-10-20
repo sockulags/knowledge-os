@@ -45,7 +45,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .workspace import Workspace, WorkspaceError, refresh_derived_indexes, validate_workspace, workspace_mutation_lock
+from .workspace import (
+    Workspace,
+    WorkspaceError,
+    atomic_write,
+    refresh_derived_indexes,
+    validate_workspace,
+    workspace_mutation_lock,
+)
 
 #: Seconds allowed for one network operation (fetch or push).
 NETWORK_TIMEOUT = 45.0
@@ -997,8 +1004,7 @@ def resolve_conflict(workspace: Workspace, path: str, choice: str, content: str 
         workspace.assert_safe_path(target)
         if choice == "merged":
             assert content is not None
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content.encode("utf-8"))
+            atomic_write(target, content.encode("utf-8"))
             _git(repo, "add", "--", path)
         else:
             stage = 2 if choice == "ours" else 3
