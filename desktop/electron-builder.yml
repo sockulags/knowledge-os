@@ -57,3 +57,22 @@ nsis:
   # build/installer.nsh.
   include: build/installer.nsh
 npmRebuild: false
+# Electron fuses, flipped in the packaged knowledge-os.exe (see "Electron
+# fuses" in desktop/README.md). Dev runs (npm run dev, npm start) use the
+# stock Electron binary and are unaffected.
+electronFuses:
+  # The in-app agents' ACP adapters run as Electron-as-Node
+  # (ELECTRON_RUN_AS_NODE, src/main/agents/service.ts), so this stays on.
+  runAsNode: true
+  enableCookieEncryption: true
+  # Nothing the app or its adapters start passes NODE_OPTIONS or --inspect;
+  # turned off, neither can inject code into the app or an adapter. Child
+  # processes still inherit NODE_OPTIONS and NODE_EXTRA_CA_CERTS.
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  # The app loads only from app.asar, whose header hash electron-builder
+  # embeds in the .exe and Electron checks at start.
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  # grantFileProtocolExtraPrivileges stays at Electron's default: the start
+  # page is a file:// page with module scripts, which would need testing.

@@ -451,6 +451,27 @@ The installer is not signed. For updates this means:
   change. A release signed with a new certificate can be installed over an
   unsigned one, but after that, every update must be signed by that publisher.
 
+### Electron fuses
+
+electron-builder flips these [fuses](https://www.electronjs.org/docs/latest/tutorial/fuses)
+in the packaged `knowledge-os.exe` (`electronFuses` in `electron-builder.yml`):
+
+| Fuse | Set to | Why |
+| --- | --- | --- |
+| `RunAsNode` | on | The ACP adapters run through `ELECTRON_RUN_AS_NODE`. |
+| `EnableCookieEncryption` | on | Cookies on disk are encrypted with the OS key. |
+| `EnableNodeOptionsEnvironmentVariable` | off | Nothing uses `NODE_OPTIONS`; children still inherit it. |
+| `EnableNodeCliInspectArguments` | off | No `--inspect` into the app's main process. |
+| `EnableEmbeddedAsarIntegrityValidation` | on | `app.asar` must match the hash in the .exe. |
+| `OnlyLoadAppFromAsar` | on | The app loads only from `app.asar`. |
+
+`GrantFileProtocolExtraPrivileges` keeps Electron's default, since the start
+page is a `file://` page. Because `RunAsNode` stays on, anything that can set
+the environment of `knowledge-os.exe` can still run it as Node (inspect
+arguments included, in that mode); that is the price of running the adapters
+without a separate Node. `npx @electron/fuses read --app
+dist\win-unpacked\knowledge-os.exe` shows the fuses of a build.
+
 ## Releasing a new version
 
 Nothing is uploaded by `npm run dist` (it passes `--publish never`); the
@@ -464,7 +485,10 @@ release is made by hand:
    match `pyproject.toml`), and `desktop/package.json` with its lock
    file (`npm version X.Y.Z --no-git-tag-version` in `desktop/` updates both).
    The app's version, which the updater compares, is the one in
-   `desktop/package.json`.
+   `desktop/package.json`. The core's Python packages come from
+   `desktop/core/requirements-core.txt`, not from whatever is newest at build
+   time; to ship newer ones, run `scripts\lock-core.ps1` and commit the lock
+   (see [Building the Windows installer](#building-the-windows-installer)).
 2. Commit, merge, and build from a clean checkout of that commit in a shell
    where `MAIN_VITE_KOS_UPDATE_TEST_FEED` is not set: `npm ci`, then
    `npm run dist`. Or let GitHub Actions do steps 2 and 3: run the
