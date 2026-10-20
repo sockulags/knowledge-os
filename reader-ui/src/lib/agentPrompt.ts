@@ -63,6 +63,66 @@ export function permissionQuestion(title: string | null): string {
   return TOOL_REQUESTS[toolName(title)] ?? `Allow the agent to use ${title?.trim() || "a tool"}?`;
 }
 
+/** What a permission question shows of the tool's arguments, so the person sees what would happen. */
+export type PermissionDetails =
+  /** A page the agent would write: its title, where it goes, and its text. */
+  | { kind: "page"; title: string | null; where: string | null; body: string | null }
+  /** A command the agent would run. */
+  | { kind: "command"; text: string }
+  /** Any other arguments, as indented JSON. */
+  | { kind: "data"; text: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+const PAGE_WRITES = new Set(["write_note", "propose_decision"]);
+
+/** Where a page write goes, in words. */
+function pageWhere(tool: string, args: Record<string, unknown>): string {
+  const project = text(args.project);
+  const folder = text(args.folder);
+  const place = project ? `in the project ${project}${folder ? `, folder ${folder}` : ""}` : "as general knowledge";
+  if (tool === "propose_decision") {
+    const replaces = text(args.supersedes);
+    return `Proposed decision ${place}${replaces ? `, replacing ${replaces}` : ""}`;
+  }
+  const id = text(args.id);
+  if (text(args.expected_sha256) !== null && id !== null) return `Changes the page ${id}`;
+  return `New note ${place}`;
+}
+
+/**
+ * A permission question's tool arguments, ready to show: the note or decision
+ * a write tool would save, the command a shell tool would run, or the
+ * arguments as JSON. Null when the agent sent none.
+ */
+export function permissionDetails(title: string | null, input: unknown): PermissionDetails | null {
+  // codex-acp wraps a `kos mcp` call's arguments as { server, tool, arguments }.
+  const args =
+    isRecord(input) && typeof input.server === "string" && typeof input.tool === "string" && "arguments" in input
+      ? input.arguments
+      : input;
+  if (args === null || args === undefined) return null;
+  const tool = toolName(title);
+  if (PAGE_WRITES.has(tool) && isRecord(args)) {
+    return { kind: "page", title: text(args.title), where: pageWhere(tool, args), body: text(args.content) };
+  }
+  if (isRecord(args)) {
+    if (typeof args.command === "string") return { kind: "command", text: args.command };
+    if (Array.isArray(args.command) && args.command.every((part) => typeof part === "string")) {
+      return { kind: "command", text: args.command.join(" ") };
+    }
+    if (Object.keys(args).length === 0) return null;
+  }
+  if (typeof args === "string") return args.trim() === "" ? null : { kind: "data", text: args };
+  return { kind: "data", text: JSON.stringify(args, null, 2) };
+}
+
 /** A tool call in words: "Reading a page", or the agent's own title for anything else. */
 export function toolLabel(title: string | null): string {
   const name = toolName(title);
