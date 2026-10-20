@@ -52,13 +52,21 @@ export function electronLaunchHost(
   }
 }
 
-/** `kos mcp` for the in-app agent: the same core the app runs, labelled as the app. */
+/**
+ * `kos mcp` for the in-app agent: the same core the app runs, labelled as the
+ * app. It only writes to `workspaceRoot`, the knowledge base the conversation
+ * started in, and refuses once the runtime file names another one.
+ */
 export function kosMcpCommand(
   coreExecutable: string,
   env: NodeJS.ProcessEnv,
-  runtimeFile: string
+  runtimeFile: string,
+  workspaceRoot: string
 ): KosMcpServer {
-  const passed: Record<string, string> = { KOS_RUNTIME_FILE: runtimeFile }
+  const passed: Record<string, string> = {
+    KOS_RUNTIME_FILE: runtimeFile,
+    KOS_EXPECT_WORKSPACE: workspaceRoot
+  }
   for (const name of ['PYTHONPATH', 'PYTHONUTF8', 'PYTHONIOENCODING', 'PYTHONUNBUFFERED']) {
     const value = env[name]
     if (value !== undefined) passed[name] = value

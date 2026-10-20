@@ -202,10 +202,16 @@ Once the core answers, the shell reads the write token from `GET /api/session`
 and writes the file (`src/main/runtimeFile.ts`). Opening another knowledge
 base rewrites it; closing the knowledge base, closing the window, quitting, and
 a core that stops unexpectedly remove it. It is removed only while it still
-names this app's core, so a second app instance's file is left alone. A crash
-can leave a file behind; `kos mcp` uses a file only when `core_pid` is alive and
+names this app's core. A crash can leave a file behind; `kos mcp` uses a file only when `core_pid` is alive and
 the port hands out the same write token, and otherwise tells the agent the app
 is not answering.
+
+Only one app runs per user-data folder: starting it again focuses the open
+window. The in-app agent's `kos mcp` also gets `KOS_EXPECT_WORKSPACE`, the
+knowledge base its conversation started in, and refuses every tool call with
+`wrong_knowledge_base` (writing nothing) once the runtime file names another
+one. `kos mcp` started outside the app has no such variable and uses whichever
+knowledge base is open.
 
 The file holds the write token, so only the current user may read it. On
 Windows it is written to a temporary file first, whose access list is then set

@@ -74,6 +74,12 @@ if (process.env['KOS_DESKTOP_USER_DATA']) {
   app.setPath('userData', process.env['KOS_DESKTOP_USER_DATA'])
 }
 
+// One app per user-data folder: two would share one runtime file, so an agent
+// started in one window could write to the knowledge base open in the other.
+// A second start focuses the existing window instead.
+const singleInstance = app.requestSingleInstanceLock()
+if (!singleInstance) app.quit()
+
 const repoRoot = findRepoRoot(app.getAppPath(), existsSync)
 const pythonEnv = pythonEnvironment(process.env, repoRoot)
 const recentFile = join(app.getPath('userData'), 'recent-workspaces.json')
@@ -686,7 +692,7 @@ function registerAgentIpc(): void {
       throw new Error('No knowledge base is open.')
     return agents.start(String(providerId), {
       root: state.root,
-      kosMcp: kosMcpCommand(pythonExecutable, pythonEnv, runtimeFile)
+      kosMcp: kosMcpCommand(pythonExecutable, pythonEnv, runtimeFile, state.root)
     })
   })
   handleForReader(IPC.agentPrompt, (text) => agents.prompt(String(text)))
@@ -793,7 +799,20 @@ function startup(): void {
   }
 }
 
+app.on('second-instance', () => {
+  if (!app.isReady()) return
+  const window = mainWindow
+  if (window === null || window.isDestroyed()) {
+    createWindow()
+    return
+  }
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+})
+
 app.whenReady().then(() => {
+  if (!singleInstance) return
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) =>
     callback(false)
   )

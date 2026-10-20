@@ -69,12 +69,18 @@ describe('AgentService', () => {
       ['missing', 'not-installed']
     ])
     await expect(
-      service.start('missing', { root: process.cwd(), kosMcp: kosMcpCommand('kos', {}, 'r.json') })
+      service.start('missing', {
+        root: process.cwd(),
+        kosMcp: kosMcpCommand('kos', {}, 'r.json', process.cwd())
+      })
     ).rejects.toMatchObject({
       kind: 'not-ready',
       message: 'Not here.'
     })
-    const context = { root: process.cwd(), kosMcp: kosMcpCommand('kos', {}, 'r.json') }
+    const context = {
+      root: process.cwd(),
+      kosMcp: kosMcpCommand('kos', {}, 'r.json', process.cwd())
+    }
     // The adapter is installed on demand, before the first session.
     expect((await service.list())[0].adapterInstalled).toBe(false)
     await expect(service.start('mock', context)).rejects.toMatchObject({ kind: 'adapter-missing' })
@@ -94,16 +100,21 @@ describe('AgentService', () => {
     await expect(service.prompt('echo hi')).rejects.toMatchObject({ kind: 'closed' })
   })
 
-  it('runs kos mcp from the app’s own core, labelled as the app', () => {
+  it('runs kos mcp from the app’s own core, labelled as the app, for one knowledge base', () => {
     const kos = kosMcpCommand(
       '/app/core/kos-core.exe',
-      { PYTHONPATH: '/repo', HOME: '/home/me' },
-      '/data/runtime.json'
+      { PYTHONPATH: '/repo', HOME: '/home/me', KOS_EXPECT_WORKSPACE: '/elsewhere' },
+      '/data/runtime.json',
+      '/notes/kb-a'
     )
     expect(kos).toEqual({
       command: '/app/core/kos-core.exe',
       args: ['-P', '-m', 'knowledge_os', 'mcp', '--place', 'Knowledge OS app'],
-      env: { KOS_RUNTIME_FILE: '/data/runtime.json', PYTHONPATH: '/repo' }
+      env: {
+        KOS_RUNTIME_FILE: '/data/runtime.json',
+        KOS_EXPECT_WORKSPACE: '/notes/kb-a',
+        PYTHONPATH: '/repo'
+      }
     })
   })
 
