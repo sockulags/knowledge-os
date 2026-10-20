@@ -157,14 +157,16 @@ function Editor({
     setStatus({ kind: "conflict", current });
   }, [record.id]);
 
-  /** Send the draft's differences from `base`, against `base`'s hash. */
-  const submit = useCallback(async (base: Base) => {
+  /** Send the draft's differences from `base`, against `base`'s hash.
+   * Resolves true when the draft is on disk; false when it is not (a
+   * conflict, a refused write, or an edit held back for review). */
+  const submit = useCallback(async (base: Base): Promise<boolean> => {
     const changes = metadataChanges(base.saved, draft);
     const bodyChanged = draft.body !== base.saved.body;
     const needsConfirmation = editing.body_change_needs_confirmation && bodyChanged;
     if (!bodyChanged && Object.keys(changes).length === 0) {
       setStatus({ kind: "idle" });
-      return;
+      return true;
     }
     // What this save sends. The text stays editable meanwhile, so the draft
     // may move on; only `saved` takes this snapshot, and whatever was typed
@@ -183,6 +185,7 @@ function Editor({
       allowNextNavigation();
       refreshNav();
       navigate(`/c/${outcome.data.proposal.id}`);
+      return false;
     } else if (outcome.ok) {
       const written = outcome.data as WriteResult;
       // The returned hash is the revision now on disk: the next save sends it.
@@ -191,16 +194,16 @@ function Editor({
       setNonMaterial(false);
       setStatus({ kind: "saved", at: new Date(), indexError: written.index.error });
       if ("title" in changes) refreshNav();
+      return true;
     } else if (outcome.failure.error === "conflict") {
       void loadCurrent();
     } else {
       setStatus({ kind: "failed", failure: outcome.failure });
     }
+    return false;
   }, [editing.body_change_needs_confirmation, record.id, draft, refreshNav, allowNextNavigation, navigate, loadCurrent]);
 
-  const save = useCallback(async () => {
-    if (canSave) await submit({ saved, sha });
-  }, [canSave, submit, saved, sha]);
+  const save = useCallback(async () => (canSave ? submit({ saved, sha }) : false), [canSave, submit, saved, sha]);
 
   /** Build on the version now on disk: from here on the draft is compared
    * with, and saved against, that version. */
@@ -333,7 +336,7 @@ function Editor({
         />
       </div>
 
-      <UnsavedChangesDialog blocker={blocker} />
+      <UnsavedChangesDialog blocker={blocker} save={{ save, canSave }} />
     </div>
   );
 }

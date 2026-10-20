@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Blocker } from "react-router";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -26,17 +26,68 @@ export function parseList(text: string): string[] {
     .filter((item) => item.length > 0);
 }
 
-export function UnsavedChangesDialog({ blocker }: { blocker: Blocker }) {
+/** What an editor offers the leave dialog: its own save, and whether a save
+ * can run now (not while one is running or an attachment is still stored). */
+export interface LeaveSave {
+  /** Resolves true once the changes are on disk; false keeps the person in
+   * the editor, which shows why (a conflict, a refused write). */
+  save: () => Promise<boolean>;
+  canSave: boolean;
+}
+
+export function UnsavedChangesDialog({ blocker, save }: { blocker: Blocker; save?: LeaveSave }) {
+  const [saving, setSaving] = useState(false);
+  // The blocker as last rendered, so a finished save acts on the current one.
+  const blockerRef = useRef(blocker);
+  blockerRef.current = blocker;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   if (blocker.state !== "blocked") return null;
+
+  const discard = () => blocker.proceed();
+  if (!save) {
+    return (
+      <ConfirmDialog
+        title="Leave without saving?"
+        confirmLabel="Discard changes"
+        tone="danger"
+        onConfirm={discard}
+        onCancel={() => blocker.reset()}
+      >
+        You have changes on this page that are not saved. Leaving discards them.
+      </ConfirmDialog>
+    );
+  }
+
+  async function saveAndLeave() {
+    setSaving(true);
+    const ok = await save!.save();
+    if (!mounted.current) return;
+    setSaving(false);
+    const current = blockerRef.current;
+    if (current.state !== "blocked") return;
+    if (ok) current.proceed();
+    else current.reset();
+  }
+
   return (
     <ConfirmDialog
       title="Leave without saving?"
-      confirmLabel="Discard changes"
-      tone="danger"
-      onConfirm={() => blocker.proceed()}
+      confirmLabel="Save and leave"
+      workingLabel="Saving…"
+      busy={saving}
+      confirmDisabled={!save.canSave}
+      alternative={{ label: "Discard changes", tone: "danger", onClick: discard }}
+      onConfirm={() => void saveAndLeave()}
       onCancel={() => blocker.reset()}
     >
-      You have changes on this page that are not saved. Leaving discards them.
+      You have changes on this page that are not saved. Save them before leaving, or leave and discard them.
     </ConfirmDialog>
   );
 }
