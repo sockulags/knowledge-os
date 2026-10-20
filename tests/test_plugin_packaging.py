@@ -18,6 +18,15 @@ from knowledge_os.skills import parse_skill
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_FILES = sorted((ROOT / "skills").rglob("*.md"))
 LAUNCHER = "-m knowledge_os"
+CAPTURE = ROOT / "skills" / "knowledge-os-capture"
+CAPTURE_REFERENCES = ("setup.md", "cli-fallback.md")
+
+
+def _capture_text() -> str:
+    """The capture skill body plus the references it loads on demand."""
+
+    paths = [CAPTURE / "SKILL.md", *(CAPTURE / "references" / name for name in CAPTURE_REFERENCES)]
+    return "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
 
 def _code_snippets(text: str) -> list[str]:
@@ -206,46 +215,58 @@ class PluginPackagingTests(unittest.TestCase):
                 for tool in tools[:3]:
                     self.assertIn(f"`{tool}`", body)
                 self.assertIn("CLI fallback", body)
-        capture = (ROOT / "skills" / "knowledge-os-capture" / "SKILL.md").read_text(encoding="utf-8")
+        capture = (CAPTURE / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("`propose_decision`", capture)
 
+    def test_capture_skill_loads_the_cli_details_only_on_demand(self) -> None:
+        body = (CAPTURE / "SKILL.md").read_text(encoding="utf-8")
+        self.assertLess(len(body.splitlines()), 80)
+        # The CLI setup and capture flow live in references, so the body that
+        # loads on every trigger (and is exported into context) has no scripts.
+        self.assertNotIn("```", body)
+        for name in CAPTURE_REFERENCES:
+            with self.subTest(reference=name):
+                self.assertIn(f"](references/{name})", body)
+                reference = (CAPTURE / "references" / name).read_text(encoding="utf-8")
+                self.assertIn("Read this only when", reference)
+
+    def test_every_skill_description_says_when_and_when_not_to_use_it(self) -> None:
+        names = {path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")}
+        for name in sorted(names):
+            with self.subTest(skill=name):
+                description = parse_skill(ROOT / "skills" / name / "SKILL.md", root=ROOT).description
+                self.assertTrue(description.startswith("Use when"), description)
+                not_for = description.split("Not for", 1)
+                self.assertEqual(len(not_for), 2, description)
+                # The "Not for" part points at another skill that does that job.
+                pointed = {other for other in names - {name} if f"(use {other})" in not_for[1]}
+                self.assertTrue(pointed, not_for[1])
+
     def test_capture_skill_keeps_approval_and_safe_noop_contract(self) -> None:
-        body = (ROOT / "skills" / "knowledge-os-capture" / "SKILL.md").read_text(encoding="utf-8")
-        for required in (
-            "save this",
-            "spara detta",
-            "Never write before approval.",
-            "KNOWLEDGE_OS_ROOT",
-            "py -3.11",
-            "`py -3`",
-            "python3.11",
-            "python3` fallback",
-            "py', '-3.11",
-            "py', '-3')",
-            "sys.version_info >= (3, 11)",
-            "sys.prefix != sys.base_prefix",
-            "$venv -eq 'True'",
-            "$venv -eq 'False'",
-            "venv_state=$(\"$python_cmd\"",
-            "case \"$venv_state\" in",
-            "-m pip install \"${pluginRoot}[mcp]\"",
-            "-m pip install --user \"${pluginRoot}[mcp]\"",
-            "-m pip install \"${plugin_root}[mcp]\"",
-            "-m pip install --user \"${plugin_root}[mcp]\"",
-            "plugin_root=\"$(cd",
-            "~/.knowledge-os/config.toml",
-            "import knowledge_os",
-            "-m knowledge_os --root",
-            "`finally`-style",
-            "cleanup. Never recursively remove",
-        ):
+        body = (CAPTURE / "SKILL.md").read_text(encoding="utf-8")
+        for required in ("save this", "spara detta", "Never write before approval."):
             self.assertIn(required, body)
         self.assertNotIn("disable-model-invocation", body)
+        # The POSIX blocks run in test_capture_posix_setup_runs_under_set_u_in_a_clean_shell;
+        # the PowerShell blocks are not run here, so keep their launcher and install branches.
+        setup = (CAPTURE / "references" / "setup.md").read_text(encoding="utf-8")
+        for required in (
+            "py', '-3.11",
+            "py', '-3')",
+            "$venv -eq 'True'",
+            "$venv -eq 'False'",
+            "-m pip install \"${pluginRoot}[mcp]\"",
+            "-m pip install --user \"${pluginRoot}[mcp]\"",
+        ):
+            self.assertIn(required, setup)
+        cli = (CAPTURE / "references" / "cli-fallback.md").read_text(encoding="utf-8")
+        self.assertIn("`finally`-style", cli)
+        self.assertIn("Never recursively remove", " ".join(cli.split()))
 
     def test_capture_and_documentation_skills_report_writes_held_for_review(self) -> None:
         documentation = ROOT / "skills" / "knowledge-os-documentation"
         bodies = {
-            "knowledge-os-capture": (ROOT / "skills" / "knowledge-os-capture" / "SKILL.md").read_text(encoding="utf-8"),
+            "knowledge-os-capture": _capture_text(),
             "knowledge-os-documentation": (documentation / "SKILL.md").read_text(encoding="utf-8"),
         }
         for name, body in bodies.items():
@@ -306,9 +327,13 @@ class PluginPackagingTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("sh"), "needs a POSIX sh")
     def test_capture_posix_setup_runs_under_set_u_in_a_clean_shell(self) -> None:
-        skill_path = ROOT / "skills" / "knowledge-os-capture" / "SKILL.md"
-        blocks = _sh_blocks(skill_path.read_text(encoding="utf-8"))
-        self.assertGreaterEqual(len(blocks), 4)
+        skill_path = CAPTURE / "SKILL.md"
+        blocks = [
+            block
+            for name in CAPTURE_REFERENCES
+            for block in _sh_blocks((CAPTURE / "references" / name).read_text(encoding="utf-8"))
+        ]
+        self.assertGreaterEqual(len(blocks), 5)
         body = "".join(blocks).replace("<absolute path to the loaded SKILL.md>", skill_path.as_posix())
         stub = (
             "#!/bin/sh\n"

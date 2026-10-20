@@ -1,6 +1,6 @@
 ---
 name: ingest-source
-description: Ingest one local Markdown or text source into Knowledge OS while preserving provenance and validating the resulting durable record.
+description: Use when one local Markdown or text file should become a provenance-bearing Knowledge OS source ("ingest this file", "import these notes", "add this document as a source"). Not for saving decisions, lessons or preferences from a conversation (use knowledge-os-capture), editing project documentation pages (use knowledge-os-documentation), or verifying or synthesizing claims.
 tags:
   - ingest
   - ingestion
@@ -19,7 +19,7 @@ Use when a local `.md`, `.markdown`, or `.txt` file should become a raw, provena
 
 - One local source path.
 - The Knowledge OS workspace root, `<root>`: `KNOWLEDGE_OS_ROOT`, or else `workspace` under `[knowledge_os]` in `~/.knowledge-os/config.toml`. Never infer it from the current directory, which is usually another repository. When neither names a directory containing `knowledge-os.toml`, do nothing and say that no workspace is configured.
-- A Python launcher, `<python>`, proven to be Python >=3.11 that imports `knowledge_os` (`py -3.11` or `py -3` on Windows, `python3.11` or `python3` elsewhere). The `knowledge-os-capture` skill's CLI fallback shows the probe and the one-time setup; without a launcher, do nothing.
+- A Python launcher, `<python>`, proven to be Python >=3.11 that imports `knowledge_os` (`py -3.11` or `py -3` on Windows, `python3.11` or `python3` elsewhere). The `knowledge-os-capture` skill's setup reference (`setup.md`) shows the probe and the one-time setup; without a launcher, do nothing.
 
 Run every command as `<python> -m knowledge_os --root <root> ...`, never as a bare `kos`.
 

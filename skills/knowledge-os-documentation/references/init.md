@@ -9,17 +9,19 @@ Global initialization installs a short managed block in the user-level Codex
 `AGENTS.md` and Claude `CLAUDE.md`. It also writes `~/.knowledge-os/config.toml`.
 These are user-level writes, so require direct user authorization immediately before the command.
 
-Use the fixed command contract. `<python>` is the proven Python >=3.11 launcher described in the
-`knowledge-os-capture` skill's CLI fallback; never run a bare `kos`. Initialization takes the
-workspace or repository as an argument, so these two commands need no `--root`:
+Use the fixed command contract. `<python>` is the proven Python >=3.11 launcher described in
+`skills/knowledge-os-capture/references/setup.md`; never run a bare `kos`. Initialization takes
+the workspace or repository as an argument, so these two commands need no `--root`:
 
 ```text
 <python> -m knowledge_os documentation init-global --workspace PATH [--host codex] [--host claude] [--user-home PATH] [--replace] [--json]
 ```
 
-Pass one or both host options when selecting the managed files. Use `--user-home PATH` when the
-user names a non-default home directory. Use `--replace` only when the user authorizes replacing
-an existing managed block. Use `--json` when the caller needs machine-readable results.
+Without `--host`, the command writes both managed files, Codex `~/.codex/AGENTS.md` and Claude
+`~/.claude/CLAUDE.md`; pass `--host codex` or `--host claude` to write only that one. When asking
+for authorization, name the hosts and files the command will write. Use `--user-home PATH` when
+the user names a non-default home directory. Use `--replace` only when the user authorizes
+replacing an existing managed block. Use `--json` when the caller needs machine-readable results.
 
 The resulting config uses this shape and identifies the Knowledge OS workspace for normal retrieval:
 

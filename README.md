@@ -378,61 +378,13 @@ already importable. The skill derives the plugin root from its loaded
 `SKILL.md`, asks before installing, and safely does nothing when setup is
 declined or unavailable.
 
-On Windows PowerShell, set `$loadedSkillPath` to the absolute path of the
-loaded `skills/knowledge-os-capture/SKILL.md`, derive `$pluginRoot` from it, and
-use the first of `py -3.11` and `py -3` that proves Python >=3.11 for setup. The
-install includes the `mcp` extra so `kos mcp` also runs without the desktop app:
-
-```powershell
-$loadedSkillPath = '<absolute path to the loaded SKILL.md>'
-$pluginRoot = (Resolve-Path (Join-Path (Split-Path -Parent $loadedSkillPath) '..\..')).Path
-$python = $null
-if (Get-Command py -ErrorAction SilentlyContinue) {
-  foreach ($launcher in @(@('py', '-3.11'), @('py', '-3'))) {
-    & $launcher[0] $launcher[1] -c "import sys; assert sys.version_info >= (3, 11)" 2>$null
-    if ($LASTEXITCODE -eq 0) { $python = $launcher; break }
-  }
-}
-if (-not $python) {
-  Write-Output 'No proven Python >=3.11 launcher; safe-no-op.'
-  exit 0
-}
-$venv = "$(& $python[0] $python[1] -c "import sys; print(sys.prefix != sys.base_prefix)")".Trim()
-if ($venv -eq 'True') {
-  & $python[0] $python[1] -m pip install "${pluginRoot}[mcp]"
-} elseif ($venv -eq 'False') {
-  & $python[0] $python[1] -m pip install --user "${pluginRoot}[mcp]"
-} else {
-  Write-Output 'No valid virtual-environment state; safe-no-op.'
-  exit 0
-}
-```
-
-On macOS/Linux, derive the root from the loaded skill path and use
-`python3.11`, or a `python3` fallback only after proving it is Python >=3.11:
-
-```sh
-loaded_skill_path='<absolute path to the loaded SKILL.md>'
-plugin_root="$(cd "$(dirname "$loaded_skill_path")/../.." && pwd -P)"
-if command -v python3.11 >/dev/null 2>&1 && python3.11 -c 'import sys; assert sys.version_info >= (3, 11)' >/dev/null; then
-  python_cmd=python3.11
-elif command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; assert sys.version_info >= (3, 11)' >/dev/null; then
-  python_cmd=python3
-else
-  echo 'No proven Python >=3.11 launcher; safe-no-op.'
-  exit 0
-fi
-venv_state=$("$python_cmd" -c 'import sys; print(sys.prefix != sys.base_prefix)')
-case "$venv_state" in
-  True) "$python_cmd" -m pip install "${plugin_root}[mcp]" ;;
-  False) "$python_cmd" -m pip install --user "${plugin_root}[mcp]" ;;
-  *) echo 'No valid virtual-environment state; safe-no-op.'; exit 0 ;;
-esac
-```
-
-The skill asks for approval immediately before the selected install command,
-then rechecks `import knowledge_os` with that same launcher before any
-candidate is created.
+The launcher detection and install commands for PowerShell and POSIX shells
+live in one place,
+[`skills/knowledge-os-capture/references/setup.md`](skills/knowledge-os-capture/references/setup.md).
+The install includes the `mcp` extra so `kos mcp` also runs without the
+desktop app. The skill asks for approval immediately before the selected
+install command, then rechecks `import knowledge_os` with that same launcher
+before any candidate is created.
 
 ## Export bounded context
 

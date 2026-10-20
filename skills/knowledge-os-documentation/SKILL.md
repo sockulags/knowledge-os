@@ -1,6 +1,6 @@
 ---
 name: knowledge-os-documentation
-description: Initializes and maintains repository documentation retrieval through Knowledge OS without treating search results as verified or writing without authorization.
+description: Use when setting up Knowledge OS for a user or repository, or when reading and updating a project's documentation pages to match its code ("initialize knowledge os", "bind this repo", "update the project docs", "check the docs against recent commits", "what do the docs say about X"). Not for saving decisions, lessons or preferences from a conversation (use knowledge-os-capture), importing a single file as a source (use ingest-source), or reviewing an external agent's observation (use review-discovery).
 tags:
   - documentation
   - initialization
@@ -59,7 +59,8 @@ The rules for every write below apply to the MCP tools unchanged.
 Without the MCP tools, run every command as `<python> -m knowledge_os --root <root> ...`, never as
 a bare `kos`. `<python>` is a launcher proven to be Python >=3.11 that imports `knowledge_os`, and
 `<root>` is `KNOWLEDGE_OS_ROOT` or else `workspace` from `~/.knowledge-os/config.toml`; the
-`knowledge-os-capture` skill's CLI fallback shows how to select both and the one-time setup. When
+`knowledge-os-capture` skill's setup reference (`setup.md`) shows how to select both and the
+one-time setup. When
 no launcher or root is available, report the gap and write nothing.
 
 Normal work starts by reading the global config and optional repository binding. Run
