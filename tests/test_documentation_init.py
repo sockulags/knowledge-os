@@ -61,7 +61,9 @@ class DocumentationInitTests(unittest.TestCase):
             create_workspace(workspace)
             codex = home / ".codex" / "AGENTS.md"
             codex.parent.mkdir(parents=True)
-            codex.write_text("before\n\nuser text\n", encoding="utf-8")
+            # Written as bytes so the file has Windows newlines on every OS; the
+            # managed block must follow the file's existing newline style.
+            codex.write_bytes(b"before\r\n\r\nuser text\r\n")
 
             first = run_kos(root, "documentation", "init-global", "--workspace", str(workspace), "--user-home", str(home), "--json")
             self.assertEqual(first.returncode, 0, first.stderr)
@@ -69,12 +71,25 @@ class DocumentationInitTests(unittest.TestCase):
             second = run_kos(root, "documentation", "init-global", "--workspace", str(workspace), "--user-home", str(home), "--json")
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertEqual(before, codex.read_bytes())
-            self.assertIn(b"before\r\n\r\nuser text\r\n", before)
+            self.assertTrue(before.startswith(b"before\r\n\r\nuser text\r\n<!-- BEGIN"), before)
+            self.assertNotIn(b"\n", before.replace(b"\r\n", b""), "the block keeps the file's CRLF newlines")
             result = json.loads(second.stdout)
             self.assertFalse(result["changed"])
             self.assertTrue((home / ".claude" / "CLAUDE.md").exists())
             config = tomllib.loads((home / ".knowledge-os" / "config.toml").read_text(encoding="utf-8"))
             self.assertEqual(config, {"knowledge_os": {"version": 1, "workspace": str(workspace.resolve())}})
+
+    def test_managed_block_follows_the_file_newline_style(self) -> None:
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                original = b"before" + newline + newline + b"user text" + newline
+                updated = documentation_init._managed_block_content(original)
+                self.assertTrue(updated.startswith(original + b"<!-- BEGIN"), updated)
+                if newline == b"\n":
+                    self.assertNotIn(b"\r", updated)
+                else:
+                    self.assertNotIn(b"\n", updated.replace(b"\r\n", b""))
+                self.assertEqual(documentation_init._managed_block_content(updated), updated)
 
     def test_global_replaces_only_managed_block_and_rejects_config_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -220,9 +220,11 @@ class CloneTests(GitTestCase):
             text=True,
             encoding="utf-8",
         )
+        self.addCleanup(process.kill)
         time.sleep(2)
-        assert process.stdin is not None
-        process.stdin.close()
+        # communicate() without input closes stdin, which is the EOF that
+        # cancels the clone. Closing stdin by hand first makes communicate()
+        # fail on POSIX, where it flushes stdin before reading.
         stdout, _stderr = process.communicate(timeout=30)
         self.assertEqual(process.returncode, 1)
         last = json.loads(stdout.splitlines()[-1])

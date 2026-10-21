@@ -95,6 +95,9 @@ _NETWORK_MARKERS = (
 _NOT_FOUND_PATTERNS = (
     r"does not appear to be a git repository",
     r"repository '[^']*' not found",
+    # A local path that does not exist; git clone says this instead of the
+    # message above on some versions (for example 2.43 on Linux).
+    r"repository '[^']*' does not exist",
     r"requested url returned error: 404",
 )
 

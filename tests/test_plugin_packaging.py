@@ -492,7 +492,11 @@ class PluginPackagingTests(unittest.TestCase):
                 self.assertEqual(legacy.returncode, 0, legacy.stderr)
                 python_environment["PYTHONPATH"] = str(install_lib)
             else:
-                self.assertNotIn(str(ROOT), installed.stdout + installed.stderr)
+                # pip names the checkout it builds from ("Processing <ROOT>") and
+                # may mention an install outside the venv, so its output says
+                # nothing about where the package lands. The import below
+                # checks that the venv runs its own copy, not the checkout.
+                self.assertIn("Successfully installed knowledge-os", installed.stdout)
 
             imported = subprocess.run(
                 [
