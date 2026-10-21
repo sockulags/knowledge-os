@@ -247,7 +247,9 @@ describe("EditRecord", () => {
     await user.click(await screen.findByRole("button", { name: "Save and leave" }));
 
     expect(await screen.findByRole("heading", { name: "This page changed while you were editing" })).toBeTruthy();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // The dialog closes through a router update, which React renders as a
+    // transition: it can commit after the comparison is already on screen.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.queryByText("The page")).toBeNull();
     expect(text.value).toBe("Hello world");
   });
