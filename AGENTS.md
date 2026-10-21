@@ -17,6 +17,8 @@ recursive reads so context is selected progressively.
 - `indexes/` contains rebuildable catalog artifacts, not a second source of truth. Never hand-edit them.
 - `tooling/` is for small local support material.
 
+The diagram under "Trust and context" in `docs/architecture.md` shows how material moves between these folders.
+
 Ordinary verification is an optional `verified` date, never a lifecycle status. There is no invisible core memory: durable content lives in these files.
 
 ## Changing this repository's code
