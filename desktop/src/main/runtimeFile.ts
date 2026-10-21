@@ -8,10 +8,10 @@
 //
 // The file holds the write token, so only the current user may read it: on
 // Windows it gets an access list with the current user as its only entry
-// (inheritance removed, set with icacls before the file is moved into
-// place); elsewhere it is created with mode 0600. If the access list cannot
-// be set, the file is not written at all and agents report that the app is
-// not open.
+// (explicit entries reset and inheritance removed, set with icacls before the
+// file is moved into place); elsewhere it is created with mode 0600. If the
+// access list cannot be set, the file is not written at all and agents report
+// that the app is not open.
 
 import { spawnSync } from 'child_process'
 import {
@@ -81,16 +81,22 @@ export function currentUserSid(): string {
   return cachedSid
 }
 
-/** Remove inherited access and grant full control to the current user only. */
-export function restrictToCurrentUser(file: string): void {
-  const result = spawnSync(
-    systemTool('icacls'),
-    [file, '/inheritance:r', '/grant:r', `*${currentUserSid()}:F`],
-    { encoding: 'utf-8', windowsHide: true }
-  )
+function icacls(args: string[]): void {
+  const result = spawnSync(systemTool('icacls'), args, { encoding: 'utf-8', windowsHide: true })
   if (result.status !== 0) {
     throw new Error(`icacls failed: ${(result.stdout ?? '') + (result.stderr ?? '')}`.trim())
   }
+}
+
+/**
+ * Leave the current user as the only entry in the file's access list. A file
+ * created in a folder with nothing to inherit gets the process's default
+ * access list (SYSTEM, Administrators, the user) as explicit entries, which
+ * removing inheritance keeps; `/reset` first drops every explicit entry.
+ */
+export function restrictToCurrentUser(file: string): void {
+  icacls([file, '/reset'])
+  icacls([file, '/inheritance:r', '/grant:r', `*${currentUserSid()}:F`])
 }
 
 export interface WriteOptions {

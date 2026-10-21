@@ -116,10 +116,13 @@ knowledge base is open.
 
 The file holds the write token, so only the current user may read it. On
 Windows it is written to a temporary file first, whose access list is then set
-with `icacls FILE /inheritance:r /grant:r *<your SID>:F` (the SID comes from
-`whoami /user`): inherited entries are removed, so Administrators and SYSTEM
-lose their inherited access and the current user is the only entry. Only then
-is it renamed to `runtime.json`. If that fails, no file is written and agents
+with `icacls FILE /reset` followed by
+`icacls FILE /inheritance:r /grant:r *<your SID>:F` (the SID comes from
+`whoami /user`). The reset drops explicit entries, which a file gets from the
+process's default access list when its folder has nothing to inherit; removing
+inheritance then takes away the inherited ones, so Administrators and SYSTEM
+lose their access and the current user is the only entry. Only then is it
+renamed to `runtime.json`. If that fails, no file is written and agents
 report that the app is not open. On macOS and Linux the file is created with
 mode `0600`. Run `icacls "%APPDATA%\knowledge-os-desktop\runtime.json"` to see
 its access list.
