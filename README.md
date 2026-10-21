@@ -392,6 +392,29 @@ current, and `superseded` means replaced by an accepted successor. Active and
 superseded decisions require `decision-acceptance` provenance. Acceptance does
 not imply implementation or verification.
 
+A decision leaves `draft` only through an explicit accept or withdraw, and any
+other draft only through Make active:
+
+```mermaid
+stateDiagram-v2
+  state "Decision" as decision {
+    state "draft" as decisionDraft
+    state "active" as decisionActive
+    state "superseded" as decisionSuperseded
+    state "archived" as decisionArchived
+    [*] --> decisionDraft : capture, propose_decision, or the app
+    decisionDraft --> decisionActive : Accept, kos decision accept
+    decisionDraft --> decisionArchived : Withdraw, kos decision withdraw
+    decisionActive --> decisionSuperseded : a draft that supersedes it is accepted, kos supersede
+  }
+  state "Other draft, such as a note or a promoted discovery" as other {
+    state "draft" as otherDraft
+    state "active" as otherActive
+    [*] --> otherDraft
+    otherDraft --> otherActive : Make active, kos activate
+  }
+```
+
 Existing version-1 workspaces with older active decision records need one
 explicit, reviewable metadata correction: add `decision-acceptance` provenance
 that references the real acceptance basis, or return the record to `draft` when

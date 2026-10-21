@@ -16,6 +16,28 @@ for opening or creating a knowledge base and for showing errors, the
 write run in the core; the main process starts and stops it, keeps the
 runtime file for agents, runs the in-app agent's adapter, and draws the window.
 
+The processes and how they reach each other; every write, the in-app agent's
+included, ends at the core's local API:
+
+```mermaid
+flowchart LR
+  subgraph app["Electron app"]
+    main["Main process"]
+    window["Reader window<br/>React UI served by the core"]
+    adapter["ACP adapter<br/>Electron's binary as Node"]
+  end
+  main -->|"starts with --exit-on-stdin-eof"| core["Core: python -m knowledge_os.reader<br/>or kos-core.exe, on 127.0.0.1:N"]
+  main -->|"writes port and write token"| runtime[("runtime.json<br/>user-data folder")]
+  main -->|"loads http://127.0.0.1:N/"| window
+  core -->|"UI and JSON API"| window
+  window <-->|"window.kosDesktop.agent over IPC"| main
+  main -->|"ACP over stdio"| adapter
+  adapter -->|runs| cli["Your claude or codex"]
+  cli -->|"MCP over stdio<br/>KOS_EXPECT_WORKSPACE set"| mcp["kos mcp<br/>place: Knowledge OS app"]
+  mcp -->|"reads on every call"| runtime
+  mcp -->|"HTTP with the write token"| core
+```
+
 ### Which Python runs the core
 
 The installed app runs its bundled `kos-core.exe` and never looks for Python.
@@ -363,7 +385,8 @@ Tools, with their shortcuts, exist only in development (`npm run dev` and
 `npm start`); the packaged app leaves them out and opens its windows with
 `devTools: false`.
 
-No shell path uses `dialog.showMessageBox` any more. Update news and the
+Only Help → About and the question for a reader that does not answer use a
+native message box (`dialog.showMessageBox`). Update news and the
 Referat plugin's messages are quiet notices under the title bar that never
 block the window. The unsaved-changes question is an in-app dialog: before
 the window closes (the close button, Alt+F4, File → Exit, Restart to update),
@@ -371,10 +394,41 @@ reloads, closes the knowledge base, or opens another one, the main process
 asks the reader whether its editor would object to leaving (a synthetic
 `beforeunload` event) and, if so, shows the dialog; *Keep editing* keeps the
 page and cancels a pending restart to update, *Discard changes* lets exactly
-that one unload through. After that question, and before the core is stopped,
+that one unload through. A reader that does not answer within 1.5 seconds
+gets the native question instead, since its own dialog would not show;
+*Cancel* is the default. After that question, and before the core is stopped,
 the reader is asked to write the decision actions still waiting for Undo
 (`src/main/flushReader.ts`, at most 8 seconds); only then does the window close,
-the core stop, and, for Restart to update, the installer start. The native file and folder pickers stay native. All of the shell's
+the core stop, and, for Restart to update, the installer start.
+
+Closing, quitting, and restarting to update all run through the same states in
+`src/main/closeFlow.ts`:
+
+```mermaid
+flowchart TD
+  request(["Close button, Alt+F4, File → Exit, quit, or Restart to update"]) --> nowindow{"Restart to update<br/>with no window open?"}
+  nowindow -->|yes| direct["Stop the core and run the installer"]
+  nowindow -->|no| open["window: open<br/>Restart to update sets restartPending,<br/>quitting sets quitRequested"]
+  open -->|close requested| asking["window: asking"]
+  asking --> probe{"Unsaved edits?<br/>synthetic beforeunload, 1.5 s"}
+  probe -->|no| flush
+  probe -->|yes| dialog{"In-app dialog"}
+  probe -->|no answer| native{"Native prompt<br/>Cancel is the default"}
+  dialog -->|Keep editing| kept["window: open<br/>restartPending and quitRequested cleared"]
+  native -->|Cancel| kept
+  dialog -->|Discard changes| flush
+  native -->|Leave anyway| flush
+  flush["Reader writes the actions waiting for Undo<br/>at most 8 s"] --> confirmed["window: confirmed"]
+  confirmed -->|quitRequested| quit["App quits, which closes the window"]
+  confirmed -->|otherwise| closes["Window closes"]
+  quit --> closes
+  closes --> stopped["Core stops, runtime file removed"]
+  stopped --> pending{"restartPending?"}
+  pending -->|yes| install["Run the installer"]
+  pending -->|no| done(["Done"])
+```
+
+The native file and folder pickers stay native. All of the shell's
 own wording is in `src/shared/shellText.ts`.
 
 The chrome's calls from the main window (menu commands, notice and dialog

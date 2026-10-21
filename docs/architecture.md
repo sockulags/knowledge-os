@@ -220,6 +220,27 @@ and disagreement between a provenance edge and the promote review target.
 
 ## Trust and context
 
+Material moves toward durable records only through an explicit step, and
+everything under `indexes/` and every context package is generated from the
+canonical files:
+
+```mermaid
+flowchart LR
+  file["Local file<br/>for example in inbox/"] -->|kos ingest| sources["sources/<br/>raw source"]
+  external["External agent"] -->|kos discovery add| proposed["discoveries/<br/>proposed observation"]
+  proposed -->|retain| retained["discoveries/<br/>retained observation"]
+  proposed -->|reject| rejected["discoveries/<br/>rejected"]
+  proposed -->|promote into a new draft| durable
+  writer["Person or agent write"] -->|direct| durable
+  writer -->|held back by a review rule| proposals["proposals/<br/>not a record"]
+  proposals -->|a person accepts in Decide| durable
+  durable["knowledge/, projects/, memory/, syntheses/<br/>durable records, draft or active"]
+  durable --> context["kos context package<br/>generated"]
+  retained -->|its own project only| context
+  sources -.->|searchable, never default context| context
+  canonical["All canonical Markdown"] -->|kos index| indexes["indexes/<br/>disposable, rebuildable"]
+```
+
 The trust classifications are deliberately small:
 
 | Classification | Meaning |
@@ -643,6 +664,30 @@ cannot edit them: `PATCH /api/records/{id}` with `agent` on a decision is
 `403 forbidden`, as is `kos update --writer agent`. A rule file that cannot be
 read refuses every write it could govern (`422 validation`) instead of
 letting it through, and `kos lint` reports it.
+
+The two write paths: through the local API, where every write is committed,
+and on the command line, where the rules apply only with `--writer agent` and
+nothing is committed.
+
+```mermaid
+flowchart TD
+  agent["Agent: Claude Code, Codex, or the in-app agent"] -->|MCP over stdio| mcp["kos mcp"]
+  mcp -->|"reads port and token"| runtime["runtime.json"]
+  mcp -->|"HTTP with an agent label"| guard
+  ui["Reader UI, a person"] -->|HTTP| guard
+  subgraph core["Core: the kos-read local API"]
+    guard["Write route checks<br/>loopback host and peer, Origin, write token"] --> rules{"Review rules<br/>notes only; decisions are always drafts"}
+    rules -->|direct| write["Validate and write under the lock<br/>refresh the index, commit"]
+    rules -->|review| proposal["proposals/ID.md<br/>commit Propose ..."]
+    proposal --> decide{"Decide, a person"}
+    decide -->|"Accept, one lock"| accepted["Write the page, remove the proposal<br/>commit Accept ..."]
+    decide -->|"Discard, one lock"| discarded["Remove the proposal<br/>commit Discard ..."]
+  end
+  person["Person on the command line"] -->|"kos capture, kos update"| cliwrite["Validate and write under the lock<br/>refresh the index, no commit"]
+  cliagent["Agent on the command line"] -->|"kos capture or kos update<br/>with --writer agent"| clirules{"Review rules"}
+  clirules -->|direct| cliwrite
+  clirules -->|review| cliproposal["proposals/ID.md<br/>no commit"]
+```
 
 A held-back write is validated by applying it to a disposable staged copy of
 the workspace with the direct write's rules, so every refusal is the same as
