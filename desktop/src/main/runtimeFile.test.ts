@@ -1,6 +1,7 @@
 import { spawnSync } from 'child_process'
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -96,28 +97,61 @@ describe('runtime file for agents', () => {
     expect(readdirSync(join(dir, 'userData'))).toEqual([])
   })
 
+  /** The file's access list holds the current user and nothing else. */
+  function expectCurrentUserOnly(): void {
+    const acl = spawnSync(systemTool('icacls'), [file], {
+      encoding: 'utf-8',
+      windowsHide: true
+    }).stdout
+    const entries = acl
+      .split(/\r?\n/)
+      .map((line) => line.replace(file, '').trim())
+      .filter((line) => line !== '' && !line.startsWith('Successfully'))
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatch(/:\(F\)$/)
+    expect(entries[0]).not.toMatch(/\(I\)/)
+    const sid = spawnSync(systemTool('icacls'), [file, '/save', join(dir, 'acl.txt')], {
+      windowsHide: true
+    })
+    expect(sid.status).toBe(0)
+    const saved = readFileSync(join(dir, 'acl.txt'), 'utf16le')
+    // One protected entry granting full access to the current user. SDDL
+    // writes the built-in Administrator account (RID 500, the CI runner's
+    // user) as "LA" rather than its SID.
+    const aces = saved.match(/\(A;[^)]*\)/g) ?? []
+    expect(aces).toEqual([`(A;;FA;;;${sddlTrustee(currentUserSid())})`])
+    expect(saved).toMatch(/D:PAI?\(/)
+  }
+
+  function sddlTrustee(sid: string): string {
+    if (/^S-1-5-21-[\d-]+-500$/.test(sid)) return 'LA'
+    if (/^S-1-5-21-[\d-]+-501$/.test(sid)) return 'LG'
+    return sid
+  }
+
   it.runIf(process.platform === 'win32')(
     'grants access on Windows to the current user only, without inherited entries',
     () => {
       writeRuntimeFile(file, info)
-      const acl = spawnSync(systemTool('icacls'), [file], {
-        encoding: 'utf-8',
-        windowsHide: true
-      }).stdout
-      const entries = acl
-        .split(/\r?\n/)
-        .map((line) => line.replace(file, '').trim())
-        .filter((line) => line !== '' && !line.startsWith('Successfully'))
-      expect(entries).toHaveLength(1)
-      expect(entries[0]).toMatch(/:\(F\)$/)
-      expect(entries[0]).not.toMatch(/\(I\)/)
-      const sid = spawnSync(systemTool('icacls'), [file, '/save', join(dir, 'acl.txt')], {
-        windowsHide: true
-      })
-      expect(sid.status).toBe(0)
-      const saved = readFileSync(join(dir, 'acl.txt'), 'utf16le')
-      expect(saved).toContain(currentUserSid())
-      expect(saved).not.toMatch(/;;;(BA|SY|WD|AU|BU)\)/)
+      expectCurrentUserOnly()
+    }
+  )
+
+  it.runIf(process.platform === 'win32')(
+    'grants access to the current user only in a folder with nothing to inherit',
+    () => {
+      // A new file there gets the process's default access list (SYSTEM,
+      // Administrators, the user) as explicit entries, as on CI runners.
+      const userData = join(dir, 'userData')
+      mkdirSync(userData)
+      const locked = spawnSync(
+        systemTool('icacls'),
+        [userData, '/inheritance:r', '/grant:r', `*${currentUserSid()}:F`],
+        { windowsHide: true }
+      )
+      expect(locked.status).toBe(0)
+      writeRuntimeFile(file, info)
+      expectCurrentUserOnly()
     }
   )
 

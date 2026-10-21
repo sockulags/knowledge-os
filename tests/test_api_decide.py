@@ -24,8 +24,6 @@ from test_api_write import TOKEN_HEADER, _request
 from knowledge_os.index import rebuild_indexes
 from knowledge_os.workspace import Workspace
 
-PORT = 8847
-EMPTY_PORT = 8848
 
 #: Contract words that must not reach the reading path (issue #54).
 CONTRACT_WORDS = re.compile(
@@ -175,7 +173,7 @@ class DecideApiTests(unittest.TestCase):
         directory = cls._stack.enter_context(tempfile.TemporaryDirectory())
         cls.root = Path(directory)
         _build(cls.root)
-        cls.base_url = cls._stack.enter_context(serve(cls.root, PORT))
+        cls.base_url = cls._stack.enter_context(serve(cls.root))
         status, session = _request(cls.base_url, "GET", "/api/session")
         assert status == 200, session
         cls.token = session["write_token"]
@@ -345,7 +343,7 @@ class EmptyInboxTests(unittest.TestCase):
             create_workspace(root)
             _overview(root, "alpha", "Alpha")
             rebuild_indexes(Workspace(root))
-            with serve(root, EMPTY_PORT) as base_url:
+            with serve(root) as base_url:
                 status, data = _request(base_url, "GET", "/api/decisions/proposed")
                 _nav_status, nav = _request(base_url, "GET", "/api/nav")
         self.assertEqual(status, 200)

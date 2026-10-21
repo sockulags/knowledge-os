@@ -10,6 +10,8 @@ are results too (``is_error``), shaped ``{"ok": false, "error": KIND,
   closed). Nothing was written.
 - ``app_not_responding``: a runtime file exists but no running app answers
   for it. Nothing was written.
+- ``wrong_knowledge_base``: the app has another knowledge base open than the
+  one the conversation started in. Nothing was written.
 - ``request_failed``: the app stopped answering during a request. A write may
   or may not have happened; read the page again before retrying.
 - ``not_found``, ``conflict`` (adds ``current_sha256``), ``duplicate``,
@@ -88,6 +90,10 @@ _APP_NEXT_STEP = {
     ),
     "app_not_responding": (
         "Ask the person to open (or restart) the Knowledge OS app with a knowledge base open, then try again."
+    ),
+    "wrong_knowledge_base": (
+        "Tell the person the app switched to another knowledge base. Ask them to open the one this "
+        "conversation started in again, or start a new conversation in the knowledge base now open."
     ),
     "request_failed": (
         "Ask the person to check that the Knowledge OS app is still open. Read the page again before retrying, "
@@ -531,7 +537,7 @@ def _write_note(api: LocalApi, arguments: dict[str, Any], caller: Caller) -> Too
         if given_id is None:
             raise ToolError("bad_request", "id is required when expected_sha256 is given (editing a page).", _API_NEXT_STEP["bad_request"])
         record_id = _record_id(given_id)
-        for name in ("project", "folder", "status"):
+        for name in ("project", "folder", "status", "destination"):
             if arguments.get(name) is not None:
                 raise ToolError(
                     "bad_request",
@@ -572,9 +578,18 @@ def _write_note(api: LocalApi, arguments: dict[str, Any], caller: Caller) -> Too
     status = _string(arguments, "status") or "active"
     if status not in {"active", "draft"}:
         raise ToolError("bad_request", "status must be 'active' or 'draft'.", _API_NEXT_STEP["bad_request"])
+    destination = _string(arguments, "destination") or "notes"
+    if destination not in {"notes", "memory"}:
+        raise ToolError("bad_request", "destination must be 'notes' or 'memory'.", _API_NEXT_STEP["bad_request"])
     record_type, scope = _scope(project)
-    if folder is not None and record_type != "project":
-        raise ToolError("bad_request", "folder needs a project: general knowledge has no folders.", _API_NEXT_STEP["bad_request"])
+    if folder is not None and (record_type != "project" or destination == "memory"):
+        raise ToolError(
+            "bad_request",
+            "folder needs a project note: general knowledge and memory have no folders.",
+            _API_NEXT_STEP["bad_request"],
+        )
+    if destination == "memory":
+        record_type = "memory"
     metadata: dict[str, Any] = {"id": record_id, "title": title, "type": record_type, "status": status, "scope": scope}
     if tags:
         metadata["tags"] = tags
@@ -877,7 +892,8 @@ TOOLS: tuple[ToolSpec, ...] = (
             "knowledge base's Git history under your agent's name, unless the knowledge base's review rules "
             "send the write to review: then the result's action is 'waiting_for_review', nothing is written "
             "yet, and a person accepts or discards the change in the app. To create, give title and content (plus "
-            "project and folder to place it; without a project it is general knowledge). To edit, give the "
+            "project and folder to place it; without a project it is general knowledge; destination 'memory' "
+            "saves a standing preference or working agreement to memory instead). To edit, give the "
             "page's id, the complete new content, and expected_sha256 = the content_sha256 from read_page; a "
             "stale hash is refused as a conflict and nothing is written. Decisions cannot be written or edited "
             "here: use propose_decision."
@@ -898,6 +914,14 @@ TOOLS: tuple[ToolSpec, ...] = (
                 "project": {**_PROJECT_ARG, "description": "Only when creating: the project the note belongs to. Omit for general knowledge."},
                 "folder": {"type": "string", "description": "Only when creating in a project: folder path inside the project, e.g. 'architecture'."},
                 "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags."},
+                "destination": {
+                    "type": "string",
+                    "enum": ["notes", "memory"],
+                    "description": (
+                        "Only when creating: 'notes' (default) for knowledge and project notes, or 'memory' for a "
+                        "standing preference or working agreement (with project, it applies to that project)."
+                    ),
+                },
                 "status": {
                     "type": "string",
                     "enum": ["active", "draft"],

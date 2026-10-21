@@ -18,6 +18,7 @@ from . import (
     changes,
     codedocs,
     decisions,
+    discoveries,
     docs,
     everything,
     files,
@@ -54,6 +55,7 @@ def build_api_routes() -> list[Route]:
         Route("/api/records/{record_id}", write.edit_view, methods=["PATCH"], name="api-record-edit"),
         Route("/api/records/{record_id}/accept", write.accept_view, methods=["POST"], name="api-record-accept"),
         Route("/api/records/{record_id}/withdraw", write.withdraw_view, methods=["POST"], name="api-record-withdraw"),
+        Route("/api/records/{record_id}/activate", write.activate_view, methods=["POST"], name="api-record-activate"),
         Route(
             "/api/records/{record_id}/supersede", write.supersede_view, methods=["POST"], name="api-record-supersede"
         ),
@@ -100,6 +102,25 @@ def build_api_routes() -> list[Route]:
         Route("/api/nav", workspace_nav.nav_view, name="api-nav"),
         Route("/api/home", home.view, name="api-home"),
         Route("/api/decisions/proposed", decisions.proposed_view, name="api-decisions-proposed"),
+        Route("/api/discoveries/pending", discoveries.pending_view, name="api-discoveries-pending"),
+        Route(
+            "/api/discoveries/{record_id}/retain",
+            discoveries.retain_view,
+            methods=["POST"],
+            name="api-discovery-retain",
+        ),
+        Route(
+            "/api/discoveries/{record_id}/reject",
+            discoveries.reject_view,
+            methods=["POST"],
+            name="api-discovery-reject",
+        ),
+        Route(
+            "/api/discoveries/{record_id}/promote",
+            discoveries.promote_view,
+            methods=["POST"],
+            name="api-discovery-promote",
+        ),
         Route("/api/projects/{project_id}", project.view, name="api-project"),
         Route("/api/projects/{project_id}/repositories", codedocs.repositories_view, name="api-repositories"),
         Route(
@@ -151,4 +172,5 @@ def build_api_routes() -> list[Route]:
         Route("/api/changes/{change_id}/accept", changes.accept_view, methods=["POST"], name="api-change-accept"),
         Route("/api/changes/{change_id}/discard", changes.discard_view, methods=["POST"], name="api-change-discard"),
         Route("/api/review/check", changes.check_view, name="api-review-check"),
+        Route("/api/review/rules", changes.rules_view, name="api-review-rules"),
     ]

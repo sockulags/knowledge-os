@@ -27,8 +27,6 @@ from knowledge_os.init_workspace import init_workspace
 from knowledge_os.reader import library
 from knowledge_os.workspace import Workspace
 
-PORT = 8847
-
 
 class _Servers:
     """Loopback endpoints for failure tests, closed by the test's cleanups."""
@@ -222,9 +220,11 @@ class CloneTests(GitTestCase):
             text=True,
             encoding="utf-8",
         )
+        self.addCleanup(process.kill)
         time.sleep(2)
-        assert process.stdin is not None
-        process.stdin.close()
+        # communicate() without input closes stdin, which is the EOF that
+        # cancels the clone. Closing stdin by hand first makes communicate()
+        # fail on POSIX, where it flushes stdin before reading.
         stdout, _stderr = process.communicate(timeout=30)
         self.assertEqual(process.returncode, 1)
         last = json.loads(stdout.splitlines()[-1])
@@ -471,7 +471,7 @@ class SetupApiTests(GitTestCase):
         root = init_workspace(self.base / "kb")
         remote = self.base / "remote.git"
         git(self.base, "init", "--quiet", "--bare", "-b", "main", str(remote))
-        with serve(root, PORT) as base:
+        with serve(root) as base:
             code, setup = self.request(base, "GET", "/api/sync/setup")
             self.assertEqual(code, 200)
             self.assertEqual(setup["state"], "init")

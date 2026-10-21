@@ -20,7 +20,8 @@ const base: MenuInput = {
   updateReadyVersion: null,
   pluginMenus: [
     { label: 'Referat', items: [{ command: 'referat:record', label: 'Record', enabled: false }] }
-  ]
+  ],
+  developerItems: true
 }
 
 function press(key: string, mods: Partial<KeyInput> = {}): KeyInput {
@@ -63,6 +64,63 @@ describe('buildMenus', () => {
     expect(none).toEqual([{ label: 'No recent knowledge bases', enabled: false }])
     expect(recentIndex('file:recent:0')).toBe(0)
     expect(recentIndex('file:open')).toBeNull()
+  })
+
+  it('leaves Reload and Developer Tools, and their shortcuts, out of the packaged app', () => {
+    const view = (input: MenuInput): Array<string> =>
+      buildMenus(input)[1].items.map((item) => item.label ?? '—')
+    expect(view(base)).toEqual([
+      'Agent',
+      '—',
+      'Reload',
+      'Toggle Developer Tools',
+      '—',
+      'Actual Size',
+      'Zoom In',
+      'Zoom Out',
+      '—',
+      'Toggle Full Screen'
+    ])
+    const packaged = buildMenus({ ...base, developerItems: false })
+    expect(view({ ...base, developerItems: false })).toEqual([
+      'Agent',
+      '—',
+      'Actual Size',
+      'Zoom In',
+      'Zoom Out',
+      '—',
+      'Toggle Full Screen'
+    ])
+    expect(matchAccelerator(press('I', { control: true, shift: true }), packaged)).toBeNull()
+    expect(matchAccelerator(press('r', { control: true }), packaged)).toBeNull()
+  })
+
+  it('has a Help menu with the log folder and About', () => {
+    const help = buildMenus(base).at(-1)
+    expect(help?.label).toBe('Help')
+    expect(help?.items.map((item) => item.label ?? '—')).toEqual([
+      'Check for Updates…',
+      'Check for Updates Automatically',
+      '—',
+      'Open Log Folder',
+      'About Knowledge OS'
+    ])
+    expect(help?.items.find((item) => item.label === 'Open Log Folder')?.command).toBe(
+      COMMAND.openLogFolder
+    )
+    expect(help?.items.find((item) => item.label === 'About Knowledge OS')?.command).toBe(
+      COMMAND.about
+    )
+    // The packaged app keeps them: they are what troubleshooting there relies on.
+    const packaged = buildMenus({ ...base, developerItems: false }).at(-1)
+    expect(packaged?.items.map((item) => item.command)).toEqual(
+      expect.arrayContaining([COMMAND.openLogFolder, COMMAND.about])
+    )
+    const [, , , helpView] = menuViews(buildMenus(base))
+    expect(helpView.items.slice(-2)).toEqual([
+      { id: COMMAND.openLogFolder, type: 'normal', label: 'Open Log Folder', enabled: true },
+      { id: COMMAND.about, type: 'normal', label: 'About Knowledge OS', enabled: true }
+    ])
   })
 
   it('offers Restart to Update only once an update is ready', () => {

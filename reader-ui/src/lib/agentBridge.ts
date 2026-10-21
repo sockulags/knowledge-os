@@ -48,6 +48,8 @@ export type AgentEvent =
       requestId: string;
       toolCallId: string | null;
       title: string;
+      /** The tool's arguments, e.g. the note it would write; null when the agent sent none. */
+      input: unknown;
       options: { id: string; name: string; kind: string }[];
     }
   | { type: "turn-end"; stopReason: string }

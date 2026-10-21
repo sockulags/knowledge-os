@@ -519,11 +519,41 @@ def render_review_packet(workspace: Workspace, discovery: Document, related: lis
     return "\n".join(lines)
 
 
-def review_packet(workspace: Workspace, record_id: str) -> str:
+def review_details(workspace: Workspace, record_id: str) -> tuple[str, list[RelatedRecord]]:
+    """The review packet and the related records it lists."""
+
     documents = _validated_documents(workspace, "review a discovery")
     validate_index(workspace, documents)
     discovery = _find_discovery(documents, record_id)
-    return render_review_packet(workspace, discovery, find_related_records(workspace, documents, discovery))
+    related = find_related_records(workspace, documents, discovery)
+    return render_review_packet(workspace, discovery, related), related
+
+
+def pending_review_details(workspace: Workspace) -> list[tuple[Document, str, list[RelatedRecord]]]:
+    """Every proposed (unreviewed) discovery with its review packet and the
+    related records the packet lists, validating the corpus and index once.
+    Read-only; ordered newest first, then by ID."""
+
+    documents = _validated_documents(workspace, "review discoveries")
+    validate_index(workspace, documents)
+    pending = sorted(
+        (
+            document
+            for document in documents
+            if document.metadata["type"] == "discovery" and document.metadata["status"] == "proposed"
+        ),
+        key=lambda document: document.metadata["id"],
+    )
+    pending.sort(key=lambda document: str(document.metadata["created"]), reverse=True)
+    details = []
+    for discovery in pending:
+        related = find_related_records(workspace, documents, discovery)
+        details.append((discovery, render_review_packet(workspace, discovery, related), related))
+    return details
+
+
+def review_packet(workspace: Workspace, record_id: str) -> str:
+    return review_details(workspace, record_id)[0]
 
 
 def inspect_discovery(workspace: Workspace, record_id: str) -> str:

@@ -5,6 +5,7 @@
 // page can show a conflict, lint issues, or a refusal in place.
 
 import type {
+  ObservationReviewResult,
   ProposedWriteResult,
   ResolveResult,
   SemanticStatus,
@@ -18,8 +19,8 @@ import type {
   SyncStatus,
   WriteFailure,
   WriteResult,
-} from "./types";
-import { NETWORK_ERROR_FALLBACK } from "../lib/language";
+} from "./types.ts";
+import { NETWORK_ERROR_FALLBACK } from "../lib/language.ts";
 
 interface Session {
   token: string;
@@ -53,7 +54,8 @@ export function prepareSession(): void {
   void loadSession().catch(() => undefined);
 }
 
-/** Dispatched on `window` after every successful write. */
+/** Dispatched on `window` after every successful write. Requests that
+ * write nothing to the knowledge base pass `notify: false`. */
 export const WRITE_EVENT = "kos:write";
 
 export type Outcome<T> = { ok: true; data: T } | { ok: false; status: number; failure: WriteFailure };
@@ -61,6 +63,9 @@ export type Outcome<T> = { ok: true; data: T } | { ok: false; status: number; fa
 export interface SendOptions {
   /** Keep the request alive when the page unloads (flushing pending actions). */
   keepalive?: boolean;
+  /** False for requests that change nothing in Git (a preview, a check),
+   * so they do not make listeners such as the status line refresh. */
+  notify?: boolean;
 }
 
 export async function send<T>(
@@ -96,7 +101,7 @@ export async function send<T>(
   const payload = await response.json().catch(() => ({ error: "unavailable", detail: `Unexpected response (${response.status}).` }));
   if (response.ok) {
     // The core commits each write to Git; the status line listens for this.
-    window.dispatchEvent(new Event(WRITE_EVENT));
+    if (options.notify !== false) window.dispatchEvent(new Event(WRITE_EVENT));
     return { ok: true, data: payload as T };
   }
   // A restarted core has a new token; fetch it once and retry.
@@ -133,6 +138,9 @@ export const write = {
     send<WriteResult | ProposedWriteResult>("PATCH", recordPath(id), request),
   accept: (id: string, expectedSha256: string, options?: SendOptions) =>
     send<WriteResult>("POST", `${recordPath(id)}/accept`, { expected_sha256: expectedSha256 }, false, options),
+  /** A person makes a draft that is not a decision active. */
+  activate: (id: string, expectedSha256: string, options?: SendOptions) =>
+    send<WriteResult>("POST", `${recordPath(id)}/activate`, { expected_sha256: expectedSha256 }, false, options),
   /** `reason` is optional; without one the core records a neutral reference. */
   withdraw: (id: string, expectedSha256: string, reason?: string, options?: SendOptions) =>
     send<WriteResult>(
@@ -150,7 +158,8 @@ export const write = {
       false,
       options,
     ),
-  preview: (body: string, path?: string) => send<{ html: string }>("POST", "/api/preview", { body, path }),
+  preview: (body: string, path?: string) =>
+    send<{ html: string }>("POST", "/api/preview", { body, path }, false, { notify: false }),
   /** Store one file in the `assets/` folder next to a page (see `AttachTarget`). */
   attach: (target: AttachTarget, filename: string, dataBase64: string) =>
     send<AttachResult>("POST", "/api/attachments", { ...target, filename, data_base64: dataBase64 }),
@@ -188,20 +197,46 @@ export interface FolderMoveRequest {
 
 const changePath = (id: string) => `/api/changes/${encodeURIComponent(id)}`;
 
-/** Proposed changes the review rules held back (issue #86). `expected` is
- * the proposal file's hash as shown, so a change edited since is refused. */
 /** Search by meaning: download the model, or bring its index up to date.
- * Both only start work in the core; poll GET /api/semantic for progress. */
+ * Both only start work in the core, outside Git; poll GET /api/semantic for
+ * progress. */
 export const semanticSearch = {
-  install: () => send<SemanticStatus>("POST", "/api/semantic/install", {}),
-  refresh: () => send<SemanticStatus>("POST", "/api/semantic/refresh", {}),
+  install: () => send<SemanticStatus>("POST", "/api/semantic/install", {}, false, { notify: false }),
+  refresh: () => send<SemanticStatus>("POST", "/api/semantic/refresh", {}, false, { notify: false }),
 };
 
+/** Proposed changes the review rules held back (issue #86). `expected` is
+ * the proposal file's hash as shown, so a change edited since is refused. */
 export const changes = {
   accept: (id: string, expected: string, options?: SendOptions) =>
     send<WriteResult>("POST", `${changePath(id)}/accept`, { expected_sha256: expected }, false, options),
   discard: (id: string, expected: string, options?: SendOptions) =>
     send<{ discarded: string }>("POST", `${changePath(id)}/discard`, { expected_sha256: expected }, false, options),
+};
+
+/** What a person sends to review an observation: the fields `kos discovery
+ * retain|reject|promote` takes as flags, and the observation as shown. */
+export interface ObservationReview {
+  expected_sha256: string;
+  /** Required to reject; optional otherwise. */
+  reason?: string;
+  target_id?: string;
+  title?: string;
+  scope?: string;
+  acknowledge_related?: boolean;
+  allow_scope_broadening?: boolean;
+}
+
+/** Reviewing an observation. Never sends `agent`: the core refuses agents here. */
+export const observations = {
+  review: (id: string, action: "retain" | "reject" | "promote", request: ObservationReview, options?: SendOptions) =>
+    send<ObservationReviewResult>(
+      "POST",
+      `/api/discoveries/${encodeURIComponent(id)}/${action}`,
+      request,
+      false,
+      options,
+    ),
 };
 
 /** A 202 write answer: held back for review, nothing written yet. */
@@ -268,7 +303,8 @@ export const syncSetup = {
       name,
       email,
     }),
-  check: (url?: string) => send<SyncSetupResponse & { check: SyncRemoteCheck }>("POST", "/api/sync/setup/check", { url }),
+  check: (url?: string) =>
+    send<SyncSetupResponse & { check: SyncRemoteCheck }>("POST", "/api/sync/setup/check", { url }, false, { notify: false }),
   connect: (url?: string) => send<SyncConnectResult>("POST", "/api/sync/setup/connect", { url }),
 };
 

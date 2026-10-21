@@ -24,7 +24,6 @@ from knowledge_os.init_workspace import init_workspace
 from knowledge_os.model import content_sha256, parse_document
 from knowledge_os.workspace import Workspace, validate_workspace
 
-PORT = 8861
 TOKEN_HEADER = "X-KOS-Write-Token"
 GIT = shutil.which("git")
 
@@ -83,7 +82,7 @@ class StructureApiTests(unittest.TestCase):
         git(cls.root, "config", "core.autocrlf", "false")
         git(cls.root, "add", "-A")
         git(cls.root, "commit", "--quiet", "-m", "Initial knowledge base")
-        cls.base_url = cls._stack.enter_context(serve(cls.root, PORT))
+        cls.base_url = cls._stack.enter_context(serve(cls.root))
         status, session = cls.request("GET", "/api/session")
         assert status == 200, session
         cls.token = session["write_token"]

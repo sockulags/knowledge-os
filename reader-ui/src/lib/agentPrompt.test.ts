@@ -9,11 +9,11 @@ import {
   documentationPrompt,
   noteFromTurns,
   reviewRecommendations,
-  slugify,
   withEarlierTurns,
   isWriteTool,
   pagesUsed,
   parseComposed,
+  permissionDetails,
   permissionQuestion,
   toolLabel,
   toolName,
@@ -68,6 +68,36 @@ describe("tools", () => {
     assert.equal(permissionQuestion("Bash"), "Allow the agent to use Bash?");
     assert.ok(isWriteTool("mcp__knowledge-os__propose_decision"));
     assert.ok(!isWriteTool("mcp__knowledge-os__search"));
+  });
+
+  it("shows what a permission question would write or run", () => {
+    assert.deepEqual(
+      permissionDetails("mcp__knowledge-os__write_note", { title: "Retry policy", content: "Retry twice.", project: "demo" }),
+      { kind: "page", title: "Retry policy", where: "New note in the project demo", body: "Retry twice." },
+    );
+    assert.deepEqual(
+      permissionDetails("mcp__knowledge-os__write_note", { id: "retry-policy", expected_sha256: "abc", content: "New." }),
+      { kind: "page", title: null, where: "Changes the page retry-policy", body: "New." },
+    );
+    // codex-acp wraps the arguments.
+    assert.deepEqual(
+      permissionDetails("mcp.knowledge-os.propose_decision", {
+        server: "knowledge-os",
+        tool: "propose_decision",
+        arguments: { title: "Use Postgres", content: "## Decision", supersedes: "use-sqlite" },
+      }),
+      { kind: "page", title: "Use Postgres", where: "Proposed decision as general knowledge, replacing use-sqlite", body: "## Decision" },
+    );
+    assert.deepEqual(permissionDetails("Bash", { command: "rm -rf build", description: "Clean" }), {
+      kind: "command",
+      text: "rm -rf build",
+    });
+    assert.deepEqual(permissionDetails("mcp__knowledge-os__link_repository", { project: "demo", path: "C:/code" }), {
+      kind: "data",
+      text: '{\n  "project": "demo",\n  "path": "C:/code"\n}',
+    });
+    assert.equal(permissionDetails("write_note", null), null);
+    assert.equal(permissionDetails("Bash", {}), null);
   });
 
   it("lists the pages a turn read and wrote, once each", () => {
@@ -137,11 +167,6 @@ describe("conversations", () => {
       { request: "latest", answer: "short" },
     ]);
     assert.ok(!cut.includes("oldest") && cut.includes("middle") && cut.includes("latest"));
-  });
-
-  it("makes page ids from titles", () => {
-    assert.equal(slugify("Hur fungerar återförsök?"), "hur-fungerar-aterforsok");
-    assert.equal(slugify("!!!"), "conversation");
   });
 
   it("turns a conversation into a note with its pages linked", () => {

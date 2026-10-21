@@ -15,14 +15,18 @@ import {
   shell
 } from 'electron'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
-import { existsSync, statSync } from 'fs'
+import { existsSync, mkdirSync, statSync } from 'fs'
 import { basename, join } from 'path'
-import { pathToFileURL } from 'url'
 import { SHELL_TEXT } from '../shared/shellText'
 import { IPC, type RecentWorkspace, type ShellState } from '../shared/types'
 import appIcon from '../../build/icon.ico?asset'
 import {
+  aboutDialog,
+  answerWithin,
   LeaveGuard,
+  leavesAnyway,
+  NO_ANSWER,
+  noAnswerDialog,
   UNSAVED_ACTION,
   UPDATE_ACTION,
   unsavedChangesDialog,
@@ -31,7 +35,11 @@ import {
 import { ConversationStore } from './agents/conversations'
 import { AgentService, electronLaunchHost, kosMcpCommand } from './agents/service'
 import { createCloneWindow, type CloneWindow } from './cloneWindow'
+import { INITIAL_CLOSE_STATE, nextCloseState, type CloseAction, type CloseEvent } from './closeFlow'
+import { createKnowledgeBase } from './createFlow'
 import { flushReaderActions } from './flushReader'
+import { isFrom } from './ipcSender'
+import { initLog, log, logDir } from './logger'
 import {
   buildMenus,
   COMMAND,
@@ -41,6 +49,7 @@ import {
   type MenuSpec
 } from './menuModel'
 import { decideNavigation } from './navigation'
+import { pageUrl } from './pageUrl'
 import { createReferatPlugin, type ReferatPlugin } from './plugins/referat'
 import {
   CoreProcess,
@@ -50,7 +59,7 @@ import {
   type CoreFailure
 } from './pythonCore'
 import { bundledCore, findRepoRoot, interpreterCandidates } from './pythonInterpreter'
-import { addRecent, loadRecent, saveRecent } from './recentWorkspaces'
+import { addRecent, loadRecent, markMissing, removeRecent, saveRecent } from './recentWorkspaces'
 import { decideStartup, notAKnowledgeBaseNotice, type PathKind } from './reopen'
 import {
   fetchWriteToken,
@@ -74,6 +83,22 @@ if (process.env['KOS_DESKTOP_USER_DATA']) {
   app.setPath('userData', process.env['KOS_DESKTOP_USER_DATA'])
 }
 
+// One app per user-data folder: two would share one runtime file, so an agent
+// started in one window could write to the knowledge base open in the other.
+// A second start focuses the existing window instead.
+const singleInstance = app.requestSingleInstanceLock()
+if (!singleInstance) app.quit()
+
+// Diagnostics also go to a rotating file, since the installed app has no console.
+const logsFolder = join(app.getPath('userData'), 'logs')
+if (singleInstance) {
+  initLog(logsFolder)
+  log.info(
+    `Knowledge OS ${app.getVersion()} starting (${app.isPackaged ? 'installed' : 'development'}, ` +
+      `Electron ${process.versions.electron}, ${process.platform} ${process.arch})`
+  )
+}
+
 const repoRoot = findRepoRoot(app.getAppPath(), existsSync)
 const pythonEnv = pythonEnvironment(process.env, repoRoot)
 const recentFile = join(app.getPath('userData'), 'recent-workspaces.json')
@@ -85,11 +110,9 @@ let core: CoreProcess | null = null
 let pythonExecutable: string | null = null
 let recent: RecentWorkspace[] = loadRecent(recentFile)
 let settings: AppSettings = loadSettings(settingsFile)
-let state: ShellState = { kind: 'start', recent }
-/** Set by "Restart to update" until the window closes or the person keeps editing. */
-let restartPending = false
-/** Set once quitting starts, so a close held back to flush the reader resumes the quit. */
-let quitRequested = false
+let state: ShellState = startState()
+/** Closing the window, quitting, and restarting to update (see closeFlow.ts). */
+let closeState = INITIAL_CLOSE_STATE
 /** Increments per open request so a slow, superseded start is discarded. */
 let openGeneration = 0
 /** The optional Referat plugin, created once the app is ready. */
@@ -100,8 +123,6 @@ let cloneWindow: CloneWindow | null = null
 let publishedCorePid: number | null = null
 /** The main window's title bar, menu, notices, and dialogs, created once the app is ready. */
 let chrome: MainWindowChrome | null = null
-/** Set once closing the window has passed the unsaved-changes question. */
-let closeConfirmed = false
 /** The core URL of the last reader the window was sent to, for the chrome's IPC. */
 let readerUrl: string | null = null
 /** The in-app agent (issue #90): at most one session, in the open knowledge base. */
@@ -131,9 +152,10 @@ const agents = new AgentService(
 /**
  * Whether the reader holds unsaved edits: its editor cancels `beforeunload`
  * then, so a synthetic one tells without leaving the page. Only the reader
- * is asked; the start page never holds edits.
+ * is asked; the start page never holds edits. A reader that does not answer
+ * within 1.5 s gives `NO_ANSWER`, and the person is asked.
  */
-async function readerHasUnsavedChanges(): Promise<boolean> {
+async function readerHasUnsavedChanges(): Promise<boolean | typeof NO_ANSWER> {
   const window = mainWindow
   if (window === null || window.isDestroyed()) return false
   const url = window.webContents.getURL()
@@ -144,21 +166,37 @@ async function readerHasUnsavedChanges(): Promise<boolean> {
     return event.defaultPrevented
   })()`
   const answer = window.webContents.executeJavaScript(probe).then((value) => value === true)
-  const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500))
-  return Promise.race([answer, timeout])
+  return answerWithin(answer, 1500)
+}
+
+/** Asks whether to leave a reader that did not say if it holds unsaved edits. */
+async function askLeaveUnresponsive(): Promise<boolean> {
+  const window = mainWindow
+  const options = noAnswerDialog()
+  const { response } =
+    window !== null && !window.isDestroyed()
+      ? await dialog.showMessageBox(window, options)
+      : await dialog.showMessageBox(options)
+  return leavesAnyway(response)
 }
 
 /** Asks before anything leaves the page while the reader holds unsaved edits. */
 const leaveGuard = new LeaveGuard({
   hasUnsavedChanges: readerHasUnsavedChanges,
-  ask: () => chrome?.ask(unsavedChangesDialog) ?? Promise.resolve(UNSAVED_ACTION.keep)
+  ask: () => chrome?.ask(unsavedChangesDialog) ?? Promise.resolve(UNSAVED_ACTION.keep),
+  askNoAnswer: askLeaveUnresponsive
 })
+
+/** Moves the close flow on and gives the action for the caller to carry out. */
+function closeFlow(event: CloseEvent): CloseAction {
+  const { state: next, action } = nextCloseState(closeState, event)
+  closeState = next
+  return action
+}
 
 /** Keeping the edits also cancels a pending "Restart to update" or quit. */
 function keepEditing(): void {
-  restartPending = false
-  quitRequested = false
-  closeConfirmed = false
+  closeFlow({ type: 'keep-editing' })
 }
 
 /** Shows `url` in the main window once unsaved edits are dealt with; false when they were kept. */
@@ -173,18 +211,9 @@ async function navigateMain(url: string): Promise<boolean> {
   return went
 }
 
-const startPageUrl =
-  !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
-    ? process.env['ELECTRON_RENDERER_URL']
-    : pathToFileURL(join(__dirname, '../renderer/index.html')).href
-const referatPageUrl =
-  !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
-    ? `${process.env['ELECTRON_RENDERER_URL'].replace(/\/+$/, '')}/referat.html`
-    : pathToFileURL(join(__dirname, '../renderer/referat.html')).href
-const clonePageUrl =
-  !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
-    ? `${process.env['ELECTRON_RENDERER_URL'].replace(/\/+$/, '')}/clone.html`
-    : pathToFileURL(join(__dirname, '../renderer/clone.html')).href
+const devServer = (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) || null
+const rendererDir = join(__dirname, '../renderer')
+const startPageUrl = pageUrl('index', devServer, rendererDir)
 
 function stopCoreSync(): void {
   unpublishRuntime()
@@ -213,7 +242,7 @@ async function publishRuntime(started: CoreProcess, root: string): Promise<void>
     })
     publishedCorePid = pid
   } catch (error) {
-    console.error('could not write the runtime file for agents', error)
+    log.error('could not write the runtime file for agents', error)
   }
 }
 
@@ -250,7 +279,17 @@ function setState(next: ShellState): void {
   buildMenu()
 }
 
+/** The start page's state, with recent folders that are gone marked as missing. */
+function startState(notice?: string): ShellState {
+  const shown = markMissing(recent, pathKind)
+  return notice === undefined
+    ? { kind: 'start', recent: shown }
+    : { kind: 'start', recent: shown, notice }
+}
+
 function showError(root: string | null, failure: CoreFailure): void {
+  log.error(`error screen (${failure.error}) for ${root ?? 'no folder'}: ${failure.message}`)
+  if (failure.detail !== '') log.error(failure.detail)
   setState({ kind: 'error', root, ...failure, recent })
 }
 
@@ -302,15 +341,7 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
     keepEditing()
     return
   }
-  if (state.kind === 'ready') await flushReaderActions(mainWindow)
-  // An agent session belongs to the knowledge base it was started in.
-  agents.close()
-  const generation = ++openGeneration
-  const previous = core
-  core = null
-  unpublishRuntime()
-  setState({ kind: 'starting', root, recent })
-  await previous?.stop()
+  const generation = await leaveCurrent({ kind: 'starting', root, recent })
 
   const executable = await ensurePython()
   if (executable === null || generation !== openGeneration) return
@@ -321,8 +352,8 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
   }
   if (!result.ok) {
     if (reopened !== null && result.failure.error === 'invalid-workspace') {
-      console.error('could not reopen the last knowledge base:', result.failure.message)
-      setState({ kind: 'start', recent, notice: notAKnowledgeBaseNotice(reopened) })
+      log.error('could not reopen the last knowledge base:', result.failure.message)
+      setState(startState(notAKnowledgeBaseNotice(reopened)))
     } else {
       showError(root, result.failure)
     }
@@ -349,10 +380,27 @@ async function openWorkspace(root: string, reopened: RecentWorkspace | null = nu
   try {
     saveRecent(recentFile, recent)
   } catch (error) {
-    console.error('could not save the recent workspaces list', error)
+    log.error('could not save the recent workspaces list', error)
   }
   setState({ kind: 'ready', root, name: started.name, url: started.url, recent })
   void publishRuntime(started, root)
+}
+
+/**
+ * Stop the open knowledge base, if any, and show `next` in its place. Returns
+ * the new open generation, which a later open or create replaces.
+ */
+async function leaveCurrent(next: ShellState): Promise<number> {
+  if (state.kind === 'ready') await flushReaderActions(mainWindow)
+  // An agent session belongs to the knowledge base it was started in.
+  agents.close()
+  const generation = ++openGeneration
+  const previous = core
+  core = null
+  unpublishRuntime()
+  setState(next)
+  await previous?.stop()
+  return generation
 }
 
 async function showStart(): Promise<void> {
@@ -366,7 +414,19 @@ async function showStart(): Promise<void> {
   core = null
   unpublishRuntime()
   await previous?.stop()
-  setState({ kind: 'start', recent })
+  setState(startState())
+}
+
+/** Drops `root` from the recent list, for a folder that moved or is no longer wanted there. */
+function forgetRecent(root: string): void {
+  recent = removeRecent(recent, root)
+  try {
+    saveRecent(recentFile, recent)
+  } catch (error) {
+    log.error('could not save the recent workspaces list', error)
+  }
+  if (state.kind === 'start') setState(startState(state.notice))
+  else buildMenu()
 }
 
 async function pickFolder(title: string, buttonLabel: string): Promise<string | null> {
@@ -399,14 +459,15 @@ async function chooseAndCreate(): Promise<void> {
     keepEditing()
     return
   }
-  const executable = await ensurePython()
-  if (executable === null) return
-  const result = await initWorkspace(executable, folder, pythonEnv)
-  if (!result.ok) {
-    showError(null, result.failure)
-    return
-  }
-  await openWorkspace(result.root)
+  await createKnowledgeBase(folder, {
+    showCreating: (root) => leaveCurrent({ kind: 'creating', root, recent }),
+    isCurrent: (generation) => generation === openGeneration,
+    python: ensurePython,
+    init: (executable, root) => initWorkspace(executable, root, pythonEnv),
+    open: (root) => openWorkspace(root),
+    // No folder: Try again on the error screen goes back to the start page.
+    fail: (failure) => showError(null, failure)
+  })
 }
 
 function changeSettings(change: Partial<AppSettings>): void {
@@ -414,7 +475,7 @@ function changeSettings(change: Partial<AppSettings>): void {
   try {
     saveSettings(settingsFile, settings)
   } catch (error) {
-    console.error('could not save the settings', error)
+    log.error('could not save the settings', error)
   }
   buildMenu()
 }
@@ -426,13 +487,12 @@ function changeSettings(change: Partial<AppSettings>): void {
  */
 function restartToUpdate(): void {
   const window = mainWindow
-  if (window === null || window.isDestroyed()) {
+  const hasWindow = window !== null && !window.isDestroyed()
+  const action = closeFlow({ type: 'restart-requested', hasWindow })
+  if (action === 'stop-core-and-install') {
     stopCoreSync()
     installDownloadedUpdate()
-    return
-  }
-  restartPending = true
-  window.close()
+  } else if (action === 'close-window') window?.close()
 }
 
 /** Update news is a quiet notice under the title bar, never a modal box. */
@@ -483,12 +543,15 @@ function runCommand(command: string): void {
       return
     case COMMAND.exit:
       return app.quit()
+    // Developer commands; the packaged app's menu has neither (see currentMenus).
     case COMMAND.reload:
+      if (app.isPackaged) return
       if (window !== null && !window.isDestroyed()) {
         void leaveGuard.leave(() => window.webContents.reload(), keepEditing)
       }
       return
     case COMMAND.devTools:
+      if (app.isPackaged) return
       return window?.webContents.toggleDevTools()
     case COMMAND.resetZoom:
       return setZoomLevel(() => 0)
@@ -506,9 +569,38 @@ function runCommand(command: string): void {
     case COMMAND.restartToUpdate:
       if (updateState().phase === 'ready') restartToUpdate()
       return
+    case COMMAND.openLogFolder:
+      return openLogFolder()
+    case COMMAND.about:
+      return void showAbout()
     default:
       referat?.run(command)
   }
+}
+
+function openLogFolder(): void {
+  const folder = logDir() ?? logsFolder
+  try {
+    mkdirSync(folder, { recursive: true })
+  } catch (error) {
+    log.error('could not create the log folder', error)
+  }
+  void shell.openPath(folder).then((problem) => {
+    if (problem !== '') log.error(`could not open the log folder ${folder}: ${problem}`)
+  })
+}
+
+async function showAbout(): Promise<void> {
+  const options = aboutDialog({
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    logDir: logDir() ?? logsFolder
+  })
+  const window = mainWindow
+  if (window !== null && !window.isDestroyed()) await dialog.showMessageBox(window, options)
+  else await dialog.showMessageBox(options)
 }
 
 function currentMenus(): MenuSpec[] {
@@ -520,7 +612,8 @@ function currentMenus(): MenuSpec[] {
     checkForUpdates: settings.checkForUpdates,
     updatesSupported: updatesSupported(),
     updateReadyVersion: update.phase === 'ready' ? update.version : null,
-    pluginMenus: referat !== null ? [referat.menu()] : []
+    pluginMenus: referat !== null ? [referat.menu()] : [],
+    developerItems: !app.isPackaged
   })
 }
 
@@ -567,40 +660,32 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // No developer tools in the packaged app; its menu has no entry for them either.
+      devTools: !app.isPackaged
     }
   })
   mainWindow = window
-  closeConfirmed = false
+  closeFlow({ type: 'window-created' })
   chrome?.attach(window)
   window.on('ready-to-show', () => window.show())
-  // Every close (the window's close button, Alt+F4, File → Exit, quitting,
-  // Restart to update) first deals with unsaved edits in the reader; keeping
-  // them keeps the window and cancels a pending restart or quit. Then the
-  // reader writes the decision actions still waiting for Undo, and only then
-  // does the window close for real (which stops the core, and afterwards
-  // starts a pending update's installer).
-  let closing = false
+  // Every close first deals with unsaved edits in the reader and flushes its
+  // pending decision actions; see closeFlow.ts for the whole sequence.
   window.on('close', (event) => {
-    if (closeConfirmed) return
+    const action = closeFlow({ type: 'close-requested' })
+    if (action === 'let-close') return
     event.preventDefault()
-    if (closing) return
-    closing = true
+    if (action !== 'ask') return
     void leaveGuard.leave(
       () => {
         const flushed = state.kind === 'ready' ? flushReaderActions(window) : Promise.resolve()
         void flushed.finally(() => {
-          closing = false
-          if (window.isDestroyed()) return
-          closeConfirmed = true
-          if (quitRequested) app.quit()
-          else window.close()
+          const next = closeFlow({ type: 'flushed', windowGone: window.isDestroyed() })
+          if (next === 'quit') app.quit()
+          else if (next === 'close-window') window.close()
         })
       },
-      () => {
-        closing = false
-        keepEditing()
-      }
+      () => closeFlow({ type: 'close-kept' })
     )
   })
   // The window shows the start page or the reader; the core has no use
@@ -610,11 +695,8 @@ function createWindow(): void {
     leaveGuard.reset()
     openGeneration++
     stopCoreSync()
-    state = { kind: 'start', recent }
-    if (restartPending) {
-      restartPending = false
-      installDownloadedUpdate()
-    }
+    state = startState()
+    if (closeFlow({ type: 'window-closed' }) === 'install') installDownloadedUpdate()
   })
 
   const guard = (event: Electron.Event, url: string): void => {
@@ -633,7 +715,7 @@ function createWindow(): void {
       event.preventDefault()
       return
     }
-    closeConfirmed = false
+    closeFlow({ type: 'unload-objected' })
     if (retry !== null) void leaveGuard.leave(retry, keepEditing, true)
     else keepEditing()
   })
@@ -648,9 +730,8 @@ function createWindow(): void {
   void window.loadURL(startPageUrl)
 }
 
-function isStartPage(event: IpcMainInvokeEvent): boolean {
-  const url = event.senderFrame?.url ?? ''
-  return decideNavigation(url, [startPageUrl]) === 'allow'
+function isStartPage(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  return isFrom(event, mainWindow, (url) => decideNavigation(url, [startPageUrl]) === 'allow')
 }
 
 function handle(channel: string, action: (...args: unknown[]) => Promise<unknown>): void {
@@ -661,19 +742,16 @@ function handle(channel: string, action: (...args: unknown[]) => Promise<unknown
   })
 }
 
-function isReaderPage(event: IpcMainEvent): boolean {
+function isReaderPage(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
   if (state.kind !== 'ready') return false
-  const url = event.senderFrame?.url ?? ''
-  return decideNavigation(url, [state.url]) === 'allow'
+  const readerOrigin = state.url
+  return isFrom(event, mainWindow, (url) => decideNavigation(url, [readerOrigin]) === 'allow')
 }
 
 /** Like `handle`, for the in-app agent: only the reader UI of an open knowledge base. */
 function handleForReader(channel: string, action: (...args: unknown[]) => Promise<unknown>): void {
   ipcMain.handle(channel, (event, ...args) => {
-    const url = event.senderFrame?.url ?? ''
-    if (state.kind !== 'ready' || decideNavigation(url, [state.url]) !== 'allow') {
-      throw new Error('not allowed from this page')
-    }
+    if (!isReaderPage(event)) throw new Error('not allowed from this page')
     return action(...args)
   })
 }
@@ -686,7 +764,7 @@ function registerAgentIpc(): void {
       throw new Error('No knowledge base is open.')
     return agents.start(String(providerId), {
       root: state.root,
-      kosMcp: kosMcpCommand(pythonExecutable, pythonEnv, runtimeFile)
+      kosMcp: kosMcpCommand(pythonExecutable, pythonEnv, runtimeFile, state.root)
     })
   })
   handleForReader(IPC.agentPrompt, (text) => agents.prompt(String(text)))
@@ -726,7 +804,7 @@ function registerIpc(): void {
     try {
       saveSettings(settingsFile, settings)
     } catch (error) {
-      console.error('could not save the settings', error)
+      log.error('could not save the settings', error)
     }
   })
   handle(IPC.getState, async () => state)
@@ -745,6 +823,10 @@ function registerIpc(): void {
     if (typeof root !== 'string' || !recent.some((item) => item.root === root)) return
     await openWorkspace(root)
   })
+  handle(IPC.removeRecent, async (root) => {
+    if (typeof root !== 'string' || !recent.some((item) => item.root === root)) return
+    forgetRecent(root)
+  })
 }
 
 // Stop the core on every way out of the main process. A hard crash that
@@ -758,11 +840,11 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
 }
 process.on('uncaughtException', (error) => {
   stopCoreSync()
-  console.error(error)
+  log.error('uncaught exception', error)
   app.exit(1)
 })
 app.on('before-quit', () => {
-  quitRequested = true
+  closeFlow({ type: 'quit-requested' })
 })
 app.on('will-quit', () => {
   agents.close()
@@ -789,11 +871,24 @@ function startup(): void {
   if (decision.kind === 'open') {
     void openWorkspace(decision.root, decision.reopened ? (recent[0] ?? null) : null)
   } else if (decision.notice !== null) {
-    setState({ kind: 'start', recent, notice: decision.notice })
+    setState(startState(decision.notice))
   }
 }
 
+app.on('second-instance', () => {
+  if (!app.isReady()) return
+  const window = mainWindow
+  if (window === null || window.isDestroyed()) {
+    createWindow()
+    return
+  }
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+})
+
 app.whenReady().then(() => {
+  if (!singleInstance) return
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) =>
     callback(false)
   )
@@ -814,14 +909,14 @@ app.whenReady().then(() => {
   referat = createReferatPlugin({
     mainWindow: () => mainWindow,
     coreUrl: () => (state.kind === 'ready' ? state.url : null),
-    pageUrl: referatPageUrl,
+    pageUrl: pageUrl('referat', devServer, rendererDir),
     preloadPath: join(__dirname, '../preload/referat.js'),
     notify: (notice) => chrome?.showNotice({ key: 'referat', actions: [], ...notice }),
     navigateMain
   })
   cloneWindow = createCloneWindow({
     mainWindow: () => mainWindow,
-    pageUrl: clonePageUrl,
+    pageUrl: pageUrl('clone', devServer, rendererDir),
     preloadPath: join(__dirname, '../preload/clone.js'),
     defaultParent: () => join(app.getPath('documents'), 'Knowledge bases'),
     python: ensurePython,

@@ -5,7 +5,8 @@
 // file or terminal capability, and opens a session whose only MCP server is
 // the knowledge base's own `kos mcp`, with the provider's `_meta` limiting the
 // agent to it. Prompts stream back as plain `AgentEvent`s. Every permission
-// request is put to the person through `onEvent` and waits for
+// request is put to the person through `onEvent`, with the tool's arguments
+// so they see what it would write or run, and waits for
 // `respondPermission`, except the knowledge base's own read tools
 // (`KOS_READ_TOOLS`), which run without asking. When the agent says
 // it needs sign-in, the session reports `auth-required` with the provider's
@@ -36,6 +37,7 @@ import {
   type LaunchHost,
   type ProviderStatus
 } from './contract'
+import { killProcessTree } from '../processTree'
 
 /** ACP's "authentication required" error code. */
 const AUTH_REQUIRED = -32000
@@ -65,6 +67,8 @@ export type AgentEvent =
       /** The tool call it is about, so the app can show it with that call. */
       toolCallId: string | null
       title: string
+      /** The tool's arguments as the agent reports them (e.g. the note it would write), or null. */
+      input: unknown
       options: { id: string; name: string; kind: string }[]
     }
   | { type: 'turn-end'; stopReason: StopReason }
@@ -122,9 +126,10 @@ function isAuthRequired(error: unknown): boolean {
 }
 
 /**
- * The knowledge base's tools that only read (see knowledge_os/agent_access/
- * tools.py): the agent may use them without asking. Writes and every other
- * tool, including the agent's own, still ask the person.
+ * The knowledge base's tools that only read (the `ToolSpec`s with
+ * `read_only=True` in knowledge_os/agent_access/tools.py; readTools.test.ts
+ * fails when the two lists differ): the agent may use them without asking.
+ * Writes and every other tool, including the agent's own, still ask the person.
  */
 export const KOS_READ_TOOLS: ReadonlySet<string> = new Set([
   'search',
@@ -138,13 +143,61 @@ export const KOS_READ_TOOLS: ReadonlySet<string> = new Set([
   'read_commit'
 ])
 
-/** Whether a permission request is for one of `KOS_READ_TOOLS` on the `kos mcp` server. */
-export function isKosReadTool(title: string | null | undefined): boolean {
-  // Adapters name an MCP tool with its server, e.g. `mcp__knowledge-os__read_page`.
-  const match = new RegExp(`^(?:mcp__)?${KOS_MCP_SERVER_NAME}(?:__|[./:])([a-z_]+)$`).exec(
-    title?.trim() ?? ''
-  )
-  return match !== null && KOS_READ_TOOLS.has(match[1])
+/** What a permission request, or the agent's earlier report of the same call, says about a tool call. */
+export interface ToolCallFacts {
+  title?: string | null
+  rawInput?: unknown
+  _meta?: unknown
+}
+
+const KOS_TOOL_NAME = new RegExp(`^(?:mcp(?:__|\\.))?${KOS_MCP_SERVER_NAME}(?:__|[./:])([a-z_]+)$`)
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+/**
+ * The `kos mcp` tool a tool call is for, or null when it is another tool, its
+ * fields disagree, or it says too little to tell. Every field that names a
+ * tool must name the same knowledge-base tool, so an extra field can only make
+ * the answer stricter.
+ *
+ * What the adapters send (read from claude-agent-acp 0.92.0 and codex-acp
+ * 2.2.2 as published on npm):
+ * - claude-agent-acp titles an MCP tool call with Claude Code's own tool name,
+ *   `mcp__knowledge-os__read_page`, kind `other`, and repeats that name as
+ *   `_meta.claudeCode.toolName`, with `_meta.claudeCode.mcpServer.name` when
+ *   the Claude SDK reports the server. `rawInput` is the tool's arguments.
+ * - codex-acp titles the call `mcp.knowledge-os.read_page`, kind `execute`,
+ *   with `rawInput` `{ server, tool, arguments }`. Its permission request for
+ *   that call carries only the toolCallId, kind and status, so the title and
+ *   input come from the `tool_call` report that precedes it.
+ */
+export function kosToolName(call: ToolCallFacts): string | null {
+  const names: (string | null)[] = []
+  const fromName = (name: string): string | null => KOS_TOOL_NAME.exec(name.trim())?.[1] ?? null
+  if (typeof call.title === 'string' && call.title.trim() !== '') names.push(fromName(call.title))
+  const claudeCode = record(record(call._meta)?.['claudeCode'])
+  if (typeof claudeCode?.['toolName'] === 'string') names.push(fromName(claudeCode['toolName']))
+  const server = record(claudeCode?.['mcpServer'])?.['name']
+  if (server !== undefined && server !== KOS_MCP_SERVER_NAME) return null
+  // The input is the model's own arguments, so it can only confirm a name, never give one.
+  if (names.length === 0) return null
+  // codex-acp's MCP input names its server and tool.
+  const input = record(call.rawInput)
+  if (typeof input?.['server'] === 'string' && typeof input['tool'] === 'string') {
+    names.push(input['server'] === KOS_MCP_SERVER_NAME ? input['tool'] : null)
+  }
+  if (names.some((name) => name === null || name !== names[0])) return null
+  return names[0]
+}
+
+/** Whether a tool call is for one of `KOS_READ_TOOLS` on the `kos mcp` server. */
+export function isKosReadTool(call: ToolCallFacts): boolean {
+  const name = kosToolName(call)
+  return name !== null && KOS_READ_TOOLS.has(name)
 }
 
 function errorText(error: unknown): string {
@@ -179,6 +232,8 @@ export class AcpAgentSession {
   private closing = false
   private permissions = new Map<string, PendingPermission>()
   private nextPermission = 1
+  /** This turn's tool calls as the agent reported them, for permission requests that name only the call. */
+  private toolCalls = new Map<string, ToolCallFacts>()
   /** Settles when the current process exits. */
   private exitedSignal: Promise<void> = Promise.resolve()
 
@@ -216,6 +271,7 @@ export class AcpAgentSession {
   async prompt(text: string): Promise<StopReason> {
     const connection = this.requireReady()
     this.setState('working')
+    this.toolCalls.clear()
     try {
       const response = await connection.prompt({
         sessionId: this.sessionId!,
@@ -299,7 +355,9 @@ export class AcpAgentSession {
           cwd: this.options.cwd,
           env: { ...host.env, ...spec.env },
           stdio: ['pipe', 'pipe', 'pipe'],
-          windowsHide: true
+          windowsHide: true,
+          // Its own process group on POSIX, so stopping it stops its children.
+          detached: process.platform !== 'win32'
         })
     this.child = child
     this.stderrTail = ''
@@ -393,8 +451,16 @@ export class AcpAgentSession {
   }
 
   private askPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+    // What the request leaves out comes from the agent's earlier report of the call.
+    const request = params.toolCall
+    const known = this.toolCalls.get(request.toolCallId) ?? {}
+    const call: ToolCallFacts = {
+      title: request.title ?? known.title ?? null,
+      rawInput: request.rawInput ?? known.rawInput,
+      _meta: request._meta ?? known._meta
+    }
     // Reading the knowledge base needs no question; everything else does.
-    if (isKosReadTool(params.toolCall.title)) {
+    if (isKosReadTool(call)) {
       const allow =
         params.options.find((option) => option.kind === 'allow_once') ??
         params.options.find((option) => option.kind === 'allow_always')
@@ -408,8 +474,9 @@ export class AcpAgentSession {
       this.options.onEvent({
         type: 'permission',
         requestId,
-        toolCallId: params.toolCall.toolCallId ?? null,
-        title: params.toolCall.title ?? 'The agent asks to use a tool',
+        toolCallId: request.toolCallId ?? null,
+        title: call.title ?? 'The agent asks to use a tool',
+        input: call.rawInput ?? null,
         options: params.options.map((option) => ({
           id: option.optionId,
           name: option.name,
@@ -428,7 +495,13 @@ export class AcpAgentSession {
         }
         return
       case 'tool_call':
-      case 'tool_call_update':
+      case 'tool_call_update': {
+        const known = this.toolCalls.get(update.toolCallId) ?? {}
+        this.toolCalls.set(update.toolCallId, {
+          title: update.title ?? known.title,
+          rawInput: update.rawInput ?? known.rawInput,
+          _meta: update._meta ?? known._meta
+        })
         this.options.onEvent({
           type: 'tool',
           id: update.toolCallId,
@@ -438,6 +511,7 @@ export class AcpAgentSession {
           output: update.rawOutput ?? null
         })
         return
+      }
       default:
         return
     }
@@ -497,6 +571,11 @@ export class AcpAgentSession {
     const child = this.child
     this.child = null
     this.connection = null
-    if (child !== null && child.exitCode === null && !child.killed) child.kill()
+    if (child === null || child.exitCode !== null || child.killed) return
+    // The adapter runs the agent (claude.exe, codex app-server) and `kos mcp`
+    // as its children, which a plain kill leaves running, with the knowledge
+    // base folder as their working directory.
+    if (child.pid !== undefined) killProcessTree(child.pid)
+    else child.kill()
   }
 }

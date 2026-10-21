@@ -204,6 +204,8 @@ export interface ProjectPayload {
 export interface RecordPayload {
   id: string;
   title: string;
+  /** The optional summary shown under the title. */
+  description: string | null;
   type: string;
   record_kind: string | null;
   is_decision: boolean;
@@ -222,6 +224,8 @@ export interface RecordPayload {
 
 export interface EditableMetadata {
   title: string;
+  /** "" when the page has none. */
+  description: string;
   tags: string[];
   related: string[];
   sources: string[];
@@ -306,9 +310,20 @@ export interface DecidePayload {
   all_projects_label: string;
   projects: { id: string; title: string; count: number }[];
   items: ProposedDecision[];
-  empty: { title: string; body: string };
+  /** `title_observations` replaces `title` while observations still wait below. */
+  empty: { title: string; title_observations?: string; body: string };
   open_label: string;
   language: DecisionLanguage;
+}
+
+/** "Make active" on a draft that is not a decision: the sentence above the
+ * button, its label, the notice labels (Undo and the like), and what the page
+ * shows while the write waits for Undo. */
+export interface DraftActivation {
+  summary: string;
+  label: string;
+  labels: DecisionLanguage["labels"];
+  outcome: DecisionOutcome;
 }
 
 /** Machine data for the editor and the decision buttons (never shown as prose). */
@@ -322,6 +337,8 @@ export interface EditingBlock {
   content_sha256: string | null;
   body_change_needs_confirmation: boolean;
   decision_actions: DecisionActions | null;
+  /** Null (or absent) unless the page is a draft that is not a decision. */
+  draft_activation?: DraftActivation | null;
   /** What this page's Delete action removes: the page, or for a folder's own
    * page the whole folder; null when it offers none (a project overview). */
   delete: { kind: "page" } | { kind: "folder"; project_id: string; path: string } | null;
@@ -730,6 +747,24 @@ export interface ChangesPayload {
   notice_labels: DecisionLanguage["labels"];
 }
 
+/** `GET /api/review/rules`: the review rules in `knowledge-os.toml`, in order. */
+export interface ReviewRule {
+  number: number;
+  writer: string;
+  project: string | null;
+  folder: string | null;
+  writes: "create" | "edit" | "any";
+  action: "review" | "direct";
+  /** One sentence: what the rule covers and what happens to those writes. */
+  description: string;
+}
+
+export interface ReviewRulesPayload {
+  rules: ReviewRule[];
+  /** Why the rule file cannot be used; then every write it could govern is refused. */
+  error: string | null;
+}
+
 export interface ChangeDetail extends ProposedChange {
   /** A new page, rendered. */
   body_html: string | null;
@@ -823,4 +858,64 @@ export interface RepositoryCheck {
 export interface DocumentationCheckPayload {
   project: string;
   repositories: RepositoryCheck[];
+}
+
+/** GET /api/discoveries/pending: observations waiting for review, read-only. */
+export interface PendingObservation {
+  id: string;
+  title: string;
+  excerpt: string;
+  project: { id: string; title: string };
+  proposed_by: { source: string; label: string };
+  proposed_display: string | null;
+  proposed_exact: string | null;
+  /** Always "Observation — not knowledge". */
+  trust: string;
+  status_pill: Pill | null;
+  /** Pages it may overlap with; null when the packet could not be made. */
+  related: { id: string; title: string; reasons: string[]; exists: boolean }[] | null;
+  /** The review packet `kos discovery review` prints, rendered; null when it could not be made. */
+  packet_html: string | null;
+  /** What to ask an agent to review it. */
+  agent_phrase: string;
+  commands: { action: "retain" | "reject" | "promote"; label: string; command: string }[];
+  /** The observation as shown; a review sends it back and is refused if the file changed. */
+  content_sha256: string;
+  scope: string;
+  actions: {
+    /** False for a general-scope observation: the core only retains project ones. */
+    retain: boolean;
+    promote: {
+      /** A free page ID suggested from the title. */
+      target_id: string;
+      title: string;
+      /** Related pages were found, so promoting needs `acknowledge_related`. */
+      acknowledge_related: boolean;
+      /** A project observation may become general knowledge with `allow_scope_broadening`. */
+      allow_scope_broadening: boolean;
+    };
+  };
+}
+
+/** What `kos discovery retain|reject|promote --json` prints, plus the commit. */
+export interface ObservationReviewResult {
+  id: string;
+  status: string;
+  target_id?: string;
+  acknowledged_related?: string[];
+  index_count: number | null;
+  index_error: string | null;
+  commit: CommitInfo | null;
+}
+
+export interface PendingObservationsPayload {
+  heading: string;
+  intro: string;
+  count: number;
+  count_label: string | null;
+  /** Why the packets cannot be shown (the rows still list every observation). */
+  error: string | null;
+  items: PendingObservation[];
+  labels: Record<string, string>;
+  notice_labels: DecisionLanguage["labels"];
 }

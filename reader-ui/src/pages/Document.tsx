@@ -12,6 +12,8 @@ import { TableOfContents } from "../components/TableOfContents";
 import { RecordNotFound } from "../components/EmptyState";
 import { LoadError, LineageCalloutRow } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
+import { DraftActivation } from "../components/DraftActivation";
+import { decisionLifecycle, LifecycleStrip, recordLifecycle } from "../components/LifecycleStrip";
 import { useShell } from "../components/Shell";
 import { useStructure, type TreeItem } from "../components/Structure";
 import { RowMenu } from "../components/ProjectTree";
@@ -19,7 +21,19 @@ import { showsOutcome } from "../lib/pendingActions";
 import { decisionKey, pendingActions, useOnPendingSettled, usePendingEntries } from "../lib/pendingStore";
 import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
-import type { RelationView } from "../api/types";
+import type { RecordPayload, RelationView } from "../api/types";
+
+/** The status a pending action leaves the page in, so the lifecycle strip
+ * moves on from the click, like the Status row does. */
+const STATUS_AFTER: Record<string, string> = { accept: "active", supersede: "active", activate: "active", withdraw: "archived" };
+
+/** The lifecycle strip for a decision or a draft; null for anything else. */
+function lifecycleFor(data: RecordPayload, pendingKind: string | null) {
+  const status = data.technical_details.status;
+  if (!data.is_decision && (data.type === "discovery" || status !== "draft")) return null;
+  const shown = (pendingKind && STATUS_AFTER[pendingKind]) || status;
+  return data.is_decision ? decisionLifecycle(data.decision_language, shown) : recordLifecycle(shown);
+}
 
 function RelationRow({ relation }: { relation: RelationView }) {
   if (!relation.resolved) {
@@ -73,6 +87,7 @@ export function Document() {
 
   const showToc = data.headings.length >= 3;
   const properties = pending ? { ...data.properties, status: pending.meta.outcome.status } : data.properties;
+  const lifecycle = lifecycleFor(data, pending?.kind ?? null);
   const deletion = data.editing.delete;
   const deleteItem: TreeItem | null =
     deletion === null
@@ -119,6 +134,11 @@ export function Document() {
           </div>
         </div>
         <h1 className="kos-title">{data.title}</h1>
+        {data.description && (
+          <p className="mt-3 text-[17px] leading-relaxed text-(--color-text-muted)">{data.description}</p>
+        )}
+
+        {lifecycle && <LifecycleStrip lifecycle={lifecycle} className="mt-4" />}
 
         {data.lineage.map((callout, index) => (
           <div className="mt-6" key={index}>
@@ -141,6 +161,14 @@ export function Document() {
               folder: data.editing.folder,
             }}
             language={data.decision_language}
+            pending={pending}
+          />
+        )}
+        {data.editing.draft_activation && (
+          <DraftActivation
+            id={data.id}
+            sha={data.editing.content_sha256}
+            activation={data.editing.draft_activation}
             pending={pending}
           />
         )}

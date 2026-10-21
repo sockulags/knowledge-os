@@ -1,8 +1,11 @@
-# Knowledge OS — v0.0.1 contract freeze
+# Knowledge OS architecture contract
 
-This document is the authoritative product and metadata contract for the
-stabilization release. The package version is `0.0.1`; the workspace schema
-version remains the integer `1`.
+This document is the authoritative product and metadata contract. It is a
+living contract: it describes the code as it is now, and each change to it
+names the decision record in `projects/knowledge-os/decisions/` that made the
+change. The package version is in `pyproject.toml`; the workspace schema
+version is the integer `1`. The history section at the end describes
+where the contract started.
 
 ## Authority and boundaries
 
@@ -19,11 +22,15 @@ workflow that calls that primitive. Agentic Work OS owns execution and
 orchestration; this repository has no runtime dependency on either Agent OS or
 Agentic Work OS.
 
-The product does not include URLs, PDFs, embeddings, semantic search or
-reranking, LLM trust decisions, contradiction or backlink subsystems, arbitrary
-record merging, a remote or shared API, cloud or multi-user behavior, a
-database as canonical storage, WAL/journal/transaction infrastructure, or
-background workers. The local interface (the `kos-read` JSON API and the
+The product does not include URLs, PDFs, reranking, LLM trust decisions,
+contradiction or backlink subsystems, arbitrary record merging, a remote or
+shared API, cloud or multi-user behavior, a database as canonical storage, or
+WAL/journal/transaction infrastructure. Search by meaning (decision
+`local-semantic-search`, see "Search by meaning") is the one place with
+embeddings and a background process: an optional local model runs in its own
+worker process and its vectors live in a disposable index, so neither is
+canonical and search without the model is plain full-text search. The local
+interface (the `kos-read` JSON API and the
 desktop app that shows it) reads one workspace and writes to it only through
 the core mutations described under "Local interface write API". The one MCP
 surface, `kos mcp` (see "Agent access over MCP"), is a client of that local
@@ -41,7 +48,7 @@ version = 1
 ```
 
 The parser rejects a missing, non-integer, or unsupported
-`[workspace].version`; v0.0.1 accepts only `1`. There are no per-record
+`[workspace].version`; only `1` is accepted. There are no per-record
 versions or migrations.
 
 The managed roots are:
@@ -99,6 +106,10 @@ independent of lifecycle status, bounded by `created..updated`. Context trust
 is verified only when this date is present; an `active` or `draft` status does
 not imply verification.
 
+`description` is optional on every record (decision
+`record-description-field`): a non-empty string summing up the page, which
+the reader shows under the title and the editor changes like the title.
+
 `record_kind` is optional and is accepted only on `knowledge` and `project`
 records. Its values are `ordinary` and `decision`; absence means `ordinary`.
 A decision is still an ordinary durable record with an explicit body stating
@@ -119,6 +130,18 @@ any record that is not an archived decision. `kos decision withdraw` is the
 only path from `draft` to `archived`; an active decision is retired through
 `kos supersede`, never withdrawn. Capture creates
 decisions only as drafts, and ordinary update cannot change lifecycle status.
+
+A draft that is not a decision (a draft promoted from a discovery, or a note
+someone saved as a draft) becomes active only through `kos activate ID
+--expected-sha256 HASH [--activation-reference TEXT]`, or "Make active" on its
+page in the app. It appends `draft-activation` provenance naming who made it
+active (without a reference, the neutral `cli:<UTC timestamp>:activate` or
+`interface:<UTC timestamp>:activate`), under the same SHA-256 guard, workspace
+lock, and staged validation as `kos decision accept`. It refuses decisions,
+records that are not draft, and a stale hash. `draft-activation` provenance is
+rejected on decisions and on drafts, and `kos update` cannot add or remove it.
+Notes saved from the app's agent panel are created `active`, like an agent's
+`write_note`; the review rules decide whether they land or wait in Decide.
 
 Every `project:<slug>` scope present in the corpus must have exactly one usable
 overview with `type: project`, `id: <slug>`, and that same scope. The overview
@@ -196,6 +219,27 @@ invalid, a target provenance edge pointing at a proposed/retained discovery,
 and disagreement between a provenance edge and the promote review target.
 
 ## Trust and context
+
+Material moves toward durable records only through an explicit step, and
+everything under `indexes/` and every context package is generated from the
+canonical files:
+
+```mermaid
+flowchart LR
+  file["Local file<br/>for example in inbox/"] -->|kos ingest| sources["sources/<br/>raw source"]
+  external["External agent"] -->|kos discovery add| proposed["discoveries/<br/>proposed observation"]
+  proposed -->|retain| retained["discoveries/<br/>retained observation"]
+  proposed -->|reject| rejected["discoveries/<br/>rejected"]
+  proposed -->|promote into a new draft| durable
+  writer["Person or agent write"] -->|direct| durable
+  writer -->|held back by a review rule| proposals["proposals/<br/>not a record"]
+  proposals -->|a person accepts in Decide| durable
+  durable["knowledge/, projects/, memory/, syntheses/<br/>durable records, draft or active"]
+  durable --> context["kos context package<br/>generated"]
+  retained -->|its own project only| context
+  sources -.->|searchable, never default context| context
+  canonical["All canonical Markdown"] -->|kos index| indexes["indexes/<br/>disposable, rebuildable"]
+```
 
 The trust classifications are deliberately small:
 
@@ -281,12 +325,20 @@ context.
 Ingest, capture, conflict-safe update, decision acceptance, decision
 withdrawal, decision supersession, discovery add/retain/reject/promote, the
 structure changes (project and folder creation, page and folder moves,
-renames, and deletions), and index replacement all use one workspace-scoped advisory mutation
-lock owned by workspace infrastructure.
+renames, and deletions), storing an attachment, storing, accepting, and
+discarding a proposed change, Git operations, and index replacement all use
+one workspace-scoped advisory mutation lock owned by workspace infrastructure. The lock file is in the system temp
+folder, named after a hash of the workspace path. A mutation that finds the
+lock held waits up to `KOS_LOCK_TIMEOUT` seconds (default 120) and then fails
+with a message naming the variable, so a long Git sync makes other writes wait
+instead of failing at once.
 Each mutation follows this order:
 
 1. acquire the lock and validate the current canonical corpus and skills;
-2. validate the intended result in a disposable staged workspace;
+2. validate the intended result in a disposable staged workspace, a copy in
+   the system temp folder (never next to the knowledge base) that holds
+   Markdown and skills in full and every other file as an empty placeholder
+   of the same name, so its cost does not grow with attachment size;
 3. write only the required canonical Markdown files, atomically replacing
    existing files and exclusively creating new records;
 4. keep canonical Markdown as authoritative and rebuild disposable indexes;
@@ -342,12 +394,20 @@ user authorization. `kos documentation init-repo` validates the global config,
 project overviews, and repository-relative project paths before writing
 `.knowledge-os-project.toml`. Both commands are idempotent, refuse conflicting
 configuration unless `--replace` is supplied, use atomic file replacement, and
-attempt to restore writes after a caught failure.
+attempt to restore writes after a caught failure. In a repository, the
+longest matching binding path selects the project; a missing or ambiguous
+binding is a safe no-op outside explicit initialization.
 
 ## Local interface write API
 
 `kos-read` (and the desktop app, which runs the same server) serves a JSON API
-on a loopback address. `GET` routes never write canonical Markdown. When a
+on a loopback address. It cannot be reached from other computers: `--host`
+accepts only a loopback address (`127.0.0.1`, another `127.x.x.x`, `::1`, or
+`localhost`) and exits with an error for anything else, such as `0.0.0.0`, and
+every route refuses a request whose peer address is not loopback, whatever
+`Host` header it sends. The app shell (the built `index.html`) is served
+with a Content Security Policy that allows script, style, and connections
+only from the reader's own origin. `GET` routes never write canonical Markdown. When a
 request finds the search index stale, absent, or unreadable, the server starts
 one background rebuild through `kos index`'s own function, under the same
 lock; it tries once per state of the corpus, skips a corpus that fails `kos
@@ -421,7 +481,9 @@ dev server's loopback origin passes the same checks through its proxy. The
 loopback host check applies to every request the server handles, not only
 writes: a middleware in front of the whole route table refuses any request
 whose `Host` is not loopback, so DNS rebinding can't be used to read the
-JSON API or the served SPA either.
+JSON API or the served SPA either. The same middleware refuses a request whose
+peer address is not loopback, so a client on another computer that sends
+`Host: 127.0.0.1` still cannot read the write token from `GET /api/session`.
 
 The decision lifecycle routes call the same core functions as `kos decision
 accept`, `kos decision withdraw`, and `kos supersede`, with the same guard,
@@ -436,6 +498,11 @@ answer `422 validation`.
   `{"expected_sha256": "...", "reason": "..."}`. `reason` is optional; when
   given it becomes the `decision-withdrawal` provenance reference, otherwise
   the reference is `interface:<UTC timestamp>:withdraw`.
+- `POST /api/records/{id}/activate` makes draft `id`, which must not be a
+  decision, active (`kos activate`). Body: `{"expected_sha256": "..."}`. The
+  activation reference is `interface:<UTC timestamp>:activate`. A request
+  that carries an `agent` label answers `403 forbidden`: a person makes a
+  draft active.
 - `POST /api/records/{id}/supersede` is called on the draft replacement,
   which must declare `supersedes: [old_id]`: `id` becomes active and
   `old_id` becomes superseded. Body: `{"expected_sha256": "<draft hash>",
@@ -445,16 +512,37 @@ answer `422 validation`.
   "content_sha256"}` for the retired decision. A reindex failure after both
   canonical writes is reported in `index` like any other write.
 
+The observation review routes call the same core functions as `kos discovery
+retain`, `reject`, and `promote`, with the same guard and error mapping, and
+take the CLI's flags as body fields. Every body carries `expected_sha256`,
+the observation as it was shown; a changed file answers `409 conflict`
+before the core is called. A request that carries `agent` answers `403
+forbidden`: only a person reviews an observation. The answer is what the
+command's `--json` prints plus `index_error` and `commit`; the written
+Markdown is byte for byte what the command writes. No `reviewer` is recorded
+unless the body sends one, as with `--reviewer`.
+
+- `POST /api/discoveries/{id}/retain`: `{"expected_sha256", "reason"?,
+  "reviewer"?}`. A general-scope observation is refused, as in the CLI.
+- `POST /api/discoveries/{id}/reject`: `{"expected_sha256", "reason",
+  "reviewer"?}`; `reason` is required.
+- `POST /api/discoveries/{id}/promote`: `{"expected_sha256", "target_id",
+  "title", "scope", "reason"?, "reviewer"?, "acknowledge_related"?,
+  "allow_scope_broadening"?}`. The answer adds `target_id` and
+  `acknowledged_related`; the commit holds the discovery and the new draft.
+
 `POST /api/preview` renders unsaved editor text for the preview toggle:
 `{"body": "...", "path": "optional record path for link resolution"}`
 answers `{"html": ...}`, rendered the way the record page renders a saved
 body. It writes nothing but requires the same guard and token.
 
-`GET /api/records/{id}` carries an `editing` object for the editor, apart
+`GET /api/records/{id}` carries the page's `description` (`null` when it has
+none) and an `editing` object for the editor, apart
 from the reader's prose fields: `editable` (the record is a type the routes
 edit; a project overview and a folder's own `README.md` page are editable
 like any other page, since the filename rule's `README.md` exception is
-already checked by the workspace scan), `raw_body` and `metadata` (`title`, `tags`, `related`, `sources`)
+already checked by the workspace scan), `raw_body` and `metadata` (`title`, `description`, `tags`, `related`,
+`sources`; an absent `description` reads as `""`)
 read from the same bytes as `content_sha256`, `path`, `project_id`,
 `folder` (the record's folder below its project directory),
 `body_change_needs_confirmation` (an accepted decision's body changes only
@@ -519,7 +607,8 @@ timestamp>:create", "captured": "<UTC timestamp>"}`. No existing kind
 fits: `user-approved-conversation` and `user-request` describe content an
 agent wrote from a conversation, while this content was typed by the person
 directly. The kind is opaque to the core, like every provenance kind except
-`record`, `discovery`, `decision-acceptance`, and `decision-withdrawal`, and
+`record`, `discovery`, `decision-acceptance`, `decision-withdrawal`, and
+`draft-activation`, and
 the interface uses it only when creating a record. Edits add no provenance,
 as with `kos update`; Git history records them. A confirmed non-material
 edit of an accepted decision body gets change reference
@@ -564,9 +653,41 @@ top level only), `writes` (`create`, `edit`, or `any`, the default), and
 decides; no match is direct. A write is an agent's when it carries `agent`,
 Referat's when a create carries `referat-meeting` provenance, and otherwise a
 person's. Rules govern note creates and edits through the local API (the app,
-`kos mcp`, and the Referat import); decisions are never held back, and CLI
-commands write directly. A rule file that cannot be read refuses every write
-it could govern (`422 validation`) instead of letting it through.
+`kos mcp`, and the Referat import). On the command line they apply only when
+the caller says it is an agent: `kos capture` and `kos update` with `--writer
+agent` (or `agent:<client>`) store the same proposal when a rule holds the
+write back (`--json` answers `{"action": "waiting_for_review", "id",
+"proposal", "path", "rule"}`, and nothing is committed, as for every CLI
+write); without `--writer` they write directly. Memory pages count as
+`general` whatever their scope. Decisions are never held back, and agents
+cannot edit them: `PATCH /api/records/{id}` with `agent` on a decision is
+`403 forbidden`, as is `kos update --writer agent`. A rule file that cannot be
+read refuses every write it could govern (`422 validation`) instead of
+letting it through, and `kos lint` reports it.
+
+The two write paths: through the local API, where every write is committed,
+and on the command line, where the rules apply only with `--writer agent` and
+nothing is committed.
+
+```mermaid
+flowchart TD
+  agent["Agent: Claude Code, Codex, or the in-app agent"] -->|MCP over stdio| mcp["kos mcp"]
+  mcp -->|"reads port and token"| runtime["runtime.json"]
+  mcp -->|"HTTP with an agent label"| guard
+  ui["Reader UI, a person"] -->|HTTP| guard
+  subgraph core["Core: the kos-read local API"]
+    guard["Write route checks<br/>loopback host and peer, Origin, write token"] --> rules{"Review rules<br/>notes only; decisions are always drafts"}
+    rules -->|direct| write["Validate and write under the lock<br/>refresh the index, commit"]
+    rules -->|review| proposal["proposals/ID.md<br/>commit Propose ..."]
+    proposal --> decide{"Decide, a person"}
+    decide -->|"Accept, one lock"| accepted["Write the page, remove the proposal<br/>commit Accept ..."]
+    decide -->|"Discard, one lock"| discarded["Remove the proposal<br/>commit Discard ..."]
+  end
+  person["Person on the command line"] -->|"kos capture, kos update"| cliwrite["Validate and write under the lock<br/>refresh the index, no commit"]
+  cliagent["Agent on the command line"] -->|"kos capture or kos update<br/>with --writer agent"| clirules{"Review rules"}
+  clirules -->|direct| cliwrite
+  clirules -->|review| cliproposal["proposals/ID.md<br/>no commit"]
+```
 
 A held-back write is validated by applying it to a disposable staged copy of
 the workspace with the direct write's rules, so every refusal is the same as
@@ -590,10 +711,12 @@ rule), followed by the page's complete proposed Markdown. It is committed as
   `stale` is an edit whose page no longer has `base_sha256`, which can only
   be discarded. `GET /api/nav`'s `decide.count` includes them.
 - `GET /api/changes/{id}` adds `body_html` for a new page, or for an edit
-  `metadata_changes` (`title`, `tags`, `related`, `sources`) and `blocks`, a
+  `metadata_changes` (`title`, `description`, `tags`, `related`, `sources`) and `blocks`, a
   paragraph diff of the page now (left) against the proposal (right).
 - `POST /api/changes/{id}/accept` and `/discard` take `{"expected_sha256":
-  <content_sha256>}` (a proposal file changed since is `409`). Accepting
+  <content_sha256>}` (required; a proposal file changed since is `409`).
+  Each runs under one workspace lock from reading the proposal to removing
+  it, so an accept and a discard of the same change never both happen. Accepting
   applies the change with capture's or `kos update`'s rules (an edit whose
   page changed answers `409 conflict`), removes the proposal, and commits both
   as `Accept <title>` or `Accept edit to <title>`; discarding commits
@@ -602,6 +725,23 @@ rule), followed by the page's complete proposed Markdown. It is committed as
   again is refused; discard it.
 - `GET /api/review/check?writer=&project=&folder=&writes=` answers
   `{"review", "rule"}` without writing.
+- `GET /api/review/rules` answers `{"rules", "error"}`: the rules in file
+  order, each `{"number", "writer", "project", "folder", "writes", "action",
+  "description"}`, where `description` is one sentence naming what the rule
+  covers and whether those writes wait for review or are written directly.
+  When the rule file cannot be used, `rules` is empty and `error` is the
+  reason. Decide and the agent panel show these rules, or that there are none
+  and every write lands directly, with the `[[review.rule]]` snippet that adds
+  one.
+
+Two kinds of write are outside the review rules on purpose. Structure and
+lifecycle actions (rename, move, and delete of pages and folders, and
+decision accept, withdraw, and supersede, in `knowledge_os/reader/library.py`)
+are never held back: they are taken by a person in the app or on the command
+line, and no MCP tool performs them. Attachments are stored and committed
+when they are added (`library.attach_file`), before the page that links to
+them is saved; if that page is then held back for review, the file is already
+in the knowledge base while the link waits in Decide.
 
 Decide shows proposed changes above proposed decisions, each with Accept (not
 for a stale edit) and Discard in one click with the same Undo notice as
@@ -614,6 +754,12 @@ meeting note would be held back, it creates the draft decisions first and
 the note, waiting in Decide, lists them under `related`.
 
 ### Page templates
+
+*New general page* (the sidebar entry, route `/new`) creates an ordinary page
+outside any project, in `knowledge/` or `memory/`, through `POST /api/records`
+with `scope: general` and no `project_path`. It offers only note templates,
+since decisions belong to a project, and takes attachments once the page
+exists, from its editor.
 
 *New page* starts from a template. `knowledge_os/templates.py` defines four
 built-in templates, `blank`, `meeting-notes`, `how-to`, and `decision`
@@ -1049,6 +1195,14 @@ local API above with that token, sending `agent` with the MCP client's
 name of the working directory the client started it in. Only a directory name
 is used, never a path.
 
+The desktop app runs one instance per user-data folder: a second start
+focuses the existing window instead, because two instances would share one
+runtime file and an agent started in one window could write to the knowledge
+base open in the other. The app's own agent also gets `KOS_EXPECT_WORKSPACE`,
+the knowledge base its conversation started in; a runtime file naming another
+knowledge base is then refused (`wrong_knowledge_base`) instead of followed.
+Without the variable, any open knowledge base is used.
+
 Tool results are JSON objects, also sent as text. A refusal is an error
 result `{"ok": false, "error", "message", "next_step", "written"}`:
 `app_not_open` (no runtime file) and `app_not_responding` (stale file) write
@@ -1071,11 +1225,13 @@ every acceptance visible. The Claude Code and Codex plugins register the
 server as `kos mcp` (`.claude-plugin/plugin.json` `mcpServers`,
 `.codex-plugin/mcp.json`).
 
-The desktop app's own agent (decision `in-app-agent-over-acp`) is one more
+The desktop app's own agent (decision `in-app-agent-provider-isolation`) is one more
 client of this server, not a second interface: the app runs a coding agent
 over the Agent Client Protocol and gives its session `kos mcp --place
 "Knowledge OS app"` as the only MCP server, with the agent's built-in tools
-turned off where the agent allows it. Its writes therefore read "Written by
+turned off where the agent allows it. Codex cannot turn them off and can read
+files outside the knowledge base, so the person turns it on in the panel
+first. Its writes therefore read "Written by
 Claude Code in Knowledge OS app" and carry the same limits as any agent's. See
 "In-app agents (ACP)" in [`desktop/README.md`](../desktop/README.md).
 
@@ -1149,6 +1305,12 @@ commit.
 
 ## CLI contract
 
+- `--json` writes one JSON object to stdout on `ingest`, `index`, `lint`,
+  `search` (a list), `inspect`, `capture`, `update`, `decision`, `supersede`,
+  every `discovery` and `proposal` subcommand, and the structure and `code`
+  commands; a write that changes records reports `index_count`, the records
+  indexed after it. Failures stay text on stderr with exit code 1; `kos lint`
+  with `--json` reports its issues in the object and exits 1.
 - `kos clone URL PATH [--json] [--cancel-on-stdin-eof]` clones a knowledge base
   from Git into a new or empty folder, checks it, and rebuilds its indexes (see
   "Git versioning and sync").
@@ -1162,7 +1324,8 @@ commit.
 - `kos model install|status|remove` downloads, reports, or deletes the
   optional search model; it needs no knowledge base.
 - `kos search QUERY` reads the existing cache for compact audit results,
-  including type, record kind, status, scope, path, and snippet.
+  including type, record kind, status, scope, path, and snippet; with no hits
+  it prints `No results.` to stderr (`--json` prints `[]`).
 - `kos inspect ID` provides compact record metadata and exact content SHA-256;
   `--full` adds the body.
 - `kos context` emits bounded, trust-aware, project-scoped generated context;
@@ -1188,8 +1351,15 @@ commit.
 - `kos project create`, `kos folder create`, `kos folder move`, `kos folder
   rename`, `kos move`, and `kos rename` create projects and folders and move
   or rename pages and folders (see "Structure editing").
-- `kos discovery add PATH`, `review ID`, `retain ID`, `reject ID`, and
-  `promote ID` implement the explicit discovery return path.
+- `kos discovery add PATH`, `inspect ID`, `review ID`, `retain ID`, `reject
+  ID --reason TEXT`, and `promote ID` implement the explicit discovery return
+  path.
+- `kos proposal list`, `kos proposal show ID`, and `kos proposal accept|discard
+  ID --expected-sha256 HASH` handle the proposed changes in `proposals/` with
+  the same functions as the app's Decide (see "Configurable review"); the
+  required hash is the proposal file's, which `show` prints, so a proposal
+  edited after it was shown is refused. Unlike the app, the command line does
+  not auto-commit.
 - `kos documentation init-global --workspace PATH` installs user-level host
   guidance and the global workspace location after direct authorization.
 - `kos documentation init-repo --repo PATH --project ID[=RELATIVE_PATH]`
@@ -1201,6 +1371,7 @@ commit.
   and the documentation check"); each takes `--json`.
 - `kos mcp [--place LABEL]` serves the agent tools over MCP on stdio through
   the running desktop app (see "Agent access over MCP"); it ignores `--root`.
+  Its help lists the tools from their specs in `agent_access/tools.py`.
 
 Read-only context and review require a current SQLite cache and never rebuild
 it implicitly. `kos index` is always safe to run as the derived-state repair
@@ -1247,3 +1418,16 @@ the optional model and the semantic index:
   full-text only. A search waits at most 15 seconds for it. Asking to
   download the model again (`POST /api/semantic/install`) retries a failed
   worker. The worker exits when its stdin closes, that is, with the app.
+
+## History: the v0.0.1 freeze
+
+This contract began as the v0.0.1 contract freeze: a stabilization release
+with package version `0.0.1` and workspace schema version `1`. That slice was
+a command-line store with ingest, capture, the discovery return path, decision
+lifecycle commands, bounded context, and SQLite FTS5 search, and it named
+embeddings, semantic search, and background workers among its non-goals.
+Later decisions in `projects/knowledge-os/decisions/` added the local
+interface and its write API, configurable review, structure editing, Git
+sync, agent access over MCP, and search by meaning. The workspace schema
+version is still `1`; the package version has moved on and is kept only in
+`pyproject.toml`.

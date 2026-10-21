@@ -1,7 +1,7 @@
 // The in-app agent as the main process holds it: the providers on offer, at
 // most one open session, and the session's events forwarded to the window.
-// The panel that shows it is issue #83; this is what it will talk to over
-// IPC. No 'electron' import, so it is unit-testable.
+// The reader UI's agent panel talks to it over IPC (registerAgentIpc in
+// main/index.ts). No 'electron' import, so it is unit-testable.
 
 import { AcpAgentSession, AgentSessionError, type AgentEvent } from './acpSession'
 import { IN_APP_PLACE, type AgentProvider, type KosMcpServer, type LaunchHost } from './contract'
@@ -52,13 +52,21 @@ export function electronLaunchHost(
   }
 }
 
-/** `kos mcp` for the in-app agent: the same core the app runs, labelled as the app. */
+/**
+ * `kos mcp` for the in-app agent: the same core the app runs, labelled as the
+ * app. It only writes to `workspaceRoot`, the knowledge base the conversation
+ * started in, and refuses once the runtime file names another one.
+ */
 export function kosMcpCommand(
   coreExecutable: string,
   env: NodeJS.ProcessEnv,
-  runtimeFile: string
+  runtimeFile: string,
+  workspaceRoot: string
 ): KosMcpServer {
-  const passed: Record<string, string> = { KOS_RUNTIME_FILE: runtimeFile }
+  const passed: Record<string, string> = {
+    KOS_RUNTIME_FILE: runtimeFile,
+    KOS_EXPECT_WORKSPACE: workspaceRoot
+  }
   for (const name of ['PYTHONPATH', 'PYTHONUTF8', 'PYTHONIOENCODING', 'PYTHONUNBUFFERED']) {
     const value = env[name]
     if (value !== undefined) passed[name] = value

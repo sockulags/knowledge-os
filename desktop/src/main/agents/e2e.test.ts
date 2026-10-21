@@ -54,7 +54,7 @@ describe.skipIf(!providerId)('in-app agent end to end', () => {
     expect(listed.find((provider) => provider.id === providerId)?.state).toBe('ready')
     await service.start(providerId!, {
       root,
-      kosMcp: kosMcpCommand(core, process.env, runtimeFile)
+      kosMcp: kosMcpCommand(core, process.env, runtimeFile, root)
     })
     const title = `E2E note ${Date.now()}`
     const stop = await service.prompt(

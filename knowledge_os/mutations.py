@@ -1,4 +1,4 @@
-"""Conflict-safe updates and accepted decision transitions."""
+"""Conflict-safe updates, accepted decision transitions, and draft activation."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Callable
 from .model import (
     DECISION_ACCEPTANCE_KIND,
     DECISION_WITHDRAWAL_KIND,
+    DRAFT_ACTIVATION_KIND,
     SHA256_PATTERN,
     Document,
     MetadataError,
@@ -30,7 +31,7 @@ from .workspace import (
     workspace_mutation_lock,
 )
 
-SYSTEM_PROVENANCE_KINDS = {"discovery", DECISION_ACCEPTANCE_KIND, DECISION_WITHDRAWAL_KIND}
+SYSTEM_PROVENANCE_KINDS = {"discovery", DECISION_ACCEPTANCE_KIND, DECISION_WITHDRAWAL_KIND, DRAFT_ACTIVATION_KIND}
 IMMUTABLE_UPDATE_FIELDS = ("id", "type", "scope", "created", "record_kind", "status", "supersedes")
 
 
@@ -153,6 +154,16 @@ def _acceptance(reference: str) -> dict[str, object]:
     }
 
 
+def _activation(reference: str) -> dict[str, object]:
+    if not isinstance(reference, str) or not reference.strip():
+        raise MutationError("--activation-reference must be a non-empty string")
+    return {
+        "kind": DRAFT_ACTIVATION_KIND,
+        "reference": reference.strip(),
+        "captured": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+
+
 def _withdrawal(reason: str | None, reference: str | None) -> dict[str, object]:
     """The ``decision-withdrawal`` entry: the reason when one was given, else
     the caller's neutral reference (see ``neutral_withdrawal_reference``)."""
@@ -169,6 +180,15 @@ def _withdrawal(reason: str | None, reference: str | None) -> dict[str, object]:
         "reference": text,
         "captured": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
+
+
+def neutral_activation_reference(origin: str) -> str:
+    """The provenance reference of an activation without a given reference,
+    such as ``cli:2026-10-21T10:00:00Z:activate``: where and when a person
+    made the draft active."""
+
+    stamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return f"{origin}:{stamp}:activate"
 
 
 def neutral_withdrawal_reference(origin: str) -> str:
@@ -236,19 +256,35 @@ def update_record_text(
 ) -> MutationResult:
     """Replace one record from complete Markdown text, with the same rules as ``update_record``."""
 
+    return _update(
+        workspace,
+        _text_candidate(text),
+        expected_sha256=expected_sha256,
+        confirm_non_material=confirm_non_material,
+        change_reference=change_reference,
+    )
+
+
+def update_record_text_locked(workspace: Workspace, text: str, *, expected_sha256: str) -> MutationResult:
+    """``update_record_text`` for a caller that already holds ``workspace_mutation_lock``."""
+
+    return _update_locked(
+        workspace,
+        _text_candidate(text),
+        expected_sha256=expected_sha256,
+        confirm_non_material=False,
+        change_reference=None,
+    )
+
+
+def _text_candidate(text: str) -> Callable[[], Document]:
     def load() -> Document:
         try:
             return parse_document_text(Path("candidate.md"), text, check_filename=False)
         except MetadataError as exc:
             raise MutationError(f"invalid update candidate: {exc}") from exc
 
-    return _update(
-        workspace,
-        load,
-        expected_sha256=expected_sha256,
-        confirm_non_material=confirm_non_material,
-        change_reference=change_reference,
-    )
+    return load
 
 
 def _update(
@@ -260,62 +296,81 @@ def _update(
     change_reference: str | None,
 ) -> MutationResult:
     with workspace_mutation_lock(workspace):
-        _, by_id = _documents_for_mutation(workspace, "update a record")
-        candidate = load_candidate()
-        current = by_id.get(candidate.metadata["id"])
-        if current is None:
-            raise RecordNotFoundError(f"record not found: {candidate.metadata['id']}")
-        _assert_expected(current.path, expected_sha256, "--expected-sha256")
+        return _update_locked(
+            workspace,
+            load_candidate,
+            expected_sha256=expected_sha256,
+            confirm_non_material=confirm_non_material,
+            change_reference=change_reference,
+        )
 
-        for field in IMMUTABLE_UPDATE_FIELDS:
-            current_value = current.metadata.get(field)
-            candidate_value = candidate.metadata.get(field)
-            if field == "created":
-                current_value = _date_value(current_value)
-                candidate_value = _date_value(candidate_value)
-            if current_value != candidate_value:
-                raise MutationError(
-                    f"update must not change {field}; use the dedicated lifecycle or supersede operation"
-                )
-        if _date_value(candidate.metadata["updated"]) < _date_value(current.metadata["updated"]):
-            raise MutationError("update candidate updated date must not move backwards")
 
-        if change_reference is not None and not confirm_non_material:
-            raise MutationError("--change-reference is only valid with --confirm-non-material")
+def _update_locked(
+    workspace: Workspace,
+    load_candidate: Callable[[], Document],
+    *,
+    expected_sha256: str,
+    confirm_non_material: bool,
+    change_reference: str | None,
+) -> MutationResult:
+    _, by_id = _documents_for_mutation(workspace, "update a record")
+    candidate = load_candidate()
+    current = by_id.get(candidate.metadata["id"])
+    if current is None:
+        raise RecordNotFoundError(f"record not found: {candidate.metadata['id']}")
+    _assert_expected(current.path, expected_sha256, "--expected-sha256")
 
-        current_system = [
-            item for item in current.metadata["provenance"] if item["kind"] in SYSTEM_PROVENANCE_KINDS
+    for field in IMMUTABLE_UPDATE_FIELDS:
+        current_value = current.metadata.get(field)
+        candidate_value = candidate.metadata.get(field)
+        if field == "created":
+            current_value = _date_value(current_value)
+            candidate_value = _date_value(candidate_value)
+        if current_value != candidate_value:
+            raise MutationError(
+                f"update must not change {field}; use the dedicated lifecycle or supersede operation"
+            )
+    if _date_value(candidate.metadata["updated"]) < _date_value(current.metadata["updated"]):
+        raise MutationError("update candidate updated date must not move backwards")
+
+    if change_reference is not None and not confirm_non_material:
+        raise MutationError("--change-reference is only valid with --confirm-non-material")
+
+    current_system = [
+        item for item in current.metadata["provenance"] if item["kind"] in SYSTEM_PROVENANCE_KINDS
+    ]
+    candidate_system = [
+        item for item in candidate.metadata["provenance"] if item["kind"] in SYSTEM_PROVENANCE_KINDS
+    ]
+    if current_system != candidate_system:
+        raise MutationError(
+            "update must not alter system-managed discovery, decision-acceptance, or draft-activation provenance"
+        )
+
+    metadata = deepcopy(candidate.metadata)
+    if (
+        current.metadata.get("record_kind") == "decision"
+        and current.metadata["status"] in {"active", "superseded"}
+        and current.body != candidate.body
+    ):
+        if not confirm_non_material:
+            raise MutationError(
+                "changing an accepted decision body requires --confirm-non-material; "
+                "a material decision change must use a new draft and 'kos supersede'"
+            )
+        if not isinstance(change_reference, str) or not change_reference.strip():
+            raise MutationError("--change-reference is required with --confirm-non-material")
+        metadata["provenance"] = [
+            *metadata["provenance"],
+            {
+                "kind": "editorial-update",
+                "reference": change_reference.strip(),
+                "captured": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            },
         ]
-        candidate_system = [
-            item for item in candidate.metadata["provenance"] if item["kind"] in SYSTEM_PROVENANCE_KINDS
-        ]
-        if current_system != candidate_system:
-            raise MutationError("update must not alter system-managed discovery or decision-acceptance provenance")
+        metadata["updated"] = _today_after(metadata["updated"])
 
-        metadata = deepcopy(candidate.metadata)
-        if (
-            current.metadata.get("record_kind") == "decision"
-            and current.metadata["status"] in {"active", "superseded"}
-            and current.body != candidate.body
-        ):
-            if not confirm_non_material:
-                raise MutationError(
-                    "changing an accepted decision body requires --confirm-non-material; "
-                    "a material decision change must use a new draft and 'kos supersede'"
-                )
-            if not isinstance(change_reference, str) or not change_reference.strip():
-                raise MutationError("--change-reference is required with --confirm-non-material")
-            metadata["provenance"] = [
-                *metadata["provenance"],
-                {
-                    "kind": "editorial-update",
-                    "reference": change_reference.strip(),
-                    "captured": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                },
-            ]
-            metadata["updated"] = _today_after(metadata["updated"])
-
-        return _write_one(workspace, current, metadata, candidate.body, "update a record")
+    return _write_one(workspace, current, metadata, candidate.body, "update a record")
 
 
 def accept_decision(
@@ -347,6 +402,40 @@ def accept_decision(
         metadata["updated"] = _today_after(metadata["updated"])
         metadata["provenance"] = [*metadata["provenance"], _acceptance(acceptance_reference)]
         return _write_one(workspace, current, metadata, current.body, "accept a decision")
+
+
+def activate_draft(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    activation_reference: str,
+) -> MutationResult:
+    """Make one draft that is not a decision active, with explicit
+    ``draft-activation`` provenance naming who made it active and when.
+
+    Decisions use ``accept_decision`` instead; a draft promoted from an
+    observation or saved by an agent becomes knowledge only through this
+    explicit step."""
+
+    with workspace_mutation_lock(workspace):
+        _, by_id = _documents_for_mutation(workspace, "activate a draft")
+        current = by_id.get(record_id)
+        if current is None:
+            raise RecordNotFoundError(f"record not found: {record_id}")
+        _assert_expected(current.path, expected_sha256, "--expected-sha256")
+        if current.metadata.get("record_kind") == "decision":
+            raise MutationError(f"record {record_id!r} is a decision; use 'kos decision accept' to make it active")
+        if current.metadata["status"] != "draft":
+            raise MutationError(
+                f"record {record_id!r} must be draft before activation; it is {current.metadata['status']}"
+            )
+
+        metadata = deepcopy(current.metadata)
+        metadata["status"] = "active"
+        metadata["updated"] = _today_after(metadata["updated"])
+        metadata["provenance"] = [*metadata["provenance"], _activation(activation_reference)]
+        return _write_one(workspace, current, metadata, current.body, "activate a draft")
 
 
 def withdraw_decision(

@@ -29,7 +29,7 @@ from starlette.responses import FileResponse, Response
 
 from ..app import json_response, not_found
 from ..library import MAX_ATTACHMENT_BYTES, WriteError, attach_file, attachment_file
-from .write import _commit_json, _field, _write_error_response, _write_payload
+from .write import _commit_json, _field, _write_error_response, _write_payload, blocking
 
 #: Types shown inline; anything else is a download.
 _INLINE_TYPES = {
@@ -75,7 +75,8 @@ async def attach_view(request: Request) -> Response:
             data = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise WriteError("bad_request", "data_base64 is not valid base64") from exc
-        result = attach_file(
+        result = await blocking(
+            attach_file,
             request.app.state.workspace,
             filename=filename,
             data=data,

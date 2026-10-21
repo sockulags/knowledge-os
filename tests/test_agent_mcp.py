@@ -1,10 +1,10 @@
 """The MCP server for agents (issue #59, ``knowledge_os.agent_access``).
 
 Covers finding the app through its runtime file (missing, damaged, stale PID,
-wrong port or token, valid), every tool against a real ``kos-read`` server on
-a temporary workspace that is its own Git repository (including conflict,
-duplicate, validation, and refused decision edits), agent provenance and
-commit messages, that no tool accepts, withdraws, or supersedes, that nothing
+wrong port or token, another knowledge base than expected, valid), every tool
+against a real ``kos-read`` server on a temporary workspace that is its own
+Git repository (including conflict, duplicate, validation, and refused
+decision edits), agent provenance and commit messages, that no tool accepts, withdraws, or supersedes, that nothing
 is written while the app is closed, and the MCP handshake and tool listing
 over stdio with the official SDK's client.
 """
@@ -21,8 +21,9 @@ import unittest
 import urllib.request
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
-from reader_support import REPOSITORY, serve, write_record
+from reader_support import REPOSITORY, free_port, serve, write_record
 
 from knowledge_os.agent_access import runtime
 from knowledge_os.agent_access.server import default_place
@@ -31,7 +32,6 @@ from knowledge_os.index import rebuild_indexes
 from knowledge_os.init_workspace import init_workspace
 from knowledge_os.workspace import Workspace
 
-PORT = 8851
 GIT = shutil.which("git")
 CALLER = Caller(client="claude-code", place="my-repo")
 AGENT_REFERENCE = "agent:claude-code:my-repo"
@@ -161,30 +161,81 @@ class RuntimeFileTests(IsolatedTestCase):
         self.assertEqual(caught.exception.kind, "app_not_responding")
 
     def test_file_whose_core_process_is_gone_is_stale(self) -> None:
-        write_runtime_file(self.runtime_path, port=PORT, token="t", root=self.base, pid=_dead_pid())
+        write_runtime_file(self.runtime_path, port=free_port(), token="t", root=self.base, pid=_dead_pid())
         with self.assertRaises(runtime.AppUnavailable) as caught:
             runtime.connect()
         self.assertEqual(caught.exception.kind, "app_not_responding")
 
     def test_file_whose_port_does_not_answer_is_stale(self) -> None:
         # The process is alive (this test), but nothing listens on the port.
-        write_runtime_file(self.runtime_path, port=PORT + 9, token="t", root=self.base)
+        write_runtime_file(self.runtime_path, port=free_port(), token="t", root=self.base)
         with self.assertRaises(runtime.AppUnavailable) as caught:
             runtime.connect()
         self.assertEqual(caught.exception.kind, "app_not_responding")
 
     def test_valid_file_and_a_server_with_another_token(self) -> None:
         root = init_workspace(self.base / "kb")
-        with serve(root, PORT) as base_url:
-            write_runtime_file(self.runtime_path, port=PORT, token="someone-elses-token", root=root)
+        with serve(root) as base_url:
+            port = urlsplit(base_url).port
+            write_runtime_file(self.runtime_path, port=port, token="someone-elses-token", root=root)
             with self.assertRaises(runtime.AppUnavailable) as caught:
                 runtime.connect()
             self.assertEqual(caught.exception.kind, "app_not_responding")
 
-            write_runtime_file(self.runtime_path, port=PORT, token=_session_token(base_url), root=root)
+            write_runtime_file(self.runtime_path, port=port, token=_session_token(base_url), root=root)
             info = runtime.connect()
-            self.assertEqual(info.port, PORT)
+            self.assertEqual(info.port, port)
             self.assertEqual(info.workspace_name, "kb")
+
+
+class ExpectedWorkspaceTests(IsolatedTestCase):
+    """The app's own agent (``KOS_EXPECT_WORKSPACE``) only uses the knowledge
+    base its conversation started in. None of these start a server."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.started = self.base / "kb-a"
+        self.other = self.base / "kb-b"
+        self.started.mkdir()
+        self.other.mkdir()
+
+    def test_runtime_file_for_another_knowledge_base_is_refused(self) -> None:
+        # A live pid, so only the workspace check can refuse it.
+        write_runtime_file(self.runtime_path, port=free_port(), token="t", root=self.other)
+        env = {"KOS_RUNTIME_FILE": str(self.runtime_path), "KOS_EXPECT_WORKSPACE": str(self.started)}
+        with patch.object(runtime, "_session_token", side_effect=AssertionError("probed the core")):
+            with self.assertRaises(runtime.AppUnavailable) as caught:
+                runtime.connect(env)
+            self.assertEqual(caught.exception.kind, "wrong_knowledge_base")
+            self.assertIn(str(self.started), caught.exception.detail)
+
+            result = call_tool("write_note", {"title": "Lost", "content": "Hello.\n"}, CALLER, env=env)
+        self.assertTrue(result.is_error)
+        self.assertEqual(result.data["error"], "wrong_knowledge_base")
+        self.assertIs(result.data["written"], False)
+        self.assertIn("next_step", result.data)
+
+    def test_same_knowledge_base_is_used(self) -> None:
+        # Spelled differently but the same folder; it gets past the workspace
+        # check to the stale-pid check.
+        expected = str(self.started / ".." / "kb-a")
+        if sys.platform == "win32":
+            expected = expected.upper()
+        write_runtime_file(self.runtime_path, port=free_port(), token="t", root=self.started, pid=_dead_pid())
+        env = {"KOS_RUNTIME_FILE": str(self.runtime_path), "KOS_EXPECT_WORKSPACE": expected}
+        with self.assertRaises(runtime.AppUnavailable) as caught:
+            runtime.connect(env)
+        self.assertEqual(caught.exception.kind, "app_not_responding")
+
+    def test_without_an_expected_root_any_open_knowledge_base_is_used(self) -> None:
+        write_runtime_file(self.runtime_path, port=free_port(), token="t", root=self.other)
+        with patch.object(runtime, "_session_token", return_value="t"):
+            info = runtime.connect({"KOS_RUNTIME_FILE": str(self.runtime_path)})
+        self.assertEqual(info.workspace_name, "kb-b")
+
+    def test_same_root_ignores_case_only_on_windows(self) -> None:
+        self.assertTrue(runtime.same_root("C:\\Notes\\KB", "c:\\notes\\kb", "win32"))
+        self.assertFalse(runtime.same_root("/notes/KB", "/notes/kb", "linux"))
 
 
 class PlaceTests(unittest.TestCase):
@@ -257,10 +308,11 @@ class ToolTests(IsolatedTestCase):
         git(self.root, "config", "core.autocrlf", "false")
         git(self.root, "add", "-A")
         git(self.root, "commit", "--quiet", "-m", "Initial knowledge base")
-        self.server = serve(self.root, PORT)
+        self.server = serve(self.root)
         self.base_url = self.server.__enter__()
         self.addCleanup(self.server.__exit__, None, None, None)
-        write_runtime_file(self.runtime_path, port=PORT, token=_session_token(self.base_url), root=self.root)
+        port = urlsplit(self.base_url).port
+        write_runtime_file(self.runtime_path, port=port, token=_session_token(self.base_url), root=self.root)
 
     def call(self, name: str, **arguments: object) -> dict:
         result = call_tool(name, arguments, CALLER)
@@ -631,8 +683,8 @@ class StdioProtocolTests(IsolatedTestCase):
         git(root, "commit", "--quiet", "-m", "Initial knowledge base")
         cwd = self.base / "service-repo"
         cwd.mkdir()
-        with serve(root, PORT + 1) as base_url:
-            write_runtime_file(self.runtime_path, port=PORT + 1, token=_session_token(base_url), root=root)
+        with serve(root) as base_url:
+            write_runtime_file(self.runtime_path, port=urlsplit(base_url).port, token=_session_token(base_url), root=root)
             outcome = self._run(cwd, "write")
         result = outcome["result"]
         self.assertFalse(result.is_error, result.structured_content)

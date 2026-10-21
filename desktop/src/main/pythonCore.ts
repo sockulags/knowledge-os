@@ -9,11 +9,12 @@
 // stops kill the whole process tree, because on Windows a venv's python.exe
 // and the `py` launcher each run the real interpreter as a child process.
 
-import { spawn, spawnSync, type ChildProcess } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 import { tmpdir } from 'os'
 import { delimiter } from 'path'
 import type { ErrorKind } from '../shared/types'
 import { findFreePort } from './portFinder'
+import { killProcessTree } from './processTree'
 import type { InterpreterCandidate } from './pythonInterpreter'
 
 const HOST = '127.0.0.1'
@@ -212,24 +213,6 @@ export function classifyEarlyExit(
     message: `The Python core stopped while starting (exit code ${code ?? 'unknown'}).`,
     detail: output,
     retryPort: false
-  }
-}
-
-/** Kill a process and all of its descendants, synchronously. Safe on an exited pid. */
-export function killProcessTree(pid: number, platform: NodeJS.Platform = process.platform): void {
-  if (platform === 'win32') {
-    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
-    return
-  }
-  try {
-    // The core is spawned as a process-group leader on POSIX.
-    process.kill(-pid, 'SIGTERM')
-  } catch {
-    try {
-      process.kill(pid, 'SIGTERM')
-    } catch {
-      // Already gone.
-    }
   }
 }
 

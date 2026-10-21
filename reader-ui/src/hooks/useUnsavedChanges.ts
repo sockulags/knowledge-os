@@ -5,9 +5,24 @@ import { useBlocker, type Blocker } from "react-router";
  * (moving or renaming pages and folders) rewrite files and reload the page,
  * so they wait until this is zero instead of risking typed text. */
 let unsavedPages = 0;
+const listeners = new Set<() => void>();
+
+function setUnsavedPages(count: number): void {
+  unsavedPages = count;
+  for (const listener of listeners) listener();
+}
 
 export function hasUnsavedChanges(): boolean {
   return unsavedPages > 0;
+}
+
+/** Calls `listener` whenever the count changes; returns the unsubscribe.
+ * Shaped for `useSyncExternalStore` with `hasUnsavedChanges`. */
+export function subscribeUnsavedChanges(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 /** Warn before losing unsaved edits: an in-app navigation is held by the
@@ -28,7 +43,7 @@ export function useUnsavedChanges(dirty: boolean): { blocker: Blocker; allowNext
 
   useEffect(() => {
     if (!dirty) return;
-    unsavedPages += 1;
+    setUnsavedPages(unsavedPages + 1);
     function handleBeforeUnload(event: BeforeUnloadEvent) {
       if (!dirtyRef.current) return;
       event.preventDefault();
@@ -37,7 +52,7 @@ export function useUnsavedChanges(dirty: boolean): { blocker: Blocker; allowNext
     }
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
-      unsavedPages -= 1;
+      setUnsavedPages(unsavedPages - 1);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [dirty]);

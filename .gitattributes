@@ -1,0 +1,11 @@
+# Every text file is stored and checked out with LF line endings, whatever
+# core.autocrlf says, so Prettier, ESLint, and the tests see the same bytes on
+# Windows and Linux.
+* text=auto eol=lf
+
+# Windows batch files need CRLF to run reliably.
+*.cmd text eol=crlf
+
+*.ico binary
+*.png binary
+*.woff2 binary

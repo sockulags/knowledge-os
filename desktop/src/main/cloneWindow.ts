@@ -44,7 +44,7 @@ export function createCloneWindow(host: CloneHost): CloneWindow {
   let running: CloneRun | null = null
 
   // Only the clone window may call these, never the reader UI.
-  const handle = handleFrom(() => window)
+  const handle = handleFrom(() => window, host.pageUrl)
 
   handle(CLONE_IPC.defaults, async (): Promise<CloneDefaults> => ({ parent: host.defaultParent() }))
 

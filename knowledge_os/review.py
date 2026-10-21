@@ -29,9 +29,14 @@ Each rule may name:
 - ``action``: ``review`` (the default) or ``direct``.
 
 The first rule that matches decides; no match means direct, as before.
-Rules govern note writes through the local API (the app, the MCP server, and
-the Referat import). Decisions are not governed by them: a decision is always
-a draft that a person accepts. The command line writes directly, as always.
+Rules govern every agent write and every note write through the local API
+(the app, the MCP server, and the Referat import). On the command line they
+apply only when the caller says it is an agent: ``kos capture`` and ``kos
+update`` with ``--writer agent`` (or ``--writer agent:<client>``) store a
+proposed change when a rule holds the write back; without ``--writer`` a
+person typing in the terminal writes directly, as always. Decisions are not
+governed by rules: a decision is always a draft that a person accepts, and
+agents cannot edit one.
 
 A write that needs review is validated exactly as if it were applied, then
 stored as a proposed change in ``proposals/<id>.md`` instead: a small
@@ -47,6 +52,7 @@ removes it.
 from __future__ import annotations
 
 import hashlib
+import posixpath
 import re
 import secrets
 import tomllib
@@ -57,9 +63,16 @@ from typing import Any, Mapping
 
 import yaml
 
-from .capture import CaptureIndexError, capture_record_text
+from .agent_identity import clean_label
+from .capture import CaptureIndexError, capture_record_text, capture_record_text_locked
 from .model import ID_PATTERN, MetadataError, SHA256_PATTERN, parse_document_text, render_document
-from .mutations import MutationIndexError, MutationResult, StaleRevisionError, update_record_text
+from .mutations import (
+    MutationIndexError,
+    MutationResult,
+    StaleRevisionError,
+    update_record_text,
+    update_record_text_locked,
+)
 from .workspace import (
     Workspace,
     WorkspaceError,
@@ -239,6 +252,39 @@ def needs_review(
 
     rule = matching_rule(rules, writer=writer, project=project, folder=folder, write=write)
     return rule if rule is not None and rule.action == "review" else None
+
+
+def write_place(metadata: Mapping[str, Any], path_in_project: str | None) -> tuple[str | None, str]:
+    """Where a page sits for rule matching: its project (``None`` for general
+    knowledge and for every memory page) and its folder inside that project
+    (``""`` at the top level). ``path_in_project`` is the page's path below
+    ``projects/<project-id>/``, if any."""
+
+    if metadata.get("type") == "memory":
+        return None, ""
+    scope = str(metadata.get("scope", ""))
+    project = scope.removeprefix("project:") if scope.startswith("project:") else None
+    if project is None or not path_in_project:
+        return project, ""
+    return project, posixpath.dirname(path_in_project.replace("\\", "/").strip("/"))
+
+
+def page_place(metadata: Mapping[str, Any], relative: str) -> tuple[str | None, str]:
+    """``write_place`` for an existing page at the workspace-relative path ``relative``."""
+
+    prefix = f"projects/{str(metadata.get('scope', '')).removeprefix('project:')}/"
+    return write_place(metadata, relative[len(prefix) :] if relative.startswith(prefix) else None)
+
+
+def agent_writer(value: str) -> Writer:
+    """``agent`` or ``agent:<client>`` (as ``--writer`` takes it) as a Writer."""
+
+    kind, separator, client = value.partition(":")
+    if kind != "agent" or (separator and (not client or clean_label(client) != client)):
+        raise ReviewError(
+            f"--writer must be agent or agent:<client> (letters, digits, '.', '_', and '-'), not {value!r}"
+        )
+    return Writer("agent", client or None)
 
 
 # ---------------------------------------------------------------------------
@@ -451,31 +497,33 @@ def accept_proposal(workspace: Workspace, proposal_id: str, *, expected_sha256: 
     multi-file changes this is not crash-atomic: if the process stops after
     the page is written, the proposal is still there and accepting it again
     is refused as a duplicate or a conflict; discard it.
+
+    Loading, checking, writing the page and removing the proposal happen
+    under one workspace lock, so a concurrent discard either wins (and this
+    refuses as not found) or finds nothing left to discard.
     """
 
-    proposal = load_proposal(workspace, proposal_id)
-    _check_unchanged(workspace, proposal, expected_sha256)
-    text = proposal.text()
-    try:
-        if proposal.action == "create":
-            result = capture_record_text(
-                workspace, text, project_path=Path(proposal.project_path) if proposal.project_path else None
-            )
-            outcome = MutationResult(result.id, result.path, result.status, result.sha256, result.index_count)
-        else:
-            outcome = update_record_text(workspace, text, expected_sha256=proposal.base_sha256 or "")
-    except CaptureIndexError as exc:
-        with workspace_mutation_lock(workspace):
-            _remove(workspace, proposal)
-        written = exc.result
-        raise MutationIndexError(
-            str(exc), MutationResult(written.id, written.path, written.status, written.sha256, 0)
-        ) from exc
-    except MutationIndexError:
-        with workspace_mutation_lock(workspace):
-            _remove(workspace, proposal)
-        raise
     with workspace_mutation_lock(workspace):
+        proposal = load_proposal(workspace, proposal_id)
+        _check_unchanged(workspace, proposal, expected_sha256)
+        text = proposal.text()
+        try:
+            if proposal.action == "create":
+                result = capture_record_text_locked(
+                    workspace, text, project_path=Path(proposal.project_path) if proposal.project_path else None
+                )
+                outcome = MutationResult(result.id, result.path, result.status, result.sha256, result.index_count)
+            else:
+                outcome = update_record_text_locked(workspace, text, expected_sha256=proposal.base_sha256 or "")
+        except CaptureIndexError as exc:
+            _remove(workspace, proposal)
+            written = exc.result
+            raise MutationIndexError(
+                str(exc), MutationResult(written.id, written.path, written.status, written.sha256, 0)
+            ) from exc
+        except MutationIndexError:
+            _remove(workspace, proposal)
+            raise
         _remove(workspace, proposal)
     return outcome
 

@@ -6,6 +6,7 @@ export const IPC = {
   createWorkspace: 'workspace:create',
   cloneWorkspace: 'workspace:clone',
   openRecent: 'workspace:open-recent',
+  removeRecent: 'workspace:remove-recent',
   showStart: 'workspace:show-start',
   retry: 'workspace:retry',
   getSidebarWidth: 'reader:get-sidebar-width',
@@ -36,6 +37,11 @@ export interface RecentWorkspace {
   lastOpened: string
 }
 
+/** A recent entry on the start page; `missing` when its folder is gone (moved or deleted). */
+export interface RecentEntry extends RecentWorkspace {
+  missing: boolean
+}
+
 export type ErrorKind =
   'python-missing' | 'core-missing' | 'invalid-workspace' | 'early-exit' | 'create-failed'
 
@@ -43,11 +49,13 @@ export type ErrorKind =
 export type ShellState =
   | {
       kind: 'start'
-      recent: RecentWorkspace[]
+      recent: RecentEntry[]
       /** Why the last knowledge base was not reopened on start, if it was not. */
       notice?: string
     }
   | { kind: 'starting'; root: string; recent: RecentWorkspace[] }
+  /** `kos init` is setting up a new knowledge base in `root`. */
+  | { kind: 'creating'; root: string; recent: RecentWorkspace[] }
   | { kind: 'ready'; root: string; name: string; url: string; recent: RecentWorkspace[] }
   | {
       kind: 'error'
@@ -59,8 +67,12 @@ export type ShellState =
     }
 
 /**
- * The only API the preload script exposes. Everything but the sidebar width
- * is for the start page; the main process rejects it from the reader UI.
+ * The only API the main window's preload script exposes. The workspace
+ * actions (`getState` through `retry`) are for the start page, and the main
+ * process rejects them from any other page. The sidebar width and `agent` are
+ * for the reader UI of the open knowledge base, and the main process answers
+ * them for no other page. `onStateChanged`, `onReaderCommand`, and
+ * `agent.onEvent` only listen for events the main process sends.
  */
 export interface DesktopApi {
   /**
@@ -80,6 +92,8 @@ export interface DesktopApi {
   /** Shows the Clone Knowledge Base window. */
   cloneWorkspace: () => Promise<void>
   openRecent: (root: string) => Promise<void>
+  /** Removes a knowledge base from the recent list; its folder is left alone. */
+  removeRecent: (root: string) => Promise<void>
   showStart: () => Promise<void>
   /** Retries the failed action shown on the error screen, re-checking Python first. */
   retry: () => Promise<void>

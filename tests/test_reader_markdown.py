@@ -251,15 +251,25 @@ class RelativeLinkResolutionTests(unittest.TestCase):
 
 class RealCorpusSmokeTests(unittest.TestCase):
     """Render the actual, harder documents in this repository. These are
-    the cases called out in the unit brief: docs/architecture.md (14 flat
-    headings since the structure editing section) and docs/architecture-audit-v0.1.md
+    the cases called out in the unit brief: docs/architecture.md (flat
+    headings that grow with the contract) and docs/architecture-audit-v0.1.md
     (52 headings, the harder anchor-collision case)."""
 
-    def test_architecture_doc_renders_without_raising_and_has_nineteen_headings(self) -> None:
+    def test_architecture_doc_renders_without_raising_and_lists_every_heading(self) -> None:
+        # The contract is a living document, so count its headings here
+        # instead of pinning a number that every new section breaks.
         text = (REPOSITORY / "docs" / "architecture.md").read_text(encoding="utf-8")
         html = markdown.render(text)
         self.assertTrue(html)
-        self.assertEqual(len(markdown.headings(text)), 19)
+        in_fence = False
+        expected = 0
+        for line in text.splitlines():
+            if line.startswith("```"):
+                in_fence = not in_fence
+            elif not in_fence and line.startswith("#") and line.lstrip("#").startswith(" "):
+                expected += 1
+        self.assertGreater(expected, 0)
+        self.assertEqual(len(markdown.headings(text)), expected)
 
     def test_architecture_audit_doc_renders_without_raising_and_anchors_are_unique(self) -> None:
         text = (REPOSITORY / "docs" / "architecture-audit-v0.1.md").read_text(encoding="utf-8")

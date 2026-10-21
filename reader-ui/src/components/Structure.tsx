@@ -7,9 +7,8 @@ import { structure, type Outcome } from "../api/write";
 import { useApi } from "../hooks/useApi";
 import { hasUnsavedChanges } from "../hooks/useUnsavedChanges";
 import { pendingActions } from "../lib/pendingStore";
-import { folderDisplayName } from "../lib/text";
+import { folderDisplayName, kebab } from "../lib/text";
 import { WriteFailureCallout } from "./WriteFailureCallout";
-import { slugify } from "../pages/NewRecord";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { fieldLabelClass, inputClass } from "./EditorParts";
 
@@ -38,7 +37,9 @@ interface StructureApi {
   canDrop: (item: TreeItem, place: Place) => boolean;
   drop: (item: TreeItem, place: Place) => void;
   rename: (item: TreeItem, title: string) => Promise<boolean>;
-  newProject: () => void;
+  /** Open the New project dialog. With `thenNewPage`, a new page in the
+   * created project opens next: pages always live in a project. */
+  newProject: (options?: { thenNewPage?: boolean }) => void;
   newFolder: (projectId: string, parent: string, parentLabel: string) => void;
   moveTo: (item: TreeItem) => void;
   /** Open the delete confirmation for a page or a folder. */
@@ -123,7 +124,7 @@ export function StructureProvider({
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [crossing, setCrossing] = useState<{ item: TreeItem; place: Place } | null>(null);
   const [moving, setMoving] = useState<TreeItem | null>(null);
-  const [creatingProject, setCreatingProject] = useState(false);
+  const [creatingProject, setCreatingProject] = useState<{ thenNewPage: boolean } | null>(null);
   const [creatingFolder, setCreatingFolder] = useState<{ projectId: string; parent: string; parentLabel: string } | null>(
     null,
   );
@@ -225,7 +226,7 @@ export function StructureProvider({
       try {
         await pendingActions.flushAll();
         if (item.kind === "folder") {
-          const name = slugify(trimmed);
+          const name = kebab(trimmed, null);
           if (!name) {
             setFeedback({ tone: "error", text: "A folder name needs at least one letter or digit." });
             return false;
@@ -289,7 +290,7 @@ export function StructureProvider({
       canDrop: canMove,
       drop,
       rename,
-      newProject: () => setCreatingProject(true),
+      newProject: (options) => setCreatingProject({ thenNewPage: options?.thenNewPage ?? false }),
       newFolder: (projectId, parent, parentLabel) => setCreatingFolder({ projectId, parent, parentLabel }),
       moveTo: (item) => setMoving(item),
       remove: (item) => {
@@ -338,16 +339,19 @@ export function StructureProvider({
           title="New project"
           label="Project name"
           confirmLabel="Create project"
-          hint={(slug) => (slug ? `Its folder will be projects/${slug}.` : "Use at least one letter or digit.")}
+          hint={(slug) => {
+            const folder = slug ? `Its folder will be projects/${slug}.` : "Use at least one letter or digit.";
+            return creatingProject.thenNewPage ? `Pages live in a project; your new page opens next. ${folder}` : folder;
+          }}
           busy={busy}
-          onCancel={() => setCreatingProject(false)}
+          onCancel={() => setCreatingProject(null)}
           onConfirm={async (name, slug) => {
             setBusy(true);
             const outcome = await structure.createProject(slug, name);
             setBusy(false);
             if (report(outcome, () => `Created project “${name}”.`, false)) {
-              setCreatingProject(false);
-              navigate(`/p/${slug}`);
+              setCreatingProject(null);
+              navigate(creatingProject.thenNewPage ? `/p/${slug}/new` : `/p/${slug}`);
             }
           }}
         />
@@ -455,7 +459,7 @@ function NameDialog({
   onConfirm: (name: string, slug: string) => void;
 }) {
   const [name, setName] = useState("");
-  const slug = slugify(name);
+  const slug = kebab(name, null);
   const ready = name.trim() !== "" && slug !== "" && !busy;
   return (
     <ConfirmDialog

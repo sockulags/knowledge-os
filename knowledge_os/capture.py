@@ -134,75 +134,94 @@ def capture_record_text(
     return _capture(workspace, lambda: _parse_candidate_text(text), project_path)
 
 
+def capture_record_text_locked(
+    workspace: Workspace,
+    text: str,
+    *,
+    project_path: Path | None = None,
+) -> CaptureResult:
+    """``capture_record_text`` for a caller that already holds ``workspace_mutation_lock``."""
+
+    return _capture_locked(workspace, lambda: _parse_candidate_text(text), project_path)
+
+
 def _capture(
     workspace: Workspace,
     load_candidate: Callable[[], Document],
     project_path: Path | None,
 ) -> CaptureResult:
     with workspace_mutation_lock(workspace):
-        documents, issues = validate_workspace(workspace)
-        if issues:
-            raise CaptureError(f"cannot capture into an invalid corpus:\n{format_issues(issues)}")
+        return _capture_locked(workspace, load_candidate, project_path)
 
-        candidate = load_candidate()
-        _ensure_candidate(candidate)
-        metadata = candidate.metadata
-        record_id = metadata["id"]
-        record_type = metadata["type"]
-        if project_path is not None and record_type != "project":
-            raise CaptureError("--project-path is only valid for type: project")
-        relative_path = (
-            _project_relative_path(metadata, project_path)
-            if record_type == "project"
-            else Path(CAPTURE_DIRECTORIES[record_type]) / f"{record_id}.md"
+
+def _capture_locked(
+    workspace: Workspace,
+    load_candidate: Callable[[], Document],
+    project_path: Path | None,
+) -> CaptureResult:
+    documents, issues = validate_workspace(workspace)
+    if issues:
+        raise CaptureError(f"cannot capture into an invalid corpus:\n{format_issues(issues)}")
+
+    candidate = load_candidate()
+    _ensure_candidate(candidate)
+    metadata = candidate.metadata
+    record_id = metadata["id"]
+    record_type = metadata["type"]
+    if project_path is not None and record_type != "project":
+        raise CaptureError("--project-path is only valid for type: project")
+    relative_path = (
+        _project_relative_path(metadata, project_path)
+        if record_type == "project"
+        else Path(CAPTURE_DIRECTORIES[record_type]) / f"{record_id}.md"
+    )
+    destination = workspace.root / relative_path
+    workspace.assert_safe_path(destination)
+
+    by_id = {document.metadata["id"]: document for document in documents}
+    existing = by_id.get(record_id)
+    if existing is not None:
+        raise DuplicateRecordError(
+            f"duplicate capture id {record_id!r}; already defined at {workspace.relative(existing.path)}"
         )
-        destination = workspace.root / relative_path
-        workspace.assert_safe_path(destination)
-
-        by_id = {document.metadata["id"]: document for document in documents}
-        existing = by_id.get(record_id)
-        if existing is not None:
-            raise DuplicateRecordError(
-                f"duplicate capture id {record_id!r}; already defined at {workspace.relative(existing.path)}"
-            )
-        if destination.exists() or destination.is_symlink():
-            if destination.is_file():
-                detail = "already exists"
-            else:
-                detail = "is not a file"
-            raise DuplicateRecordError(
-                f"destination {workspace.relative(destination)} {detail}; refusing overwrite"
-            )
-
-        canonical = render_document(metadata, candidate.body)
-        relative_record = relative_path.as_posix()
-        with stage_workspace(workspace) as stage:
-            atomic_write(stage.root / relative_record, canonical)
-            staged_documents(stage, "capture an approved record")
-
-        try:
-            exclusive_write(destination, canonical)
-        except FileExistsError as exc:
-            raise DuplicateRecordError(
-                f"destination {workspace.relative(destination)} was created by another writer; refusing overwrite"
-            ) from exc
-        except OSError as exc:
-            raise CaptureError(
-                f"canonical capture write failed for {workspace.relative(destination)}; "
-                f"run 'kos lint' before retrying: {exc}"
-            ) from exc
-
-        result = CaptureResult(
-            id=record_id,
-            type=record_type,
-            scope=metadata["scope"],
-            path=workspace.relative(destination),
-            status=metadata["status"],
-            index_count=0,
-            sha256=content_sha256(destination),
+    if destination.exists() or destination.is_symlink():
+        if destination.is_file():
+            detail = "already exists"
+        else:
+            detail = "is not a file"
+        raise DuplicateRecordError(
+            f"destination {workspace.relative(destination)} {detail}; refusing overwrite"
         )
-        try:
-            index_count = refresh_derived_indexes(workspace)
-        except WorkspaceError as exc:
-            raise CaptureIndexError(str(exc), result) from exc
-        return replace(result, index_count=index_count)
+
+    canonical = render_document(metadata, candidate.body)
+    relative_record = relative_path.as_posix()
+    with stage_workspace(workspace) as stage:
+        atomic_write(stage.root / relative_record, canonical)
+        staged_documents(stage, "capture an approved record")
+
+    try:
+        exclusive_write(destination, canonical)
+    except FileExistsError as exc:
+        raise DuplicateRecordError(
+            f"destination {workspace.relative(destination)} was created by another writer; refusing overwrite"
+        ) from exc
+    except OSError as exc:
+        raise CaptureError(
+            f"canonical capture write failed for {workspace.relative(destination)}; "
+            f"run 'kos lint' before retrying: {exc}"
+        ) from exc
+
+    result = CaptureResult(
+        id=record_id,
+        type=record_type,
+        scope=metadata["scope"],
+        path=workspace.relative(destination),
+        status=metadata["status"],
+        index_count=0,
+        sha256=content_sha256(destination),
+    )
+    try:
+        index_count = refresh_derived_indexes(workspace)
+    except WorkspaceError as exc:
+        raise CaptureIndexError(str(exc), result) from exc
+    return replace(result, index_count=index_count)

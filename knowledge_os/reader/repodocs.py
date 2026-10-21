@@ -23,9 +23,10 @@ from typing import Any
 from . import library, markdown
 
 #: The fixed, closed list of paths in the unmanaged tier, workspace-relative
-#: POSIX, in the order the plan lists them (Sec.3). Not derived from a
-#: filesystem walk on purpose: this tier is a small, enumerated, shrinking
-#: set of files the plan names explicitly, not "every .md file outside the
+#: POSIX: the files the plan lists (Sec.3) plus the later guides
+#: ``docs/agents.md`` and ``docs/desktop-architecture.md``. Not derived from a
+#: filesystem walk on purpose: this tier is a small, enumerated
+#: set of files named explicitly, not "every .md file outside the
 #: corpus" — walking the filesystem would also pick up ordinary repository
 #: clutter that was never meant to belong to this tier, and would turn
 #: ``/api/docs/{path}`` into a way to browse the whole repository.
@@ -37,7 +38,9 @@ REPO_DOCUMENT_PATHS: tuple[str, ...] = (
     "SYSTEM.md",
     "README.md",
     "AGENTS.md",
+    "docs/agents.md",
     "docs/architecture.md",
+    "docs/desktop-architecture.md",
     "docs/architecture-audit-v0.1.md",
     "docs/openknowledge-governance-compatibility.md",
     "docs/decisions/0001-stack-and-index.md",
@@ -52,7 +55,7 @@ def is_skill_reference_path(rel_path: str) -> bool:
     A second, pattern-based admission rule alongside the fixed
     ``REPO_DOCUMENT_PATHS`` list above: the skill view (unit 8) links a
     skill's own ``references/*.md`` files through ``/api/docs/...``, and
-    those files live outside the eight named repo documents. This stays a
+    those files live outside the named repo documents. This stays a
     closed rule rather than turning ``/api/docs/{path}`` into a way to browse
     ``skills/`` generally: exactly four workspace-relative POSIX segments,
     a literal ``skills`` root, a literal ``references`` third segment, and a

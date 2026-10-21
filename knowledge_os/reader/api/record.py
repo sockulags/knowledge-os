@@ -36,6 +36,7 @@ from .common import (
     breadcrumb_for_record,
     decision_actions_json,
     decision_language,
+    draft_activation_json,
     lineage_callouts,
     project_id_for_scope,
     properties_block,
@@ -75,6 +76,7 @@ async def view(request: Request) -> Response:
         {
             "id": record.id,
             "title": record.title,
+            "description": record.description,
             "type": record.type,
             "record_kind": record.record_kind,
             "is_decision": record.is_decision,
@@ -142,6 +144,7 @@ def _editing_json(library: Library, record: Record, source: EditableSource | Non
         "content_sha256": source.content_sha256 if source else None,
         "body_change_needs_confirmation": source.body_change_needs_confirmation if source else False,
         "decision_actions": decision_actions_json(library, record),
+        "draft_activation": draft_activation_json(library, record),
         "delete": _delete_target(record, project_id),
     }
 

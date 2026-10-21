@@ -9,6 +9,9 @@
   ``{"expected_sha256": <the proposal file's hash>}``; both commit.
 - ``GET /api/review/check?writer=&project=&folder=&writes=`` says whether a
   write would go to review, without writing (the Referat import asks first).
+- ``GET /api/review/rules`` lists the rules in order, each with a sentence
+  saying what it does, or why the rule file cannot be used, so Decide and the
+  agent panel can show which writes wait for a person.
 """
 
 from __future__ import annotations
@@ -37,11 +40,12 @@ from ..library import (
     proposed_changes,
     review_check,
     review_policy,
+    review_rules,
 )
 from .common import decision_language, project_title, relative_date, strip_leading_h1
 from .decisions import GENERAL, _excerpt
 from .record import _diff_blocks, _summarize
-from .write import _commit_json, _field, _result_json, _write_error_response, _write_payload
+from .write import _commit_json, _field, _result_json, _write_error_response, _write_payload, blocking
 
 def _entry(proposal: Proposal) -> ProvenanceEntry | None:
     value = proposal.proposed_by
@@ -177,7 +181,9 @@ async def detail_view(request: Request) -> Response:
             source = None
         current_body = source.raw_body if source is not None else ""
         current_metadata = {key: _plain(value) for key, value in (source.metadata if source is not None else {}).items()}
-        proposed_metadata = {key: metadata.get(key, [] if key != "title" else None) for key in current_metadata}
+        # Absent fields read the way editable_source reads them: lists as [], a description as "".
+        absent: dict[str, Any] = {"title": None, "description": ""}
+        proposed_metadata = {key: metadata.get(key, absent.get(key, [])) for key in current_metadata}
         blocks, counts = _diff_blocks(strip_leading_h1(current_body), strip_leading_h1(proposal.body))
         row["body_html"] = None
         row["metadata_changes"] = _metadata_changes(current_metadata, proposed_metadata)
@@ -208,12 +214,13 @@ async def _act(request: Request, accept: bool) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        expected = _field(payload, "expected_sha256", str, required=False)
+        expected = _field(payload, "expected_sha256", str, required=True)
         workspace = request.app.state.workspace
         change_id = request.path_params["change_id"]
         if accept:
-            return json_response(_result_json(accept_change(workspace, change_id, expected_sha256=expected)))
-        discarded = discard_change(workspace, change_id, expected_sha256=expected)
+            accepted = await blocking(accept_change, workspace, change_id, expected_sha256=expected)
+            return json_response(_result_json(accepted))
+        discarded = await blocking(discard_change, workspace, change_id, expected_sha256=expected)
     except WriteError as exc:
         return _write_error_response(exc)
     return json_response({"discarded": discarded.proposal_id, "commit": _commit_json(discarded.commit)})
@@ -242,3 +249,25 @@ async def check_view(request: Request) -> Response:
     except WriteError as exc:
         return _write_error_response(exc)
     return json_response({"review": rule is not None, "rule": rule.describe() if rule is not None else None})
+
+
+async def rules_view(request: Request) -> Response:
+    rules, error = review_rules(request.app.state.workspace)
+    return json_response(
+        {
+            "rules": [
+                {
+                    "number": rule.number,
+                    "writer": rule.writer,
+                    "project": rule.project,
+                    "folder": rule.folder,
+                    "writes": rule.writes,
+                    "action": rule.action,
+                    "description": f"{rule.describe()} "
+                    + ("wait for review in Decide." if rule.action == "review" else "are written directly."),
+                }
+                for rule in rules
+            ],
+            "error": error,
+        }
+    )

@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  aboutDialog,
   addNotice,
+  answerWithin,
   LeaveGuard,
+  leavesAnyway,
+  NO_ANSWER,
+  noAnswerDialog,
   removeNotice,
   UNSAVED_ACTION,
   unsavedChangesDialog,
@@ -44,6 +49,23 @@ describe('the unsaved-changes dialog', () => {
   })
 })
 
+describe('a page that does not answer', () => {
+  it('gives NO_ANSWER after the timeout, and the answer when it comes first', async () => {
+    const never = new Promise<boolean>(() => undefined)
+    await expect(answerWithin(never, 10)).resolves.toBe(NO_ANSWER)
+    await expect(answerWithin(Promise.resolve(false), 1000)).resolves.toBe(false)
+    await expect(answerWithin(Promise.resolve(true), 1000)).resolves.toBe(true)
+  })
+
+  it('is asked about with staying as the default', () => {
+    const dialog = noAnswerDialog()
+    expect(dialog.buttons).toEqual(['Cancel', 'Leave anyway'])
+    expect(leavesAnyway(dialog.defaultId)).toBe(false)
+    expect(leavesAnyway(dialog.cancelId)).toBe(false)
+    expect(leavesAnyway(dialog.buttons.indexOf('Leave anyway'))).toBe(true)
+  })
+})
+
 function guard(
   dirty: boolean,
   answer: string = UNSAVED_ACTION.keep
@@ -54,7 +76,8 @@ function guard(
     ask: async () => {
       asked.push(1)
       return answer
-    }
+    },
+    askNoAnswer: async () => false
   })
   return { leave, asked }
 }
@@ -107,7 +130,8 @@ describe('LeaveGuard', () => {
     expect(retry).not.toBeNull()
     const again = new LeaveGuard({
       hasUnsavedChanges: async () => false,
-      ask: async () => UNSAVED_ACTION.discard
+      ask: async () => UNSAVED_ACTION.discard,
+      askNoAnswer: async () => false
     })
     await again.leave(retry!, undefined, true)
     expect(runs).toBe(2)
@@ -119,9 +143,32 @@ describe('LeaveGuard', () => {
       hasUnsavedChanges: async () => {
         throw new Error('gone')
       },
-      ask: async () => UNSAVED_ACTION.keep
+      ask: async () => UNSAVED_ACTION.keep,
+      askNoAnswer: async () => false
     })
     expect(await leave.confirm()).toBe(true)
+  })
+
+  it('asks instead of assuming a page that does not answer is clean', async () => {
+    for (const leaveAnyway of [false, true]) {
+      const asked: string[] = []
+      const leave = new LeaveGuard({
+        hasUnsavedChanges: async () => NO_ANSWER,
+        ask: async () => {
+          asked.push('unsaved')
+          return UNSAVED_ACTION.discard
+        },
+        askNoAnswer: async () => {
+          asked.push('no-answer')
+          return leaveAnyway
+        }
+      })
+      let ran = false
+      await leave.leave(() => (ran = true))
+      expect([ran, asked]).toEqual([leaveAnyway, ['no-answer']])
+      // Leaving anyway also lets the page's own objection through, once.
+      expect(leave.unloadPrevented().allow).toBe(leaveAnyway)
+    }
   })
 
   it('forgets an approval once the page is left', async () => {
@@ -129,5 +176,22 @@ describe('LeaveGuard', () => {
     await leave.confirm()
     leave.reset()
     expect(leave.unloadPrevented().allow).toBe(false)
+  })
+})
+
+describe('aboutDialog', () => {
+  it('shows the version, the runtime, and where the log is', () => {
+    const dialog = aboutDialog({
+      version: '0.8.6',
+      electron: '43.2.0',
+      chrome: '140.0.0.0',
+      node: '24.1.0',
+      logDir: 'C:\\Users\\me\\AppData\\Roaming\\knowledge-os-desktop\\logs'
+    })
+    expect(dialog.title).toBe('About Knowledge OS')
+    expect(dialog.message).toBe('Knowledge OS 0.8.6')
+    expect(dialog.detail).toContain('Electron 43.2.0, Chromium 140.0.0.0, Node.js 24.1.0')
+    expect(dialog.detail).toContain('knowledge-os-desktop\\logs')
+    expect(dialog.buttons).toEqual(['OK'])
   })
 })

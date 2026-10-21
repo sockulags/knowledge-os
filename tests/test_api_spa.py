@@ -12,12 +12,10 @@ import urllib.request
 
 from reader_support import REPOSITORY, serve
 
-PORT = 8839
-
 
 class ApiNotFoundTests(unittest.TestCase):
     def test_unknown_api_route_is_404_json(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             try:
                 urllib.request.urlopen(base_url + "/api/this-route-does-not-exist", timeout=5)
                 self.fail("expected an HTTPError")
@@ -49,7 +47,7 @@ class SpaFallbackTests(unittest.TestCase):
             self.assertIn(b"not been built", body)
 
     def test_deep_links_resolve_through_the_fallback(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             for path in ("/", "/p/knowledge-os", "/r/openknowledge-pivot", "/search", "/everything", "/nonexistent"):
                 with self.subTest(path=path):
                     self._check(base_url, path)

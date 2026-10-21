@@ -6,6 +6,14 @@
 > `projects/knowledge-os/decisions/standalone-learning-direction.md`. This
 > document is kept as-is for historical context and is not rewritten.
 
+> **Note (2026-10-21):** this plan is partly superseded. It describes the
+> reader as read-only, with no write path; the reader and the desktop app now
+> write through a local JSON API (records, decisions, structure, attachments,
+> proposed changes, and Git sync). The current write API is "Local interface
+> write API" in [`docs/architecture.md`](../architecture.md), and the routes
+> are listed in `knowledge_os/reader/api/__init__.py`. The statements below
+> about a read-only reader describe v1 as planned, not the reader as it is.
+
 Status: accepted. This plan describes a read-only human reading surface over an
 existing Knowledge OS workspace. It changes the frozen v0.0.1 contract, which
 excludes a GUI ([`docs/architecture.md`](../architecture.md)), and is authorized

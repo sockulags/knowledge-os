@@ -1,13 +1,14 @@
 """Write endpoints: ``POST /api/records`` (create), ``PATCH
 /api/records/{record_id}`` (edit), the decision lifecycle actions ``POST
-/api/records/{record_id}/accept``, ``/withdraw``, and ``/supersede``, plus
+/api/records/{record_id}/accept``, ``/withdraw``, and ``/supersede``, the
+draft action ``/activate`` (a person makes a draft active), plus
 ``GET /api/session``, which hands the UI the per-process write token.
 
 Every write goes through one ``library`` function (``create_record``,
 ``edit_record``, ``accept_record``, ``withdraw_record``,
-``supersede_record``), which calls the core's own mutation. This module only
-checks where a request comes from, parses JSON, and maps
-``library.WriteError.kind`` to an HTTP status. ``POST /api/preview`` renders
+``supersede_record``, ``activate_record``), which calls the core's own
+mutation. This module only checks where a request comes from, parses JSON,
+and maps ``library.WriteError.kind`` to an HTTP status. ``POST /api/preview`` renders
 unsaved Markdown for the editor; it writes nothing but sits behind the same
 guard, since it is only useful to the UI.
 
@@ -25,15 +26,22 @@ from :func:`host_guard` below, so a page reached through DNS rebinding can't
 read the JSON API or the served SPA either. This module's own checks (here,
 via :func:`_same_machine_error`) are what is left once that's covered:
 Origin, Sec-Fetch-Site, and the write token.
+
+The same middleware also refuses any request whose peer address
+(``request.client.host``) is not loopback. ``kos-read`` only binds to
+loopback, but the ``Host`` header is chosen by the client, so this is what
+keeps another computer out even if the server ends up reachable.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import secrets
-from typing import Any
+from typing import Any, Callable, TypeVar
 from urllib.parse import urlsplit
 
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -47,6 +55,7 @@ from ..library import (
     WriteError,
     WriteResult,
     accept_record,
+    activate_record,
     create_record,
     edit_record,
     file_resolver,
@@ -69,6 +78,22 @@ _STATUS_BY_KIND = {
 }
 
 
+_T = TypeVar("_T")
+
+
+async def blocking(fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+    """Run one blocking library call on a worker thread.
+
+    A write validates the corpus, waits for the workspace lock (which a sync
+    may hold for a whole fetch, merge, and push), and runs git. Called
+    directly in an ``async def`` route, that would stall the event loop and
+    with it every other request, GETs included. Every route that writes or
+    runs git goes through here; cheap reads stay on the event loop.
+    """
+
+    return await run_in_threadpool(fn, *args, **kwargs)
+
+
 def new_write_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -89,6 +114,29 @@ def _is_loopback_origin(value: str) -> bool:
     return parts.scheme in {"http", "https"} and parts.hostname in _LOOPBACK_HOSTS
 
 
+def is_loopback_address(value: str | None) -> bool:
+    """Whether ``value`` is a loopback IP address (``127.0.0.0/8``, ``::1``,
+    or an IPv4-mapped ``::ffff:127.x.x.x``) or the name ``localhost``."""
+
+    if not value:
+        return False
+    if value.lower() == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(value.strip("[]"))
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return (mapped or address).is_loopback
+
+
+def _is_loopback_client(request: Request) -> bool:
+    # No peer address at all (not something uvicorn produces over TCP) is
+    # refused rather than assumed local.
+    client = request.client
+    return client is not None and is_loopback_address(client.host)
+
+
 async def host_guard(request: Request, call_next: Any) -> Response:
     """Refuse any request (not only writes) whose ``Host`` is not loopback.
 
@@ -97,8 +145,12 @@ async def host_guard(request: Request, call_next: Any) -> Response:
     through DNS rebinding cannot read the workspace either. Uses the same
     ``_is_loopback_host`` helper and error shape as the write checks below,
     so there is exactly one definition of "loopback" for the whole server.
+    It also refuses a peer address that is not loopback, since a client on
+    another computer can send any ``Host`` header it likes.
     """
 
+    if not _is_loopback_client(request):
+        return _error("forbidden", "requests must come from this computer")
     if not _is_loopback_host(request.headers.get("host")):
         return _error("forbidden", "requests must address this server by a loopback host name")
     return await call_next(request)
@@ -107,6 +159,8 @@ async def host_guard(request: Request, call_next: Any) -> Response:
 def _same_machine_error(request: Request) -> Response | None:
     """Refuse requests that a page on another site could have caused."""
 
+    if not _is_loopback_client(request):
+        return _error("forbidden", "requests must come from this computer")
     if not _is_loopback_host(request.headers.get("host")):
         return _error("forbidden", "requests must address this server by a loopback host name")
     origin = request.headers.get("origin")
@@ -241,7 +295,8 @@ async def create_view(request: Request) -> Response:
         metadata = _field(payload, "metadata", dict, required=True)
         body = _field(payload, "body", str, required=True)
         project_path = _field(payload, "project_path", str, required=False)
-        result = create_record(
+        result = await blocking(
+            create_record,
             request.app.state.workspace,
             metadata=metadata,
             body=body,
@@ -265,7 +320,8 @@ async def edit_view(request: Request) -> Response:
         body = _field(payload, "body", str, required=False)
         confirm = _field(payload, "confirm_non_material", bool, required=False) or False
         reference = _field(payload, "change_reference", str, required=False)
-        result = edit_record(
+        result = await blocking(
+            edit_record,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=expected,
@@ -287,7 +343,30 @@ async def accept_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = accept_record(
+        result = await blocking(
+            accept_record,
+            request.app.state.workspace,
+            request.path_params["record_id"],
+            expected_sha256=_field(payload, "expected_sha256", str, required=True),
+        )
+    except WriteError as exc:
+        return _write_error_response(exc)
+    return json_response(_result_json(result))
+
+
+async def activate_view(request: Request) -> Response:
+    """A person makes a draft active. A request labelled as an agent's is
+    refused: an agent's note or a promoted observation becomes knowledge only
+    by a human decision."""
+
+    payload = await _write_payload(request)
+    if isinstance(payload, Response):
+        return payload
+    if "agent" in payload:
+        return _error("forbidden", "agents cannot make a draft active; a person does that in the app")
+    try:
+        result = await blocking(
+            activate_record,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),
@@ -302,7 +381,8 @@ async def withdraw_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = withdraw_record(
+        result = await blocking(
+            withdraw_record,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),
@@ -328,7 +408,8 @@ async def supersede_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = supersede_record(
+        result = await blocking(
+            supersede_record,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),

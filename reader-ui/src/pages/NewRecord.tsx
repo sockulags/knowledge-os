@@ -10,6 +10,7 @@ import { PageSkeleton } from "../components/Skeleton";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { Callout, LoadError } from "../components/Callout";
+import { kebab } from "../lib/text";
 import { loadErrorMessage } from "../lib/language";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MarkdownEditor } from "../components/MarkdownEditor";
@@ -21,22 +22,12 @@ import { agentStore, useAgent } from "../lib/agentStore";
 import {
   Field,
   PrimaryButton,
+  fieldLabelClass,
   SecondaryButton,
   UnsavedChangesDialog,
   inputClass,
   parseList,
 } from "../components/EditorParts";
-
-/** "Écrire une Note!" -> "ecrire-une-note": the lowercase kebab-case id the
- * core requires, which is also the file name. */
-export function slugify(title: string): string {
-  return title
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 function cleanFolder(folder: string): string {
   return folder
@@ -67,10 +58,8 @@ export function NewRecord() {
 
   return (
     <NewRecordForm
-      projectId={data.id}
-      projectTitle={data.title}
+      place={{ kind: "project", projectId: data.id, projectTitle: data.title, initialFolder: params.get("folder") ?? "" }}
       breadcrumb={[...data.breadcrumb, { label: data.title, href: `/p/${data.id}` }]}
-      initialFolder={params.get("folder") ?? ""}
       askedForDecision={params.get("kind") === "decision"}
       initialTemplate={params.get("template")}
       supersedes={params.get("supersedes")}
@@ -78,29 +67,56 @@ export function NewRecord() {
   );
 }
 
+/** The kinds of general page, outside any project: each has its own folder. */
+const GENERAL_TYPES = [
+  { type: "knowledge", label: "Knowledge", hint: "Saved in knowledge/: what holds across projects." },
+  { type: "memory", label: "Memory", hint: "Saved in memory/: preferences and lessons to keep in mind." },
+] as const;
+type GeneralType = (typeof GENERAL_TYPES)[number]["type"];
+
+/** Create a page outside any project, in knowledge/ or (`?type=memory`)
+ * memory/. It is always an ordinary page; decisions belong to a project. */
+export function NewGeneralPage() {
+  const [params] = useSearchParams();
+  const { nav } = useShell();
+  useDocumentTitle(nav?.workspace_name, "New general page");
+  return (
+    <NewRecordForm
+      place={{ kind: "general", initialType: params.get("type") === "memory" ? "memory" : "knowledge" }}
+      breadcrumb={[]}
+      askedForDecision={false}
+      initialTemplate={params.get("template")}
+      supersedes={null}
+    />
+  );
+}
+
+/** Where the new page goes: a folder of a project, or a general page. */
+type Place =
+  | { kind: "project"; projectId: string; projectTitle: string; initialFolder: string }
+  | { kind: "general"; initialType: GeneralType };
+
 function NewRecordForm({
-  projectId,
-  projectTitle,
+  place,
   breadcrumb,
-  initialFolder,
   askedForDecision,
   initialTemplate,
   supersedes,
 }: {
-  projectId: string;
-  projectTitle: string;
+  place: Place;
   breadcrumb: { label: string; href: string }[];
-  initialFolder: string;
   askedForDecision: boolean;
   initialTemplate: string | null;
   supersedes: string | null;
 }) {
   const navigate = useNavigate();
   const { refreshNav, nav } = useShell();
+  const projectId = place.kind === "project" ? place.projectId : null;
   const [title, setTitle] = useState("");
   const [id, setId] = useState("");
   const [idEdited, setIdEdited] = useState(false);
-  const [folder, setFolder] = useState(initialFolder);
+  const [folder, setFolder] = useState(place.kind === "project" ? place.initialFolder : "");
+  const [generalType, setGeneralType] = useState<GeneralType>(place.kind === "general" ? place.initialType : "knowledge");
   const [tags, setTags] = useState("");
   const [related, setRelated] = useState("");
   const [body, setBody] = useState("");
@@ -114,15 +130,17 @@ function NewRecordForm({
   const [pendingTemplate, setPendingTemplate] = useState<PageTemplate | null>(null);
 
   // A replacement is always a decision; otherwise the template decides, and
-  // until templates load, `?kind=decision` does.
-  const isDecision = supersedes !== null || (template ? template.kind === "decision" : askedForDecision);
+  // until templates load, `?kind=decision` does. A general page never is one.
+  const notesOnly = projectId === null;
+  const isDecision =
+    !notesOnly && (supersedes !== null || (template ? template.kind === "decision" : askedForDecision));
   const templateText = template?.body ?? "";
 
   // Start from the requested template, the decision template for
   // `?kind=decision`, or the blank page, once the list has loaded.
   useEffect(() => {
     if (!templates.data || template) return;
-    const usable = usableTemplates(templates.data, supersedes !== null);
+    const usable = usableTemplates(templates.data, supersedes !== null, notesOnly);
     const wanted = initialTemplate ?? (askedForDecision || supersedes ? "decision" : "blank");
     const chosen =
       usable.find((item) => item.name === wanted) ??
@@ -131,7 +149,7 @@ function NewRecordForm({
     if (!chosen) return;
     setTemplate(chosen);
     setBody((current) => (current.trim() === "" ? chosen.body : current));
-  }, [templates.data, template, initialTemplate, askedForDecision, supersedes]);
+  }, [templates.data, template, initialTemplate, askedForDecision, supersedes, notesOnly]);
 
   function chooseTemplate(next: PageTemplate) {
     if (next.name === template?.name) return;
@@ -146,7 +164,7 @@ function NewRecordForm({
   }
 
   const replaced = useApi(() => (supersedes ? api.record(supersedes) : Promise.resolve(null)), [supersedes]);
-  const effectiveId = idEdited ? id : slugify(title);
+  const effectiveId = idEdited ? id : kebab(title, null);
   const dirty =
     title.trim() !== "" ||
     (body.trim() !== "" && body !== templateText) ||
@@ -165,11 +183,11 @@ function NewRecordForm({
     const metadata: Record<string, unknown> = {
       id: effectiveId,
       title: title.trim(),
-      type: "project",
+      type: projectId === null ? generalType : "project",
       ...(isDecision ? { record_kind: "decision" } : {}),
       // Notes are written directly; a decision is only ever a proposal here.
       status: isDecision ? "draft" : "active",
-      scope: `project:${projectId}`,
+      scope: projectId === null ? "general" : `project:${projectId}`,
       ...(tagList.length > 0 ? { tags: tagList } : {}),
       ...(relatedList.length > 0 ? { related: relatedList } : {}),
       ...(supersedes ? { supersedes: [supersedes] } : {}),
@@ -181,7 +199,7 @@ function NewRecordForm({
         },
       ],
     };
-    const cleaned = cleanFolder(folder);
+    const cleaned = projectId === null ? "" : cleanFolder(folder);
     const outcome = await write.create({
       metadata,
       body: body.endsWith("\n") ? body : `${body}\n`,
@@ -198,7 +216,17 @@ function NewRecordForm({
     }
   }
 
-  const heading = supersedes ? "Propose a replacement" : isDecision ? "New decision" : "New page";
+  const heading = supersedes
+    ? "Propose a replacement"
+    : isDecision
+      ? "New decision"
+      : projectId === null
+        ? "New general page"
+        : "New page";
+  const pagePath =
+    projectId === null
+      ? `${generalType}/${effectiveId || "new-page"}.md`
+      : `projects/${projectId}/${cleanFolder(folder) ? `${cleanFolder(folder)}/` : ""}${effectiveId || "new-page"}.md`;
 
   return (
     <div className="mx-auto w-full max-w-[860px] px-6 py-10 sm:px-10">
@@ -233,7 +261,7 @@ function NewRecordForm({
             context={{
               workspaceName: nav?.workspace_name ?? null,
               page: null,
-              project: { id: projectId, title: projectTitle },
+              project: place.kind === "project" ? { id: place.projectId, title: place.projectTitle } : null,
             }}
             replacesText={body.trim() !== "" && body !== templateText}
             onDraft={(draft) => {
@@ -249,6 +277,7 @@ function NewRecordForm({
             payload={templates.data}
             chosen={template}
             decisionsOnly={supersedes !== null}
+            notesOnly={notesOnly}
             onChoose={chooseTemplate}
           />
         )}
@@ -272,21 +301,44 @@ function NewRecordForm({
               }}
             />
           </Field>
-          <Field
-            label="Folder"
-            hint={
-              folderLocked
-                ? "Files are attached in this folder, so the page is created here."
-                : `Inside ${projectTitle}. Leave empty for the top level.`
-            }
-          >
-            <input
-              className={`${inputClass} font-mono`}
-              value={folder}
-              readOnly={folderLocked}
-              onChange={(event) => setFolder(event.target.value)}
-            />
-          </Field>
+          {place.kind === "project" ? (
+            <Field
+              label="Folder"
+              hint={
+                folderLocked
+                  ? "Files are attached in this folder, so the page is created here."
+                  : `Inside ${place.projectTitle}. Leave empty for the top level.`
+              }
+            >
+              <input
+                className={`${inputClass} font-mono`}
+                value={folder}
+                readOnly={folderLocked}
+                onChange={(event) => setFolder(event.target.value)}
+              />
+            </Field>
+          ) : (
+            <fieldset>
+              <legend className={fieldLabelClass}>Kind</legend>
+              <div className="flex gap-4">
+                {GENERAL_TYPES.map((item) => (
+                  <label key={item.type} className="flex items-center gap-1.5 text-sm text-(--color-text)">
+                    <input
+                      type="radio"
+                      name="general-type"
+                      className="accent-(--color-accent)"
+                      checked={generalType === item.type}
+                      onChange={() => setGeneralType(item.type)}
+                    />
+                    {item.label}
+                  </label>
+                ))}
+              </div>
+              <span className="mt-1.5 block text-xs text-(--color-text-faint)">
+                {GENERAL_TYPES.find((item) => item.type === generalType)!.hint}
+              </span>
+            </fieldset>
+          )}
           <Field label="Tags" hint="Comma separated">
             <input className={inputClass} value={tags} onChange={(event) => setTags(event.target.value)} />
           </Field>
@@ -301,8 +353,9 @@ function NewRecordForm({
             if (!folderLocked && /\]\(assets\//.test(next)) setFolderLocked(true);
             setBody(next);
           }}
-          path={`projects/${projectId}/${cleanFolder(folder) ? `${cleanFolder(folder)}/` : ""}${effectiveId || "new-page"}.md`}
-          attachTo={{ project: projectId, folder: cleanFolder(folder) }}
+          path={pagePath}
+          // A general page takes attachments once it exists, from its editor.
+          attachTo={projectId === null ? undefined : { project: projectId, folder: cleanFolder(folder) }}
         />
       </div>
 
@@ -326,10 +379,15 @@ function NewRecordForm({
   );
 }
 
-/** The templates a page can start from: every one that can be used, and only
- * decision templates for a proposed replacement. */
-function usableTemplates(payload: TemplatesPayload, decisionsOnly: boolean): PageTemplate[] {
-  return payload.templates.filter((item) => item.error === null && (!decisionsOnly || item.kind === "decision"));
+/** The templates a page can start from: every one that can be used, only
+ * decision templates for a proposed replacement, and no decision template
+ * for a general page. */
+function usableTemplates(payload: TemplatesPayload, decisionsOnly: boolean, notesOnly: boolean): PageTemplate[] {
+  return payload.templates.filter((item) => item.error === null && fits(item, decisionsOnly, notesOnly));
+}
+
+function fits(item: PageTemplate, decisionsOnly: boolean, notesOnly: boolean): boolean {
+  return (!decisionsOnly || item.kind === "decision") && (!notesOnly || item.kind !== "decision");
 }
 
 /** Ctrl+N's agent start: one line in, a drafted title and body out, which the
@@ -406,15 +464,17 @@ function TemplatePicker({
   payload,
   chosen,
   decisionsOnly,
+  notesOnly,
   onChoose,
 }: {
   payload: TemplatesPayload;
   chosen: PageTemplate | null;
   decisionsOnly: boolean;
+  notesOnly: boolean;
   onChoose: (template: PageTemplate) => void;
 }) {
   const { language } = payload;
-  const shown = payload.templates.filter((item) => !decisionsOnly || item.kind === "decision");
+  const shown = payload.templates.filter((item) => fits(item, decisionsOnly, notesOnly));
   if (shown.length < 2) return null;
   return (
     <fieldset>

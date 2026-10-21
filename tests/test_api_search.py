@@ -17,8 +17,6 @@ from reader_support import REPOSITORY, create_workspace, serve, write_record
 from knowledge_os.index import rebuild_indexes
 from knowledge_os.workspace import Workspace
 
-PORT = 8834
-
 
 def _get(base_url: str, path: str) -> dict:
     with urllib.request.urlopen(base_url + path, timeout=5) as response:
@@ -46,7 +44,7 @@ class MissingIndexTests(unittest.TestCase):
             root = Path(directory)
             create_workspace(root)
             write_record(root, "knowledge/plain.md", _record("plain"))
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/search?q=plain")
                 self.assertFalse(data["search_available"])
                 self.assertIn("kos index", data["disabled_reason"])
@@ -73,7 +71,7 @@ class StaleIndexTests(unittest.TestCase):
             time.sleep(0.05)
             path.write_text(path.read_text(encoding="utf-8").replace("Body.", "Edited body."), encoding="utf-8")
 
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/workspace")
                 self.assertTrue(data["health"]["index_stale"])
                 self.assertTrue(data["health"]["search_disabled"])
@@ -104,7 +102,7 @@ class SnippetMarkdownStrippingTests(unittest.TestCase):
             workspace = Workspace(root)
             rebuild_indexes(workspace)
 
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/search?q=decision")
                 self.assertTrue(data["search_available"])
                 self.assertEqual(len(data["results"]), 1)
@@ -131,7 +129,7 @@ class RealCorpusSnippetTests(unittest.TestCase):
         database = REPOSITORY / "indexes" / "catalog.sqlite3"
         if not database.is_file():
             self.skipTest("no search index built in the real repository; run `kos index` to exercise this check")
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             data = _get(base_url, "/api/search?q=decision")
             if not data["search_available"] or not data["results"]:
                 self.skipTest("search index present but stale or empty for this query")
@@ -155,7 +153,7 @@ class FilterTests(unittest.TestCase):
             workspace = Workspace(root)
             rebuild_indexes(workspace)
 
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/search?q=apple&type=source")
                 self.assertTrue(data["search_available"])
                 ids = {r["id"] for r in data["results"]}
@@ -169,7 +167,7 @@ class FilterTests(unittest.TestCase):
             workspace = Workspace(root)
             rebuild_indexes(workspace)
 
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/search?q=apple&type=not-a-real-type")
                 self.assertEqual(data["filters"], {})
                 self.assertEqual({r["id"] for r in data["results"]}, {"apple"})
@@ -189,7 +187,7 @@ class FilterTests(unittest.TestCase):
             workspace = Workspace(root)
             rebuild_indexes(workspace)
 
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 data = _get(base_url, "/api/search?q=apple&record_kind=ordinary")
                 self.assertEqual({r["id"] for r in data["results"]}, {"apple-source"})
 

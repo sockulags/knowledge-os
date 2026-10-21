@@ -42,7 +42,7 @@ from ..library import (
     page_deletion_plan,
     rename_page,
 )
-from .write import _commit_json, _field, _write_error_response, _write_payload
+from .write import _commit_json, _field, _write_error_response, _write_payload, blocking
 
 
 def _structure_json(result: StructureWriteResult) -> dict[str, Any]:
@@ -82,7 +82,8 @@ async def create_project_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = create_project(
+        result = await blocking(
+            create_project,
             request.app.state.workspace,
             project_id=_field(payload, "id", str, required=True),
             title=_field(payload, "title", str, required=True),
@@ -98,7 +99,8 @@ async def create_folder_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = create_folder(
+        result = await blocking(
+            create_folder,
             request.app.state.workspace,
             project_id=request.path_params["project_id"],
             path=_field(payload, "path", str, required=True),
@@ -116,7 +118,8 @@ async def move_folder_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = move_folder(
+        result = await blocking(
+            move_folder,
             request.app.state.workspace,
             request.path_params["project_id"],
             _field(payload, "path", str, required=True),
@@ -137,7 +140,8 @@ async def move_page_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = move_page(
+        result = await blocking(
+            move_page,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),
@@ -156,7 +160,8 @@ async def rename_page_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = rename_page(
+        result = await blocking(
+            rename_page,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),
@@ -253,7 +258,7 @@ def _deletion_json(plan: DeletePlan) -> dict[str, Any]:
 
 async def delete_page_preview_view(request: Request) -> Response:
     try:
-        plan = page_deletion_plan(request.app.state.workspace, request.path_params["record_id"])
+        plan = await blocking(page_deletion_plan, request.app.state.workspace, request.path_params["record_id"])
     except WriteError as exc:
         return _write_error_response(exc)
     return json_response(_deletion_json(plan))
@@ -264,7 +269,9 @@ async def delete_folder_preview_view(request: Request) -> Response:
     if not path:
         return _write_error_response(WriteError("bad_request", "path is required"))
     try:
-        plan = folder_deletion_plan(request.app.state.workspace, request.path_params["project_id"], path)
+        plan = await blocking(
+            folder_deletion_plan, request.app.state.workspace, request.path_params["project_id"], path
+        )
     except WriteError as exc:
         return _write_error_response(exc)
     return json_response(_deletion_json(plan))
@@ -275,7 +282,8 @@ async def delete_page_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = delete_page(
+        result = await blocking(
+            delete_page,
             request.app.state.workspace,
             request.path_params["record_id"],
             expected_sha256=_field(payload, "expected_sha256", str, required=True),
@@ -291,7 +299,8 @@ async def delete_folder_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = delete_folder(
+        result = await blocking(
+            delete_folder,
             request.app.state.workspace,
             request.path_params["project_id"],
             _field(payload, "path", str, required=True),

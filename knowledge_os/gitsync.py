@@ -45,7 +45,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .workspace import Workspace, WorkspaceError, refresh_derived_indexes, validate_workspace, workspace_mutation_lock
+from .workspace import (
+    Workspace,
+    WorkspaceError,
+    atomic_write,
+    refresh_derived_indexes,
+    validate_workspace,
+    workspace_mutation_lock,
+)
 
 #: Seconds allowed for one network operation (fetch or push).
 NETWORK_TIMEOUT = 45.0
@@ -88,6 +95,9 @@ _NETWORK_MARKERS = (
 _NOT_FOUND_PATTERNS = (
     r"does not appear to be a git repository",
     r"repository '[^']*' not found",
+    # A local path that does not exist; git clone says this instead of the
+    # message above on some versions (for example 2.43 on Linux).
+    r"repository '[^']*' does not exist",
     r"requested url returned error: 404",
 )
 
@@ -804,37 +814,61 @@ def _lint_issues(workspace: Workspace) -> tuple[tuple[str, str], ...]:
     return tuple(found)
 
 
+def _sync_target(repo: Repository) -> tuple[str, _Upstream]:
+    """The current branch and its upstream, or the error that stops a sync."""
+
+    branch = _branch(repo)
+    if branch is None:
+        raise GitSyncError("no_branch", "The repository is not on a branch (detached HEAD), so it cannot sync.")
+    upstream = _upstream(repo, branch)
+    if upstream is None:
+        raise _no_upstream_error(repo, branch)
+    return branch, upstream
+
+
+def _fetch(repo: Repository, remote: str, timeout: float) -> None:
+    result = _run_git(
+        repo.git,
+        repo.workspace.root,
+        ["fetch", "--quiet", remote],
+        timeout=timeout,
+        ssh_batch=_ssh_batch(repo),
+    )
+    if result.returncode != 0:
+        raise _classify_network_failure(result, "Fetching from the remote")
+
+
 def sync(workspace: Workspace, *, timeout: float = NETWORK_TIMEOUT) -> SyncOutcome:
     """Pull (fetch + merge) the upstream branch, then push.
 
     When a merge from an earlier sync is waiting and every conflict has been
     resolved, this completes it instead: the corpus must pass lint, then the
     merge is committed, the indexes rebuilt, and the result pushed.
+
+    The fetch runs without the workspace lock: it only updates
+    remote-tracking refs, and a slow remote must not hold up every save for
+    up to ``timeout`` seconds. The lock is taken for the merge and push, and
+    the branch, upstream, and merge state are read again under it, since a
+    write or another sync may have run while the fetch did.
     """
 
     repo = open_repository(workspace)
     with workspace_mutation_lock(workspace):
-        branch = _branch(repo)
-        if branch is None:
-            raise GitSyncError("no_branch", "The repository is not on a branch (detached HEAD), so it cannot sync.")
-        upstream = _upstream(repo, branch)
-        if upstream is None:
-            raise _no_upstream_error(repo, branch)
-
+        branch, upstream = _sync_target(repo)
         if _merging(repo):
             return _complete_merge(repo, upstream, timeout)
+    fetched = upstream.remote
+    _fetch(repo, fetched, timeout)
+
+    with workspace_mutation_lock(workspace):
+        branch, upstream = _sync_target(repo)
+        if _merging(repo):
+            return _complete_merge(repo, upstream, timeout)
+        if upstream.remote != fetched:
+            _fetch(repo, upstream.remote, timeout)
+            upstream = _upstream(repo, branch) or upstream
 
         before = _head(repo)
-        result = _run_git(
-            repo.git,
-            workspace.root,
-            ["fetch", "--quiet", upstream.remote],
-            timeout=timeout,
-            ssh_batch=_ssh_batch(repo),
-        )
-        if result.returncode != 0:
-            raise _classify_network_failure(result, "Fetching from the remote")
-        upstream = _upstream(repo, branch) or upstream
 
         pulled = 0
         if upstream.tracking is not None:
@@ -997,8 +1031,7 @@ def resolve_conflict(workspace: Workspace, path: str, choice: str, content: str 
         workspace.assert_safe_path(target)
         if choice == "merged":
             assert content is not None
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content.encode("utf-8"))
+            atomic_write(target, content.encode("utf-8"))
             _git(repo, "add", "--", path)
         else:
             stage = 2 if choice == "ours" else 3

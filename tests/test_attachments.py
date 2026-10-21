@@ -15,7 +15,10 @@ from pathlib import Path
 from test_api_write import TOKEN_HEADER, _request
 from test_structure import PROVENANCE, StructureTestCase, body_of, write_page
 
+import yaml
+
 from knowledge_os.attachments import AttachmentError, add_attachment, clean_filename
+from knowledge_os.capture import capture_record_text
 from knowledge_os.init_workspace import init_workspace
 from knowledge_os.structure import (
     StructureError,
@@ -25,10 +28,9 @@ from knowledge_os.structure import (
     move_record,
     plan_page_deletion,
 )
-from knowledge_os.workspace import Workspace
+from knowledge_os.workspace import CorpusValidationError, Workspace, stage_workspace
 from reader_support import serve
 
-PORT = 8882
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 )
@@ -142,6 +144,59 @@ class MoveAndDeleteTests(StructureTestCase):
         self.assert_valid()
 
 
+class StagingTests(StructureTestCase):
+    """A mutation's staging copy holds Markdown only, outside the knowledge base."""
+
+    def page_text(self, record_id: str, body: str, **extra: object) -> str:
+        metadata: dict[str, object] = {
+            "id": record_id,
+            "title": record_id.capitalize(),
+            "type": "project",
+            "status": "active",
+            "scope": "project:acme",
+            "created": "2026-09-01",
+            "updated": "2026-09-01",
+            "provenance": PROVENANCE,
+            **extra,
+        }
+        return f"---\n{yaml.safe_dump(metadata, sort_keys=False)}---\n\n{body}"
+
+    def test_staging_keeps_attachment_names_without_their_bytes(self) -> None:
+        large = PNG + bytes(2 * 1024 * 1024)
+        stored = add_attachment(self.workspace, "projects/acme/notes", "large.png", large)
+        siblings = sorted(path.name for path in self.root.parent.iterdir())
+
+        with stage_workspace(self.workspace) as stage:
+            self.assertFalse(stage.root.is_relative_to(self.root.parent))
+            self.assertEqual(sorted(path.name for path in self.root.parent.iterdir()), siblings)
+            self.assertEqual((stage.root / stored.path).stat().st_size, 0)
+            for name in ("projects/acme/README.md", "projects/acme/notes/README.md", "knowledge-os.toml"):
+                self.assertEqual((stage.root / name).read_bytes(), (self.root / name).read_bytes())
+            staged_root = stage.root
+        self.assertFalse(staged_root.exists())
+        self.assertEqual((self.root / stored.path).read_bytes(), large)
+
+    def test_pages_linking_attachments_validate_as_before(self) -> None:
+        stored = add_attachment(self.workspace, "projects/acme/notes", "large.png", PNG + bytes(1024 * 1024))
+        siblings = sorted(path.name for path in self.root.parent.iterdir())
+
+        present = self.page_text("present", f"![large]({stored.link})\n")
+        capture_record_text(self.workspace, present, project_path=Path("notes/present.md"))
+        # Validation never checked that a linked file exists, so a missing one still captures.
+        missing = self.page_text("missing", "![gone](assets/gone.png)\n")
+        capture_record_text(self.workspace, missing, project_path=Path("notes/missing.md"))
+
+        self.assertTrue((self.root / "projects/acme/notes/present.md").is_file())
+        self.assertTrue((self.root / "projects/acme/notes/missing.md").is_file())
+        self.assertEqual(sorted(path.name for path in self.root.parent.iterdir()), siblings)
+        self.assert_valid()
+
+        invalid = self.page_text("again", "Points nowhere.\n", related=["nowhere"])
+        with self.assertRaises(CorpusValidationError):
+            capture_record_text(self.workspace, invalid, project_path=Path("notes/again.md"))
+        self.assertEqual(sorted(path.name for path in self.root.parent.iterdir()), siblings)
+
+
 class AttachmentApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -151,7 +206,7 @@ class AttachmentApiTests(unittest.TestCase):
         create_project(workspace, "demo", title="Demo", provenance=PROVENANCE)
         create_folder(workspace, "demo", "notes", title="Notes", provenance=PROVENANCE)
         write_page(cls.root, "projects/demo/notes/page.md", "page", "project:demo", "Text.\n")
-        cls._server = serve(cls.root, PORT)
+        cls._server = serve(cls.root)
         cls.base_url = cls._server.__enter__()
         status, session = _request(cls.base_url, "GET", "/api/session")
         assert status == 200, session

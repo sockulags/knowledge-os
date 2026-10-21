@@ -412,7 +412,9 @@ class MutationTests(unittest.TestCase):
 
     def test_caught_supersede_write_failure_restores_both_records(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            # Workspace resolves its root, so the injected failure must match
+            # the resolved path (the Windows runner's temp is an 8.3 short path).
+            root = Path(directory).resolve()
             create_workspace(root)
             old = root / "projects" / "demo" / "old-policy.md"
             new = root / "projects" / "demo" / "new-policy.md"

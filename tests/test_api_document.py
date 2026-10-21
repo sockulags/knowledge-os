@@ -32,7 +32,6 @@ from reader_support import (
     write_record,
 )
 
-PORT = 8833
 CONTEXT_WORKSPACE = REPOSITORY / "examples" / "context-workspace"
 
 
@@ -54,7 +53,7 @@ class OpenknowledgePivotTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_decision_fixture(root)
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 status, data = _get(base_url, f"/api/records/{FIXTURE_PROPOSED_ID}")
                 self.assertEqual(status, 200)
                 self.assertEqual(data["properties"]["status"]["value"], "Proposed — not in force until you accept it")
@@ -80,7 +79,7 @@ class OpenknowledgePivotTests(unittest.TestCase):
                 check=True,
             )
             expected = json.loads(inspected.stdout)["content_sha256"]
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 _status, data = _get(base_url, f"/api/records/{FIXTURE_PROPOSED_ID}")
                 self.assertEqual(data["technical_details"]["content_sha256"], expected)
                 self.assertEqual(data["technical_details"]["status"], "draft")
@@ -102,7 +101,7 @@ class StatusAndTrustPillPlacementTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_decision_fixture(root)
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 _status, data = _get(base_url, f"/api/records/{FIXTURE_PROPOSED_ID}")
                 self.assertIsNotNone(data["properties"]["status"]["pill"])
                 self.assertEqual(data["properties"]["status"]["pill"]["label"], "Proposed")
@@ -119,7 +118,7 @@ class StatusAndTrustPillPlacementTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_decision_fixture(root)
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 _status, data = _get(base_url, f"/api/records/{FIXTURE_GOVERNING_IDS[0]}")
                 self.assertTrue(data["properties"]["status"]["value"].startswith("In force"))
                 self.assertIsNone(data["properties"]["trust"])
@@ -128,7 +127,7 @@ class StatusAndTrustPillPlacementTests(unittest.TestCase):
                 self.assertEqual(data["technical_details"]["trust_label"], "active durable; not verified")
 
     def test_ordinary_record_carries_its_pill_on_trust_not_status(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             _status, data = _get(base_url, "/api/records/knowledge-os-record-model")
             self.assertIsNone(data["properties"]["status"]["pill"])
             self.assertIsNotNone(data["properties"]["trust"]["pill"])
@@ -144,7 +143,7 @@ class ProvenanceNeverLeaksAPathTests(unittest.TestCase):
     block's Source sentences must never show one."""
 
     def test_record_model_source_sentences_have_no_file_paths(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             status, data = _get(base_url, "/api/records/knowledge-os-record-model")
             self.assertEqual(status, 200)
             sources = data["properties"]["source"]["value"]
@@ -157,13 +156,13 @@ class ProvenanceNeverLeaksAPathTests(unittest.TestCase):
 
 class NotFoundTests(unittest.TestCase):
     def test_unknown_record_id_is_404_json(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             status, data = _get(base_url, "/api/records/no-such-record")
             self.assertEqual(status, 404)
             self.assertIn("no-such-record", data["detail"])
 
     def test_unknown_record_compare_is_404_json(self) -> None:
-        with serve(REPOSITORY, PORT) as base_url:
+        with serve(REPOSITORY) as base_url:
             status, data = _get(base_url, "/api/records/no-such-record/compare")
             self.assertEqual(status, 404)
             self.assertIn("detail", data)
@@ -173,7 +172,7 @@ class InboundRelationTests(unittest.TestCase):
     """Acceptance criterion 5: inbound relations in examples/context-workspace."""
 
     def test_provenance_boundaries_shows_the_inbound_related_link(self) -> None:
-        with serve(CONTEXT_WORKSPACE, PORT) as base_url:
+        with serve(CONTEXT_WORKSPACE) as base_url:
             status, data = _get(base_url, "/api/records/provenance-boundaries")
             self.assertEqual(status, 200)
             inbound_ids = {relation["record_id"] for relation in data["inbound"]}
@@ -207,7 +206,7 @@ class BrokenRecordAndCompareTests(unittest.TestCase):
             )
             (root / "knowledge" / "bad.md").write_text("no frontmatter here\n", encoding="utf-8")
 
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 status, data = _get(base_url, "/api/records/good")
                 self.assertEqual(status, 200)
                 self.assertEqual(data["title"], "Good record")
@@ -277,7 +276,7 @@ class BrokenRecordAndCompareTests(unittest.TestCase):
                 },
                 body="Store every note in one file per topic with an index.\n",
             )
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 status, data = _get(base_url, "/api/records/old/compare")
                 self.assertEqual(status, 200)
                 blocks = data["comparisons"][0]["blocks"]
@@ -335,7 +334,7 @@ class BrokenRecordAndCompareTests(unittest.TestCase):
                     ],
                 },
             )
-            with serve(root, PORT) as base_url:
+            with serve(root) as base_url:
                 status, data = _get(base_url, "/api/records/choice/compare")
                 self.assertEqual(status, 200)
                 self.assertEqual(data["comparisons"], [])

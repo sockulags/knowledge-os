@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { Search } from "lucide-react";
 import type { NavPayload, SearchPayload } from "../api/types";
 import { api, ApiUnreachableError } from "../api/client";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import { iconFor } from "../lib/icons";
 import { networkErrorMessage } from "../lib/language";
 import { buildSections, searchPageHref, type SwitchOption } from "../lib/quickSwitch";
@@ -37,20 +38,17 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
   const [activeIndex, setActiveIndex] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
-  /** Set while closing, so the focus trap lets focus go back where it came from. */
-  const closingRef = useRef(false);
+  // Focus cannot leave while open, and goes back where it was (the editor, say) on close.
+  const { restoreFocus } = useDialogFocus(dialogRef, open);
   const navigate = useNavigate();
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
   const optionId = (index: number) => `${baseId}-option-${index}`;
   const language = nav?.language;
 
-  // Reset on every open and remember where focus was, to give it back on close.
+  // Reset on every open.
   useEffect(() => {
     if (!open) return;
-    closingRef.current = false;
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setQuery("");
     setText(null);
     setTextError(null);
@@ -110,22 +108,10 @@ export function QuickFind({ open, onClose, nav }: { open: boolean; onClose: () =
     document.getElementById(`${baseId}-option-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [open, activeIndex, optionCount, baseId]);
 
-  // Focus trap: anything that takes focus outside the dialog hands it back.
-  useEffect(() => {
-    if (!open) return;
-    function handleFocusIn(event: FocusEvent) {
-      if (closingRef.current || !dialogRef.current) return;
-      if (!dialogRef.current.contains(event.target as Node)) inputRef.current?.focus();
-    }
-    document.addEventListener("focusin", handleFocusIn);
-    return () => document.removeEventListener("focusin", handleFocusIn);
-  }, [open]);
-
-  /** Close and give focus back to where it was (the editor, say). */
+  /** Close and give focus back to where it was (the editor, say), before
+   * any navigation that follows. */
   function dismiss() {
-    closingRef.current = true;
-    const previous = returnFocusRef.current;
-    if (previous?.isConnected) previous.focus();
+    restoreFocus();
     onClose();
   }
 

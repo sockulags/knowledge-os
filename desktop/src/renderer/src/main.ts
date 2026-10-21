@@ -5,7 +5,7 @@
 import './style.css'
 import mark from '../../../build/icon.svg'
 import { CLONE_TEXT } from '../../shared/cloneText'
-import type { ErrorKind, RecentWorkspace, ShellState } from '../../shared/types'
+import type { ErrorKind, RecentEntry, ShellState } from '../../shared/types'
 import { actions, button, element } from './dom'
 
 const api = window.kosDesktop
@@ -89,14 +89,25 @@ function choiceList(): HTMLElement[] {
   return [element('h2', 'Get started'), list]
 }
 
-function recentList(recent: RecentWorkspace[]): HTMLElement[] {
+/**
+ * The recent knowledge bases. A folder that is gone is marked "Folder not
+ * found"; every entry has its own Remove button, after the entry in tab order.
+ */
+function recentList(recent: RecentEntry[]): HTMLElement[] {
   if (recent.length === 0) return []
   const list = element('ul', undefined, 'recent')
   for (const item of recent) {
-    const entry = button(item.name, () => api.openRecent(item.root))
-    entry.append(element('span', item.root, 'path'))
-    const row = element('li')
-    row.append(entry)
+    const entry = button('', () => api.openRecent(item.root), false)
+    entry.className = 'open'
+    const title = element('span', item.name, 'title')
+    if (item.missing) title.append(element('span', 'Folder not found', 'badge'))
+    entry.append(title, element('span', item.root, 'path'))
+    const remove = button('×', () => api.removeRecent(item.root))
+    remove.className = 'remove'
+    remove.title = 'Remove from list'
+    remove.setAttribute('aria-label', `Remove ${item.name} from the recent list`)
+    const row = element('li', undefined, item.missing ? 'missing' : undefined)
+    row.append(entry, remove)
     list.append(row)
   }
   return [element('h2', 'Recent'), list]
@@ -130,6 +141,9 @@ function render(state: ShellState): void {
     }
     case 'starting':
       nodes.push(element('h1', 'Opening knowledge base…'), element('p', state.root, 'path'))
+      break
+    case 'creating':
+      nodes.push(element('h1', 'Creating knowledge base…'), element('p', state.root, 'path'))
       break
     case 'ready':
       nodes.push(element('h1', 'Loading…'))

@@ -1,4 +1,4 @@
-import { useRef, type MouseEvent } from "react";
+import type { MouseEvent } from "react";
 import { useNavigate } from "react-router";
 
 /** Renders `body_html` (already-sanitized HTML from knowledge_os/reader's
@@ -8,7 +8,6 @@ import { useNavigate } from "react-router";
  * (`href` starting with "/", e.g. "/r/some-id") navigates through the
  * router instead of a full page reload, per the design brief. */
 export function Markdown({ html, className }: { html: string; className?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   function handleClick(event: MouseEvent<HTMLDivElement>) {
@@ -23,7 +22,6 @@ export function Markdown({ html, className }: { html: string; className?: string
 
   return (
     <div
-      ref={ref}
       className={`prose prose-kos max-w-none ${className ?? ""}`}
       onClick={handleClick}
       // eslint-disable-next-line react/no-danger

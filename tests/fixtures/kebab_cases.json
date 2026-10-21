@@ -1,0 +1,73 @@
+[
+  {
+    "input": "Skärmbild från mötet",
+    "expected": "skarmbild-fran-motet"
+  },
+  {
+    "input": "Écrire une Note!",
+    "expected": "ecrire-une-note"
+  },
+  {
+    "input": "Hur fungerar återförsök?",
+    "limit": 80,
+    "fallback": "conversation",
+    "expected": "hur-fungerar-aterforsok"
+  },
+  {
+    "input": "Søren möte",
+    "expected": "sren-mote"
+  },
+  {
+    "input": "Straße",
+    "expected": "strae"
+  },
+  {
+    "input": "Æble og Ål",
+    "expected": "ble-og-al"
+  },
+  {
+    "input": "会议记录",
+    "fallback": "note",
+    "expected": "note"
+  },
+  {
+    "input": "会议记录",
+    "expected": ""
+  },
+  {
+    "input": "Retry policy (v2): what & why?",
+    "expected": "retry-policy-v2-what-why"
+  },
+  {
+    "input": "  --Hello, World!--  ",
+    "expected": "hello-world"
+  },
+  {
+    "input": "ﬁle №5 ½",
+    "expected": "file-no5-12"
+  },
+  {
+    "input": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "limit": 12,
+    "expected": "word-word-wo"
+  },
+  {
+    "input": "ab-cd-ef",
+    "limit": 3,
+    "expected": "ab"
+  },
+  {
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "limit": null,
+    "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+    "input": "!!!",
+    "fallback": "note",
+    "expected": "note"
+  }
+]

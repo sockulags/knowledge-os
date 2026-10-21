@@ -256,6 +256,10 @@ def provenance_sentence(library: Library, record: Record, entry: ProvenanceEntry
         if entry.reference.startswith("interface:"):
             return strings.PROVENANCE_ACCEPTED_IN_APP.format(date=format_date(entry.captured or record.updated))
         return template.format(reference=entry.reference)
+    if entry.kind == "draft-activation":
+        if entry.reference.startswith(("interface:", "cli:")):
+            return strings.PROVENANCE_ACTIVATED_ON.format(date=format_date(entry.captured or record.updated))
+        return template.format(reference=entry.reference)
     if entry.kind == "decision-withdrawal":
         date = entry.captured or record.updated
         if is_neutral_withdrawal(entry.reference):
@@ -317,7 +321,7 @@ def _referat_meeting_date(reference: str) -> str | None:
 
 #: Provenance kinds that record a lifecycle step taken on a decision, not
 #: where the decision came from; ``proposed_by`` skips them.
-_LIFECYCLE_PROVENANCE_KINDS = ("decision-acceptance", "decision-withdrawal")
+_LIFECYCLE_PROVENANCE_KINDS = ("decision-acceptance", "decision-withdrawal", "draft-activation")
 
 #: Provenance kind -> who or what proposed, as a stable key the interface can
 #: use (an icon, a filter). Any other kind is "other".

@@ -168,7 +168,11 @@ async def proposed_view(request: Request) -> Response:
             "all_projects_label": strings.DECIDE_ALL_PROJECTS,
             "projects": projects,
             "items": [_row(library, record) for record in shown],
-            "empty": {"title": strings.DECIDE_EMPTY_TITLE, "body": empty_body},
+            "empty": {
+                "title": strings.DECIDE_EMPTY_TITLE,
+                "title_observations": strings.DECIDE_EMPTY_TITLE_OBSERVATIONS,
+                "body": empty_body,
+            },
             "open_label": strings.DECIDE_OPEN,
             "language": decision_language(),
         }

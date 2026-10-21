@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -42,6 +42,15 @@ const missingProvider: AgentProvider = {
   })
 }
 
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 describe('AgentService', () => {
   let service: AgentService | null = null
   const roots: string[] = []
@@ -69,12 +78,18 @@ describe('AgentService', () => {
       ['missing', 'not-installed']
     ])
     await expect(
-      service.start('missing', { root: process.cwd(), kosMcp: kosMcpCommand('kos', {}, 'r.json') })
+      service.start('missing', {
+        root: process.cwd(),
+        kosMcp: kosMcpCommand('kos', {}, 'r.json', process.cwd())
+      })
     ).rejects.toMatchObject({
       kind: 'not-ready',
       message: 'Not here.'
     })
-    const context = { root: process.cwd(), kosMcp: kosMcpCommand('kos', {}, 'r.json') }
+    const context = {
+      root: process.cwd(),
+      kosMcp: kosMcpCommand('kos', {}, 'r.json', process.cwd())
+    }
     // The adapter is installed on demand, before the first session.
     expect((await service.list())[0].adapterInstalled).toBe(false)
     await expect(service.start('mock', context)).rejects.toMatchObject({ kind: 'adapter-missing' })
@@ -94,16 +109,57 @@ describe('AgentService', () => {
     await expect(service.prompt('echo hi')).rejects.toMatchObject({ kind: 'closed' })
   })
 
-  it('runs kos mcp from the app’s own core, labelled as the app', () => {
+  it('stops the processes the agent started when the conversation closes', async () => {
+    const { root, fetchBytes } = adapters()
+    const pidFile = join(root, 'child.pid')
+    const withChild: AgentProvider = {
+      ...mockProvider,
+      launchSpec: () => ({
+        command: process.execPath,
+        args: [MOCK_AGENT],
+        env: { MOCK_CHILD: pidFile }
+      })
+    }
+    service = new AgentService(
+      testHost,
+      { root, fetchBytes },
+      { name: 'test', version: '0' },
+      () => undefined,
+      [withChild]
+    )
+    await service.installAdapter('mock')
+    await service.start('mock', {
+      root: process.cwd(),
+      kosMcp: kosMcpCommand('kos', {}, 'r.json', process.cwd())
+    })
+    // The pid is written before the agent answers `initialize`.
+    expect(existsSync(pidFile)).toBe(true)
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    expect(isRunning(pid)).toBe(true)
+    service.close()
+    const deadline = Date.now() + 5000
+    while (isRunning(pid) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    if (isRunning(pid)) process.kill(pid)
+    expect(isRunning(pid)).toBe(false)
+  })
+
+  it('runs kos mcp from the app’s own core, labelled as the app, for one knowledge base', () => {
     const kos = kosMcpCommand(
       '/app/core/kos-core.exe',
-      { PYTHONPATH: '/repo', HOME: '/home/me' },
-      '/data/runtime.json'
+      { PYTHONPATH: '/repo', HOME: '/home/me', KOS_EXPECT_WORKSPACE: '/elsewhere' },
+      '/data/runtime.json',
+      '/notes/kb-a'
     )
     expect(kos).toEqual({
       command: '/app/core/kos-core.exe',
       args: ['-P', '-m', 'knowledge_os', 'mcp', '--place', 'Knowledge OS app'],
-      env: { KOS_RUNTIME_FILE: '/data/runtime.json', PYTHONPATH: '/repo' }
+      env: {
+        KOS_RUNTIME_FILE: '/data/runtime.json',
+        KOS_EXPECT_WORKSPACE: '/notes/kb-a',
+        PYTHONPATH: '/repo'
+      }
     })
   })
 

@@ -25,7 +25,7 @@ import re
 from typing import TypedDict
 
 from .. import grouping, language, strings
-from ..library import Library, ProvenanceEntry, Record, Relation, content_sha256, decision_actions
+from ..library import Library, ProvenanceEntry, Record, Relation, can_activate, content_sha256, decision_actions
 
 __all__ = [
     "Pill",
@@ -459,6 +459,37 @@ def _outcome(library: Library, record: Record, action: str, status: str, **field
         "notice": copy["notice"].format(title=record.title, **fields),
         "summary": copy["summary"].format(**fields),
         "status": {"label": strings.DOCUMENT_STATUS_HEADER, "value": sentence, "pill": pill_for(after)},
+    }
+
+
+def draft_activation_json(library: Library, record: Record) -> dict[str, object] | None:
+    """"Make active" for a draft that is not a decision: the sentence above
+    the button, its label, and what the interface shows while the write waits
+    for Undo (the same shape as a decision action's outcome, and the same
+    labels for Undo and the notice); ``None`` when it does not apply."""
+
+    if not can_activate(record):
+        return None
+    trust = "active durable; not verified" if record.trust_label == "draft durable; not verified" else record.trust_label
+    after = dataclasses.replace(
+        record,
+        status="active",
+        updated=datetime.datetime.now(datetime.UTC).date().isoformat(),
+        trust_label=trust,
+    )
+    return {
+        "summary": strings.DRAFT_ACTIVATION_SUMMARY,
+        "label": strings.DRAFT_ACTIVATION_LABEL,
+        "labels": {**strings.DECISION_ACTION_LABELS, "conflict": strings.DRAFT_ACTIVATION_CONFLICT},
+        "outcome": {
+            "notice": strings.DRAFT_ACTIVATION_OUTCOME["notice"].format(title=record.title),
+            "summary": strings.DRAFT_ACTIVATION_OUTCOME["summary"],
+            "status": {
+                "label": strings.DOCUMENT_STATUS_HEADER,
+                "value": language.status_sentence(library, after),
+                "pill": pill_for(after),
+            },
+        },
     }
 
 

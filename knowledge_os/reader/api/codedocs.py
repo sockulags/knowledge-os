@@ -28,7 +28,7 @@ from ..library import (
     repository_links,
     unlink_repository,
 )
-from .write import _agent, _field, _result_json, _write_error_response, _write_payload, proposed_json
+from .write import _agent, _field, _result_json, _write_error_response, _write_payload, blocking, proposed_json
 
 
 def _written(result: object, status_code: int = 200) -> Response:
@@ -51,7 +51,8 @@ async def link_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = link_repository(
+        result = await blocking(
+            link_repository,
             request.app.state.workspace,
             request.path_params["project_id"],
             path=_field(payload, "path", str, required=True),
@@ -68,7 +69,8 @@ async def unlink_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = unlink_repository(
+        result = await blocking(
+            unlink_repository,
             request.app.state.workspace,
             request.path_params["project_id"],
             path=_field(payload, "path", str, required=True),
@@ -93,7 +95,9 @@ async def check_view(request: Request) -> Response:
             if len(links) != 1:
                 raise WriteError("bad_request", "since needs repository when the project links more than one")
             since = {links[0]["path"]: since_commit}
-        check = documentation_check(request.app.state.workspace, request.path_params["project_id"], since=since)
+        check = await blocking(
+            documentation_check, request.app.state.workspace, request.path_params["project_id"], since=since
+        )
     except WriteError as exc:
         return _write_error_response(exc)
     return json_response(check)
@@ -104,7 +108,8 @@ async def propose_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = propose_documentation_decision(
+        result = await blocking(
+            propose_documentation_decision,
             request.app.state.workspace,
             request.path_params["project_id"],
             path=_field(payload, "repository", str, required=True),
@@ -121,7 +126,8 @@ async def mark_view(request: Request) -> Response:
     if isinstance(payload, Response):
         return payload
     try:
-        result = mark_documentation_checked(
+        result = await blocking(
+            mark_documentation_checked,
             request.app.state.workspace,
             request.path_params["project_id"],
             path=_field(payload, "repository", str, required=True),
@@ -141,7 +147,8 @@ async def commit_view(request: Request) -> Response:
         commit = request.query_params.get("commit") or ""
         if not repository or not commit:
             raise WriteError("bad_request", "repository and commit are required")
-        details = repository_commit(
+        details = await blocking(
+            repository_commit,
             request.app.state.workspace, request.path_params["project_id"], path=repository, commit=commit
         )
     except WriteError as exc:

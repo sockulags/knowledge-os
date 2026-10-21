@@ -19,14 +19,19 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from reader_support import FIXTURE_PROJECT_ID, FIXTURE_PROPOSED_ID, serve, write_decision_fixture
+from reader_support import (
+    FIXTURE_GOVERNING_IDS,
+    FIXTURE_PROJECT_ID,
+    FIXTURE_PROPOSED_ID,
+    serve,
+    write_decision_fixture,
+)
 
 from knowledge_os import capture as capture_module
 from knowledge_os import mutations as mutations_module
 from knowledge_os.reader import library
 from knowledge_os.workspace import Workspace, WorkspaceError
 
-PORT = 8842
 TOKEN_HEADER = "X-KOS-Write-Token"
 
 
@@ -71,7 +76,7 @@ class WriteApiTests(unittest.TestCase):
         directory = cls._stack.enter_context(tempfile.TemporaryDirectory())
         cls.root = Path(directory)
         write_decision_fixture(cls.root)
-        cls.base_url = cls._stack.enter_context(serve(cls.root, PORT))
+        cls.base_url = cls._stack.enter_context(serve(cls.root))
         status, session = _request(cls.base_url, "GET", "/api/session")
         assert status == 200, session
         cls.token = session["write_token"]
@@ -103,6 +108,22 @@ class WriteApiTests(unittest.TestCase):
         status, found = _request(self.base_url, "GET", "/api/search?q=quetzalcoatlus")
         self.assertEqual(status, 200)
         self.assertIn("created-note", json.dumps(found))
+
+    def test_create_general_pages_without_a_project(self) -> None:
+        # The app's New general page: knowledge/ and memory/, no project_path.
+        status, result = self.create(_note("general-memory-note", type="memory", description="Kept in mind."))
+        self.assertEqual(status, 201, result)
+        self.assertEqual(result["path"], "memory/general-memory-note.md")
+        self.assertIn("description: Kept in mind.", (self.root / result["path"]).read_text(encoding="utf-8"))
+
+        status, result = self.create(_note("general-knowledge-note"))
+        self.assertEqual(status, 201, result)
+        self.assertEqual(result["path"], "knowledge/general-knowledge-note.md")
+
+        # A project_path places only project records.
+        status, result = self.create(_note("misplaced-general-note"), project_path="notes/misplaced-general-note.md")
+        self.assertEqual(status, 422, result)
+        self.assertFalse((self.root / "knowledge" / "misplaced-general-note.md").exists())
 
     def test_create_project_record_honours_project_path(self) -> None:
         metadata = _note(
@@ -237,6 +258,75 @@ class WriteApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 422, result)
         self.assertIn("must not change status", result["detail"])
+
+    def test_edit_sets_and_removes_the_description(self) -> None:
+        self.assertEqual(self.create(_note("described-note"))[0], 201)
+        status, page = _request(self.base_url, "GET", "/api/records/described-note")
+        self.assertEqual(status, 200, page)
+        self.assertIsNone(page["description"])
+        self.assertEqual(page["editing"]["metadata"]["description"], "")
+
+        status, result = self.write(
+            "PATCH",
+            "/api/records/described-note",
+            {"expected_sha256": self.sha("knowledge/described-note.md"), "metadata": {"description": "One line."}},
+        )
+        self.assertEqual(status, 200, result)
+        status, page = _request(self.base_url, "GET", "/api/records/described-note")
+        self.assertEqual(page["description"], "One line.")
+        self.assertEqual(page["editing"]["metadata"]["description"], "One line.")
+
+        status, result = self.write(
+            "PATCH",
+            "/api/records/described-note",
+            {"expected_sha256": result["content_sha256"], "metadata": {"description": "  "}},
+        )
+        self.assertEqual(status, 422, result)
+        self.assertIn("description", result["detail"])
+
+        status, result = self.write(
+            "PATCH",
+            "/api/records/described-note",
+            {"expected_sha256": self.sha("knowledge/described-note.md"), "metadata": {"description": None}},
+        )
+        self.assertEqual(status, 200, result)
+        self.assertNotIn("description:", (self.root / "knowledge" / "described-note.md").read_text(encoding="utf-8"))
+
+    def test_edit_refuses_identity_lifecycle_and_system_provenance(self) -> None:
+        self.assertEqual(self.create(_note("fixed-fields-note"))[0], 201)
+        relative = "knowledge/fixed-fields-note.md"
+        for changes, expected in (
+            ({"id": "other-id"}, "must not change id"),
+            ({"type": "memory"}, "must not change type"),
+            ({"status": "archived"}, "must not change status"),
+        ):
+            before = self.sha(relative)
+            status, result = self.write(
+                "PATCH", "/api/records/fixed-fields-note", {"expected_sha256": before, "metadata": changes}
+            )
+            self.assertEqual(status, 422, (changes, result))
+            self.assertIn(expected, result["detail"])
+            self.assertEqual(self.sha(relative), before)
+
+        # An accepted decision's acceptance provenance is system-managed.
+        governing = FIXTURE_GOVERNING_IDS[0]
+        decision = f"projects/{FIXTURE_PROJECT_ID}/{governing}.md"
+        before = self.sha(decision)
+        status, result = self.write(
+            "PATCH",
+            f"/api/records/{governing}",
+            {
+                "expected_sha256": before,
+                "metadata": {
+                    "provenance": [
+                        {"kind": "decision-acceptance", "reference": "test:rewritten", "captured": "2026-08-29T12:00:00Z"}
+                    ]
+                },
+            },
+        )
+        self.assertEqual(status, 422, result)
+        self.assertIn("system-managed", result["detail"])
+        self.assertEqual(self.sha(decision), before)
 
     def test_unknown_id_is_not_found(self) -> None:
         status, result = self.write("PATCH", "/api/records/no-such-record", {"expected_sha256": "0" * 64})

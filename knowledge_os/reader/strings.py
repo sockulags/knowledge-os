@@ -122,6 +122,9 @@ PROVENANCE_KIND: dict[str, str] = {
     # directly (see PROVENANCE_ACCEPTED_IN_APP for the analogous "in app"
     # date-only case).
     "decision-withdrawal": "Withdrawn on {date}: {reference}",
+    # A person made a draft active; the reference is usually the app's own
+    # ``interface:<timestamp>:activate`` stamp (see PROVENANCE_ACTIVATED_ON).
+    "draft-activation": "Made active by {reference}",
     "discovery": "Came from the observation {title}",  # verbatim, Sec.5
     # These four are not in the plan's own language table, but are common
     # in the real corpus (``repository-file`` and ``project-definition``
@@ -163,6 +166,10 @@ PROVENANCE_REFERAT_UNDATED = "Imported from a Referat meeting"
 #: ``interface:<timestamp>:<action>``: the reference is a machine stamp, so
 #: the sentence names the date instead of quoting it.
 PROVENANCE_ACCEPTED_IN_APP = "Accepted in this app on {date}"
+
+#: A draft-activation whose reference is a machine stamp (the app's or
+#: ``kos activate``'s own): the sentence names the date instead.
+PROVENANCE_ACTIVATED_ON = "Made active on {date}"
 
 #: Fallback for every other provenance kind (see module docstring):
 #: reference-free on purpose, for the same reason the four entries above
@@ -767,6 +774,19 @@ DECISION_OUTCOMES: dict[str, dict[str, str]] = {
     },
 }
 
+#: "Make active" on a draft that is not a decision (a note an agent saved, a
+#: draft promoted from an observation): the sentence above the button, the
+#: button, and what the notice and the page say while Undo is open.
+DRAFT_ACTIVATION_SUMMARY = "Work in progress. It does not count as current knowledge until you make it active."
+DRAFT_ACTIVATION_LABEL = "Make active"
+DRAFT_ACTIVATION_OUTCOME: dict[str, str] = {
+    "notice": "Made “{title}” active.",
+    "summary": "Made active. It is current from today.",
+}
+DRAFT_ACTIVATION_CONFLICT = (
+    "This page changed on disk after it was loaded. Nothing was changed; reload to see the current version."
+)
+
 #: The sentence at the top of a decision's action box. {title} is the
 #: decision it would replace.
 DECISION_SUMMARY: dict[str, str] = {
@@ -814,6 +834,8 @@ DECIDE_INTRO = (
 DECIDE_ALL_PROJECTS = "All projects"
 DECIDE_PROJECT_FILTER_LABEL = "Project"
 DECIDE_EMPTY_TITLE = "Nothing is waiting on you"
+#: The empty title when observations still wait below (they are not decisions).
+DECIDE_EMPTY_TITLE_OBSERVATIONS = "No decisions or changes are waiting"
 DECIDE_EMPTY_BODY = "When something proposes a decision, it appears here for you to accept or withdraw."
 #: Shown when a project filter matches nothing.
 DECIDE_EMPTY_FILTERED = "No proposed decision is waiting in this project."
@@ -828,6 +850,56 @@ DECIDE_EFFECT_BLOCKED = "It names a decision to replace that is not in force, so
 DECIDE_OPEN = "Open"
 #: Home page link into the inbox.
 HOME_DECIDE_LINK = "Open the decision inbox"
+
+# ---------------------------------------------------------------------------
+# Observations waiting in Decide (GET /api/discoveries/pending), and the
+# person's review of them (POST /api/discoveries/{id}/retain|reject|promote).
+# ---------------------------------------------------------------------------
+
+OBSERVATIONS_HEADING = "Observations waiting"
+OBSERVATIONS_INTRO = (
+    "Agents noted these while working. They are observations, not knowledge, until you review them: "
+    "keep one as a reviewed observation, dismiss it, or turn it into a new draft page."
+)
+#: The 403 for a review request labelled as an agent's.
+OBSERVATIONS_AGENT_REFUSED = (
+    "Only a person can review an observation. Agents record observations; they cannot keep, dismiss, "
+    "or promote them."
+)
+OBSERVATIONS_COUNT_SINGULAR = "1 observation is waiting for review."
+OBSERVATIONS_COUNT_PLURAL = "{count} observations are waiting for review."
+OBSERVATIONS_TRUST = "Observation — not knowledge"
+#: Shown instead of the packets when the corpus or search index cannot give them.
+OBSERVATIONS_UNAVAILABLE = "The review packets cannot be shown right now: {error}"
+OBSERVATIONS_AGENT_PHRASE = "Review the discovery {id} in Knowledge OS."
+OBSERVATIONS_LABELS: dict[str, str] = {
+    "related": "Pages it may overlap with",
+    "no_related": "No page it may overlap with was found.",
+    "packet": "Review packet",
+    "agent": "Ask your agent",
+    "commands": "Or run one of these",
+    "retain": "Keep it as a reviewed observation",
+    "reject": "Dismiss it",
+    "promote": "Turn it into a new page",
+    "copy": "Copy",
+    "copied": "Copied",
+    "act_retain": "Keep",
+    "act_reject": "Dismiss…",
+    "act_promote": "Turn into a page…",
+    "reason_label": "Why dismiss it?",
+    "reason_placeholder": "Required: what is wrong or not worth keeping",
+    "confirm_reject": "Dismiss",
+    "promote_title": "Title of the new page",
+    "promote_id": "Page ID",
+    "promote_general": "Make it general knowledge instead of a page in {project}",
+    "acknowledge_related": "I have checked the pages it may overlap with",
+    "confirm_promote": "Create draft page",
+    "cancel": "Cancel",
+    "notice_retain": "Kept “{title}” as a reviewed observation.",
+    "notice_reject": "Dismissed “{title}”.",
+    "notice_promote": "Turning “{title}” into a new draft page.",
+    "failed": "Could not review “{title}”:",
+}
 
 #: Who or what proposed a decision, from its first provenance entry that is
 #: not a lifecycle step, keyed by provenance kind. ``language.proposed_by``

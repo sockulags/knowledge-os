@@ -174,7 +174,7 @@ class CaptureTests(unittest.TestCase):
             external = root.parent / f"{root.name}-external"
             external.mkdir()
             try:
-                for record_id, record_type, scope, relative_path in cases:
+                for index_count, (record_id, record_type, scope, relative_path) in enumerate(cases, start=2):
                     candidate_dir = external if record_id == "user-preference" else root
                     candidate = candidate_dir / f"candidate-{record_id}.md"
                     write_candidate(
@@ -197,6 +197,7 @@ class CaptureTests(unittest.TestCase):
                         json.loads(result.stdout),
                         {
                             "id": record_id,
+                            "index_count": index_count,
                             "path": relative_path,
                             "scope": scope,
                             "status": "draft",

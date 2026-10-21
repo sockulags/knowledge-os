@@ -1,7 +1,7 @@
 // The main window's preload script. It exposes the workspace actions to the
 // start page, which the main process rejects from any other page, and the
-// sidebar width to the reader UI, which the main process answers only for
-// the reader. It also draws the window chrome (title bar, menu, notices,
+// sidebar width and the in-app agent to the reader UI, which the main process
+// answers only for the reader. It also draws the window chrome (title bar, menu, notices,
 // dialogs) into whichever of the two pages the window shows; that part talks
 // to the main process from this isolated world and is not exposed to the page.
 
@@ -32,6 +32,7 @@ const api: DesktopApi = {
   createWorkspace: () => ipcRenderer.invoke(IPC.createWorkspace),
   cloneWorkspace: () => ipcRenderer.invoke(IPC.cloneWorkspace),
   openRecent: (root) => ipcRenderer.invoke(IPC.openRecent, root),
+  removeRecent: (root) => ipcRenderer.invoke(IPC.removeRecent, root),
   showStart: () => ipcRenderer.invoke(IPC.showStart),
   retry: () => ipcRenderer.invoke(IPC.retry),
   agent: {

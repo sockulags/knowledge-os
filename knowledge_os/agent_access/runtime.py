@@ -19,6 +19,11 @@ The user-data folder is Electron's ``userData`` for the app
 ``$XDG_CONFIG_HOME/knowledge-os-desktop`` (``~/.config``) elsewhere.
 ``KOS_DESKTOP_USER_DATA`` overrides it, as it does for the app, and
 ``KOS_RUNTIME_FILE`` names the file directly.
+
+The app's own agent also gets ``KOS_EXPECT_WORKSPACE``, the knowledge base
+its conversation started in. A runtime file that names another knowledge base
+is then refused (``wrong_knowledge_base``) instead of followed, so the agent
+never writes somewhere else. Without it, any open knowledge base is used.
 """
 
 from __future__ import annotations
@@ -40,8 +45,10 @@ _PROBE_TIMEOUT = 3.0
 
 class AppUnavailable(Exception):
     """The app cannot be used right now. ``kind`` is ``app_not_open`` (no
-    runtime file: the app is closed or no knowledge base is open) or
-    ``app_not_responding`` (a file that no running core answers for)."""
+    runtime file: the app is closed or no knowledge base is open),
+    ``app_not_responding`` (a file that no running core answers for), or
+    ``wrong_knowledge_base`` (the app has another knowledge base open than
+    ``KOS_EXPECT_WORKSPACE`` names)."""
 
     def __init__(self, kind: str, detail: str):
         super().__init__(detail)
@@ -116,6 +123,36 @@ def parse_runtime(text: str) -> RuntimeInfo:
     )
 
 
+def same_root(left: str, right: str, platform: str | None = None) -> bool:
+    """Whether two workspace roots name the same folder (resolved, and
+    case-insensitive on Windows)."""
+
+    platform = sys.platform if platform is None else platform
+
+    def normal(root: str) -> str:
+        try:
+            resolved = str(Path(root).resolve())
+        except OSError:
+            resolved = os.path.abspath(root)
+        resolved = os.path.normpath(resolved)
+        return resolved.casefold() if platform == "win32" else resolved
+
+    return normal(left) == normal(right)
+
+
+def check_expected_workspace(info: RuntimeInfo, env: Mapping[str, str] | None = None) -> None:
+    """Refuse a runtime file for another knowledge base than ``KOS_EXPECT_WORKSPACE``."""
+
+    env = os.environ if env is None else env
+    expected = env.get("KOS_EXPECT_WORKSPACE")
+    if expected and not same_root(expected, info.workspace_root):
+        raise AppUnavailable(
+            "wrong_knowledge_base",
+            f"The Knowledge OS app now has {info.workspace_root} open, not {expected}, "
+            "where this conversation started. Nothing was written.",
+        )
+
+
 def pid_alive(pid: int) -> bool:
     """Whether a process with this id is running (best effort)."""
 
@@ -166,8 +203,9 @@ def _session_token(info: RuntimeInfo) -> str | None:
 def connect(env: Mapping[str, str] | None = None) -> RuntimeInfo:
     """Read the runtime file and confirm that its core is the one answering.
 
-    Raises ``AppUnavailable`` when there is no usable file, the core process
-    is gone, or the port does not answer with the same write token.
+    Raises ``AppUnavailable`` when there is no usable file, it names another
+    knowledge base than ``KOS_EXPECT_WORKSPACE``, the core process is gone,
+    or the port does not answer with the same write token.
     """
 
     path = runtime_file(env)
@@ -184,6 +222,7 @@ def connect(env: Mapping[str, str] | None = None) -> RuntimeInfo:
         info = parse_runtime(text)
     except ValueError as exc:
         raise AppUnavailable("app_not_responding", f"The Knowledge OS runtime file is not usable: {exc}.") from None
+    check_expected_workspace(info, env)
     stale = (
         "The Knowledge OS app left a runtime file behind but is no longer answering; "
         "it probably closed without cleaning up."

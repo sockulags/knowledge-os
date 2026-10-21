@@ -354,6 +354,36 @@ class ProvenanceSentenceTests(unittest.TestCase):
         sentences = [language.provenance_sentence(library, record, entry) for entry in record.provenance]
         self.assertEqual(sentences, ["Written by you in this app", "Accepted in this app on 23 September 2026"])
 
+    def test_draft_activation_names_the_date_or_the_given_reference(self) -> None:
+        def build(root: Path) -> None:
+            write_record(
+                root,
+                "knowledge/note.md",
+                {
+                    "id": "note",
+                    "title": "Note",
+                    "type": "knowledge",
+                    "status": "active",
+                    "scope": "general",
+                    "created": "2026-09-22",
+                    "updated": "2026-09-23",
+                    "provenance": [
+                        {"kind": "interface-authored", "reference": "interface:2026-09-22T10:00:00Z:create"},
+                        {
+                            "kind": "draft-activation",
+                            "reference": "interface:2026-09-23T08:00:00Z:activate",
+                            "captured": "2026-09-23T08:00:00Z",
+                        },
+                        {"kind": "draft-activation", "reference": "Lucas", "captured": "2026-09-23T09:00:00Z"},
+                    ],
+                },
+            )
+
+        library = _load(build)
+        record = library.records_by_id["note"]
+        sentences = [language.provenance_sentence(library, record, entry) for entry in record.provenance[1:]]
+        self.assertEqual(sentences, ["Made active on 23 September 2026", "Made active by Lucas"])
+
     def test_referat_meeting_provenance_names_the_meeting_date(self) -> None:
         def build(root: Path) -> None:
             write_record(

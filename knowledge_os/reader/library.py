@@ -7,13 +7,14 @@ classification, or lifecycle rules: it calls ``validate_workspace``,
 their output into plain data.
 
 Reads never write to the workspace. The only writes are ``create_record``,
-``edit_record``, ``accept_record``, ``withdraw_record``, and
-``supersede_record``, plus the structure changes ``create_project``,
+``edit_record``, ``accept_record``, ``withdraw_record``,
+``supersede_record``, and ``activate_record``, plus the structure changes ``create_project``,
 ``create_folder``, ``rename_page``, ``move_page``, ``move_folder``,
-``delete_page``, and ``delete_folder``, at the
-end of this module, which hand the request to the core's own ``capture``,
-``update``, ``decision accept``, ``decision withdraw``, ``supersede``, and
-``structure`` mutations (shared lock, staged validation,
+``delete_page``, and ``delete_folder``, and the observation reviews
+``retain_observation``, ``reject_observation``, and ``promote_observation``
+(``kos discovery retain|reject|promote``), at the end of this module, which hand the request to the core's own ``capture``,
+``update``, ``decision accept``, ``decision withdraw``, ``supersede``,
+``activate``, and ``structure`` mutations (shared lock, staged validation,
 SHA-256 guard, index refresh) and translate the core's errors into one
 ``WriteError`` with a stable ``kind``. After a successful write they commit
 the touched files to the workspace's own Git repository through
@@ -29,7 +30,6 @@ edited while the server is running is visible on the next request
 from __future__ import annotations
 
 import hashlib
-import posixpath
 import re
 import sqlite3
 from dataclasses import dataclass, replace
@@ -54,6 +54,13 @@ from knowledge_os.attachments import (
 )
 from knowledge_os.agent_identity import AGENT_PROVENANCE_KIND, AgentIdentity, parse_agent_reference
 from knowledge_os.context_policy import trust_label
+from knowledge_os.discovery import (
+    DiscoveryError,
+    pending_review_details,
+    promote_discovery,
+    reject_discovery,
+    retain_discovery,
+)
 from knowledge_os.gitsetup import ConnectOutcome, InitOutcome, RemoteCheck, SetupStatus
 from knowledge_os.gitsync import CommitOutcome, ConflictFile, GitSyncError, ResolveOutcome, SyncOutcome, SyncStatus
 from knowledge_os.index import rebuild_indexes, search_index, validate_index
@@ -74,6 +81,7 @@ from knowledge_os.mutations import (
     StaleRevisionError,
     SupersedeIndexError,
     accept_decision,
+    activate_draft,
     supersede_decision,
     update_record_text,
     withdraw_decision,
@@ -91,7 +99,9 @@ from knowledge_os.review import (
     load_policy,
     load_proposal,
     needs_review,
+    page_place,
     propose,
+    write_place,
 )
 from knowledge_os.skills import Skill, load_skills
 from knowledge_os.templates import Template, fill as fill_template, list_templates
@@ -186,6 +196,16 @@ __all__ = [
     "ProposedWrite",
     "ReviewRule",
     "review_policy",
+    "review_rules",
+    # Observations waiting for review, and the person's review of them.
+    "PendingDiscovery",
+    "RelatedRecordView",
+    "pending_discoveries",
+    "DiscoveryWriteResult",
+    "retain_observation",
+    "reject_observation",
+    "promote_observation",
+    "suggest_record_id",
     "review_check",
     "proposed_changes",
     "proposed_change",
@@ -258,6 +278,7 @@ class Record:
     trust_label: str
     accepted_at: str | None  # `captured` of the decision-acceptance entry
     is_decision: bool
+    description: str | None = None  # the optional one-line summary under the title
 
 
 @dataclass(frozen=True)
@@ -420,6 +441,7 @@ def _build_record(
         trust_label=trust_label(document),
         accepted_at=_accepted_at(metadata, record_kind),
         is_decision=record_kind == "decision",
+        description=metadata.get("description"),
     )
 
 
@@ -726,9 +748,10 @@ def read_repo_document(workspace: Workspace, rel_path: str) -> tuple[str, str]:
 class WriteError(LibraryError):
     """A refused write, with a ``kind`` the API maps to one HTTP status.
 
-    ``kind`` is one of ``bad_request``, ``not_found``, ``conflict`` (stale
-    SHA-256), ``duplicate`` (ID or destination already exists), or
-    ``validation`` (the core rejected the candidate or the resulting corpus).
+    ``kind`` is one of ``bad_request``, ``forbidden`` (an agent editing a
+    decision), ``not_found``, ``conflict`` (stale SHA-256), ``duplicate`` (ID
+    or destination already exists), or ``validation`` (the core rejected the
+    candidate or the resulting corpus).
     ``issues`` holds ``(path, message)`` lint findings when the core reported
     them; ``current_sha256`` is set on a conflict.
     """
@@ -807,9 +830,7 @@ def create_record(
         candidate["provenance"] = [agent.provenance_entry(), *(given if isinstance(given, list) else [])]
     text = render_document(candidate, body).decode("utf-8")
     if candidate.get("record_kind") != "decision":
-        scope = str(candidate.get("scope", ""))
-        project = scope.removeprefix("project:") if scope.startswith("project:") else None
-        folder = posixpath.dirname(project_path.replace("\\", "/").strip("/")) if project_path and project else ""
+        project, folder = write_place(candidate, project_path)
         rule = _review_rule(workspace, _writer_of(candidate, agent), project, folder, "create")
         if rule is not None:
             provenance = candidate.get("provenance")
@@ -855,7 +876,8 @@ def edit_record(
 
     ``agent`` marks an agent edit: its ``agent-authored`` entry is appended
     to the provenance unless an entry with the same reference is already
-    there, and the commit message starts with the agent's name.
+    there, and the commit message starts with the agent's name. Agents cannot
+    edit decisions (``forbidden``): they propose a superseding one instead.
     """
 
     if not SHA256_PATTERN.fullmatch(expected_sha256):
@@ -874,6 +896,14 @@ def edit_record(
             "validation",
             f"record {record_id!r} has type {current.metadata['type']!r}; the interface edits only "
             f"{', '.join(sorted(CAPTURE_DIRECTORIES))} records",
+        )
+
+    if agent is not None and current.metadata.get("record_kind") == "decision":
+        # Agents propose decisions; a person accepts, withdraws, or supersedes them.
+        raise WriteError(
+            "forbidden",
+            f"{record_id!r} is a decision, and agents cannot edit decisions; propose a new decision "
+            "that supersedes it instead",
         )
 
     # Merge onto the exact bytes the caller read, never onto a newer revision.
@@ -912,11 +942,7 @@ def edit_record(
             metadata["provenance"] = [*provenance, agent.provenance_entry()]
     text = render_document(metadata, base.body if body is None else body).decode("utf-8")
     if base.metadata.get("record_kind") != "decision":
-        relative = workspace.relative(current.path)
-        scope = str(base.metadata["scope"])
-        project = scope.removeprefix("project:") if scope.startswith("project:") else None
-        prefix = f"projects/{project}/"
-        folder = posixpath.dirname(relative[len(prefix) :]) if project and relative.startswith(prefix) else ""
+        project, folder = page_place(base.metadata, workspace.relative(current.path))
         rule = _review_rule(workspace, _writer_of(metadata, agent, edit=True), project, folder, "edit")
         if rule is not None:
             proposer = agent.provenance_entry() if agent is not None else _interface_provenance("edit")[0]
@@ -971,13 +997,14 @@ def _with_commit(workspace: Workspace, result: WriteResult, verb: str, agent: Ag
 #: The metadata fields the interface's editor offers. ``kos update`` allows
 #: more (it refuses only identity, lifecycle, supersession, and system
 #: provenance changes); these are the ones a person edits by hand.
-EDITABLE_FIELDS = ("title", "tags", "related", "sources")
+EDITABLE_FIELDS = ("title", "description", "tags", "related", "sources")
+_EDITABLE_LISTS = ("tags", "related", "sources")
 
 
 @dataclass(frozen=True)
 class EditableSource:
     raw_body: str
-    metadata: dict[str, Any]  # EDITABLE_FIELDS only; absent lists are []
+    metadata: dict[str, Any]  # EDITABLE_FIELDS only; absent lists are [], an absent description ""
     content_sha256: str
     editable: bool  # the interface edits only the types it can create
     body_change_needs_confirmation: bool  # accepted decision: non-material edits only
@@ -999,8 +1026,8 @@ def editable_source(record: Record) -> EditableSource:
     except (MetadataError, UnicodeDecodeError) as exc:
         raise LibraryError(f"record {record.id!r} cannot be parsed for editing: {exc}") from exc
     metadata = document.metadata
-    fields: dict[str, Any] = {"title": metadata["title"]}
-    for field in EDITABLE_FIELDS[1:]:
+    fields: dict[str, Any] = {"title": metadata["title"], "description": metadata.get("description", "")}
+    for field in _EDITABLE_LISTS:
         fields[field] = list(metadata.get(field, ()))
     return EditableSource(
         raw_body=document.body,
@@ -1051,6 +1078,13 @@ def decision_actions(library: Library, record: Record) -> DecisionActions | None
     )
 
 
+def can_activate(record: Record) -> bool:
+    """Whether the interface offers "Make active": a draft that is not a
+    decision (decisions are accepted instead). The core checks again."""
+
+    return not record.is_decision and record.type != "discovery" and record.status == "draft"
+
+
 @dataclass(frozen=True)
 class SupersedeWriteResult:
     replacement: WriteResult  # the draft that became active
@@ -1099,6 +1133,23 @@ def accept_record(workspace: Workspace, record_id: str, *, expected_sha256: str)
         )
     )
     return _with_commit(workspace, result, "Accept decision")
+
+
+def activate_record(workspace: Workspace, record_id: str, *, expected_sha256: str) -> WriteResult:
+    """``kos activate`` with an ``interface:<timestamp>:activate`` reference:
+    a person makes a draft (saved by an agent, promoted from an observation)
+    active."""
+
+    _require_sha(expected_sha256, "expected_sha256")
+    result = _decision_write(
+        lambda: activate_draft(
+            workspace,
+            record_id,
+            expected_sha256=expected_sha256,
+            activation_reference=interface_reference("activate"),
+        )
+    )
+    return _with_commit(workspace, result, "Make active")
 
 
 def withdraw_record(
@@ -1668,6 +1719,16 @@ def review_policy(workspace: Workspace) -> tuple[ReviewRule, ...]:
         raise WriteError("validation", f"the review rules cannot be used, so nothing was written: {exc}") from exc
 
 
+def review_rules(workspace: Workspace) -> tuple[tuple[ReviewRule, ...], str | None]:
+    """The review rules for showing them, and the reason they cannot be used
+    (``load_policy``'s message) when the rule file is broken."""
+
+    try:
+        return load_policy(workspace), None
+    except ReviewError as exc:
+        return (), str(exc)
+
+
 def _review_rule(
     workspace: Workspace, writer: Writer, project: str | None, folder: str, write: str
 ) -> ReviewRule | None:
@@ -1938,3 +1999,229 @@ def propose_documentation_decision(
     return create_record(
         workspace, metadata=metadata, body=body, project_path=f"decisions/{record_id}.md", agent=agent
     )
+
+
+@dataclass(frozen=True)
+class RelatedRecordView:
+    id: str
+    title: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PendingDiscovery:
+    id: str
+    packet: str  # the Markdown review packet ``kos discovery review`` prints
+    related: tuple[RelatedRecordView, ...]
+
+
+def pending_discoveries(workspace: Workspace) -> tuple[list[PendingDiscovery], str | None]:
+    """Every proposed discovery with its review packet, newest first, or no
+    packets and the reason when the corpus or search index cannot produce
+    them (an invalid record, a stale or missing index). Never writes."""
+
+    try:
+        details = pending_review_details(workspace)
+    except (DiscoveryError, ValueError, OSError, sqlite3.Error) as exc:
+        return [], str(exc)
+    return [
+        PendingDiscovery(
+            document.metadata["id"],
+            packet,
+            tuple(
+                RelatedRecordView(item.document.metadata["id"], item.document.metadata["title"], tuple(item.reasons))
+                for item in related
+            ),
+        )
+        for document, packet, related in details
+    ], None
+
+
+def suggest_record_id(library: Library, title: str) -> str:
+    """A free lowercase kebab-case ID for a new page titled ``title``."""
+
+    wanted = kebab(title, 80, "page")
+    candidate, number = wanted, 2
+    while candidate in library.records_by_id:
+        candidate = f"{wanted}-{number}"
+        number += 1
+    return candidate
+
+
+@dataclass(frozen=True)
+class DiscoveryWriteResult:
+    """What ``kos discovery retain|reject|promote --json`` prints, plus the
+    commit. ``target_id`` and ``acknowledged_related`` are set by a promotion
+    only; ``index_error`` when the files were written but reindexing failed."""
+
+    id: str
+    status: str
+    index_count: int | None
+    target_id: str | None = None
+    acknowledged_related: tuple[str, ...] = ()
+    index_error: str | None = None
+    commit: CommitOutcome | None = None
+
+
+@dataclass(frozen=True)
+class _OnDisk:
+    path: str  # workspace-relative POSIX
+    title: str
+    type: str
+    status: str
+    sha256: str
+
+
+def _on_disk(workspace: Workspace) -> dict[str, _OnDisk]:
+    documents, _issues = validate_workspace(workspace)
+    return {
+        document.metadata["id"]: _OnDisk(
+            _relative_or_absolute(workspace, document.path),
+            str(document.metadata.get("title") or document.metadata["id"]),
+            str(document.metadata.get("type") or ""),
+            str(document.metadata.get("status") or ""),
+            content_sha256(document.path),
+        )
+        for document in documents
+    }
+
+
+def _discovery_error(exc: Exception) -> WriteError:
+    detail = str(exc)
+    if detail.startswith("discovery not found") or "is not a discovery" in detail:
+        return WriteError("not_found", detail)
+    if "already exists" in detail or "created by another writer" in detail:
+        return WriteError("duplicate", detail)
+    if detail.startswith("invalid discovery transition"):
+        return WriteError("conflict", detail)
+    return WriteError("validation", detail)
+
+
+def _review_discovery(
+    workspace: Workspace,
+    record_id: str,
+    expected_sha256: str,
+    call: Callable[[], DiscoveryWriteResult],
+    message: Callable[[_OnDisk, dict[str, _OnDisk]], str],
+    target_id: str | None = None,
+) -> DiscoveryWriteResult:
+    """Run one core discovery review, then commit the files it wrote.
+
+    ``expected_sha256`` is the observation as the person saw it: a changed
+    file is refused before the core is called, so nobody reviews text they
+    did not read. (The core takes the workspace lock itself, so this check
+    narrows the window rather than closing it.)
+    """
+
+    _require_sha(expected_sha256, "expected_sha256")
+    before = _on_disk(workspace)
+    seen = before.get(record_id)
+    if seen is None:
+        raise WriteError("not_found", f"discovery not found: {record_id}")
+    if seen.type != "discovery":
+        raise WriteError("not_found", f"record {record_id!r} is not a discovery")
+    if seen.sha256 != expected_sha256:
+        raise WriteError(
+            "conflict",
+            "This observation changed after it was shown, so nothing was done. Reload Decide and review it again.",
+            current_sha256=seen.sha256,
+        )
+    try:
+        result = call()
+    except (ValueError, WorkspaceError, MetadataError, OSError, sqlite3.Error) as exc:
+        after = _on_disk(workspace)
+        current = after.get(record_id)
+        if current is None or current.sha256 == expected_sha256:
+            raise _discovery_error(exc) from exc
+        # The core wrote the Markdown and then could not refresh the indexes:
+        # the review stands, so commit it and say why the index lags.
+        result = DiscoveryWriteResult(
+            record_id,
+            "promoted" if target_id is not None else current.status,
+            None,
+            target_id=target_id if target_id in after else None,
+            index_error=str(exc),
+        )
+    else:
+        after = _on_disk(workspace)
+    paths = [after[record_id].path]
+    if result.target_id is not None and result.target_id in after:
+        paths.append(after[result.target_id].path)
+    commit = gitsync.auto_commit(workspace, paths, message(seen, after))
+    return replace(result, commit=commit)
+
+
+def retain_observation(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    reason: str | None = None,
+    reviewer: str | None = None,
+) -> DiscoveryWriteResult:
+    """``kos discovery retain``: keep it as a reviewed observation."""
+
+    def call() -> DiscoveryWriteResult:
+        status, count = retain_discovery(workspace, record_id, reviewer=reviewer, reason=reason)
+        return DiscoveryWriteResult(record_id, status, count)
+
+    return _review_discovery(
+        workspace, record_id, expected_sha256, call, lambda seen, _after: f"Retain observation {seen.title}"
+    )
+
+
+def reject_observation(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    reason: str,
+    reviewer: str | None = None,
+) -> DiscoveryWriteResult:
+    """``kos discovery reject --reason``."""
+
+    def call() -> DiscoveryWriteResult:
+        status, count = reject_discovery(workspace, record_id, reason=reason, reviewer=reviewer)
+        return DiscoveryWriteResult(record_id, status, count)
+
+    return _review_discovery(
+        workspace, record_id, expected_sha256, call, lambda seen, _after: f"Reject observation {seen.title}"
+    )
+
+
+def promote_observation(
+    workspace: Workspace,
+    record_id: str,
+    *,
+    expected_sha256: str,
+    target_id: str,
+    title: str,
+    scope: str,
+    reason: str | None = None,
+    reviewer: str | None = None,
+    acknowledge_related: bool = False,
+    allow_scope_broadening: bool = False,
+) -> DiscoveryWriteResult:
+    """``kos discovery promote``: a new draft page from the observation."""
+
+    def call() -> DiscoveryWriteResult:
+        created, count, related_ids = promote_discovery(
+            workspace,
+            record_id,
+            target_id=target_id,
+            title=title,
+            scope=scope,
+            reviewer=reviewer,
+            reason=reason,
+            acknowledge_related=acknowledge_related,
+            allow_scope_broadening=allow_scope_broadening,
+        )
+        return DiscoveryWriteResult(
+            record_id, "promoted", count, target_id=created, acknowledged_related=tuple(related_ids)
+        )
+
+    def message(seen: _OnDisk, after: dict[str, _OnDisk]) -> str:
+        new_title = after[target_id].title if target_id in after else target_id
+        return f"Promote observation {seen.title} to {new_title}"
+
+    return _review_discovery(workspace, record_id, expected_sha256, call, message, target_id=target_id)

@@ -1,8 +1,9 @@
 """Create an empty, valid Knowledge OS workspace in a chosen folder.
 
 ``kos init PATH`` writes the workspace marker (``knowledge-os.toml``), the
-managed directory layout with its documentation README files, a Git ignore
-file for the disposable generated indexes, and fresh indexes, so the result passes
+managed directory layout with its documentation README files, an
+``AGENTS.md`` guide for agents that work in the folder, a Git ignore file for
+the disposable generated indexes, and fresh indexes, so the result passes
 ``kos lint`` and is searchable immediately. It refuses a folder that is not
 empty, that already is a workspace, or that lies inside another workspace, so
 it never merges into, overwrites, or corrupts something that already exists.
@@ -113,6 +114,46 @@ README_CONTENT: dict[str, str] = {
     ),
 }
 
+#: The root ``AGENTS.md`` of a new workspace: what an agent opening the folder
+#: needs before it reads or writes anything. Like the root-level READMEs it is
+#: documentation, not a record, so ``kos lint`` and the indexes never see it.
+AGENTS_CONTENT = """# Agent guide
+
+This folder is a Knowledge OS knowledge base: plain Markdown files that people
+read and edit in the Knowledge OS app. Work in it through the `kos` command
+line, run here or with `--root` pointing at this folder.
+
+## Find before you read
+
+- Use `kos search QUERY` to find records, then `kos inspect ID` to read one.
+  Prefer that to reading folders recursively.
+- A search result is a lead to check, not verified knowledge.
+
+## Trust boundaries
+
+- `inbox/` holds untrusted material that is not knowledge yet.
+- `sources/` holds ingested raw material with provenance; it is raw claims,
+  not verified knowledge.
+- `discoveries/` holds agent observations with evidence; they never become
+  knowledge by themselves.
+- `knowledge/`, `projects/`, `memory/`, and `syntheses/` hold durable
+  records; a `draft` is not settled.
+- `proposals/` holds writes the review rules held back; they are not
+  knowledge until a person accepts them.
+- `templates/` and `assets/` folders are not records. `indexes/` is
+  generated; never edit it by hand.
+
+## Writing
+
+- Write only when the person you work for asked for it, and pass
+  `--writer agent` (for example `kos capture FILE --writer agent`) so the
+  review rules in `knowledge-os.toml` apply.
+- Never get past review: do not accept proposals, accept or supersede
+  decisions, or edit `knowledge-os.toml` to loosen the rules. Those are the
+  person's choices.
+- Run `kos lint` after a change.
+"""
+
 #: Keeps the generated indexes out of the knowledge base's own Git history.
 #: Both are rebuilt after every change and after every sync, so tracking the
 #: catalog would make two synced clones conflict on it; only the directory's
@@ -121,6 +162,22 @@ GITIGNORE_CONTENT = (
     "indexes/catalog.md\nindexes/catalog.sqlite3\nindexes/catalog.sqlite3-*\nindexes/.catalog.sqlite3.tmp\n"
     "indexes/semantic.sqlite3\nindexes/.semantic.sqlite3.*.tmp\n"
 )
+
+
+def next_steps(root: Path) -> str:
+    """What ``kos init`` prints after creating ``root``: how to go on from an empty workspace."""
+
+    text = str(root)
+    folder = f'"{text}"' if any(char.isspace() for char in text) else text
+    return (
+        f"Initialized workspace at {root}\n"
+        "\n"
+        "Next steps:\n"
+        f"  Open it in the Knowledge OS app, or browse it with:  kos-read --root {folder}\n"
+        f'  Create a project:   kos --root {folder} project create my-project --title "My project"\n'
+        f"  Capture a record:   kos --root {folder} capture RECORD.md\n"
+        "  Agents working in the folder start with its AGENTS.md.\n"
+    )
 
 
 class WorkspaceInitError(ValueError):
@@ -180,6 +237,7 @@ def init_workspace(path: Path, *, name: str | None = None) -> Path:
                 exclusive_write(target / directory / "README.md", readme.encode("utf-8"))
         for name, text in built_in_files().items():
             exclusive_write(target / TEMPLATES_DIR / name, text.encode("utf-8"))
+        exclusive_write(target / "AGENTS.md", AGENTS_CONTENT.encode("utf-8"))
         exclusive_write(target / ".gitignore", GITIGNORE_CONTENT.encode("utf-8"))
         # The marker is written last: a failure before this point leaves no
         # half-made folder that other commands would mistake for a workspace.

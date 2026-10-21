@@ -40,7 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Local web interface and JSON API for a Knowledge OS workspace",
     )
     _root_option(parser)
-    parser.add_argument("--host", default="127.0.0.1", help="bind address (default: 127.0.0.1)")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="loopback bind address: 127.0.0.1, another 127.x.x.x, ::1, or localhost (default: 127.0.0.1)",
+    )
     parser.add_argument("--port", type=int, default=8800, help="bind port (default: 8800)")
     parser.add_argument(
         "--exit-on-stdin-eof",
@@ -76,12 +80,37 @@ def _exit_when_stdin_closes() -> None:
     threading.Thread(target=watch, name="kos-read-stdin-lifeline", daemon=True).start()
 
 
+def _is_loopback_bind(host: str) -> bool:
+    # A copy of the reader's ``api.write.is_loopback_address``: importing that
+    # module would pull in Starlette before the missing-extra check below.
+    import ipaddress
+
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
 def _workspace(args: argparse.Namespace) -> Workspace:
     return Workspace.discover(getattr(args, "root", None))
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Redirected streams on Windows default to cp1252; see knowledge_os.cli.
+    for stream, errors in ((sys.stdout, "strict"), (sys.stderr, "replace")):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors=errors)
     args = build_parser().parse_args(argv)
+    if not _is_loopback_bind(args.host):
+        print(
+            f"ERROR: --host {args.host} is not a loopback address; kos-read only serves this computer "
+            "(use 127.0.0.1, another 127.x.x.x, ::1, or localhost)",
+            file=sys.stderr,
+        )
+        return 1
     # ``[project.scripts]`` installs this command unconditionally, so a plain
     # ``pip install knowledge-os`` yields a ``kos-read`` with no reader
     # dependencies behind it. Import them here rather than at module scope so

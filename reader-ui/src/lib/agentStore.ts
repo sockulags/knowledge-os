@@ -16,6 +16,7 @@ import {
   type SessionState,
   type StoredConversation,
 } from "./agentBridge";
+import { needsTurningOn } from "./codexAccess";
 import { interfaceReference, isProposed, write } from "../api/write";
 import {
   buildPrompt,
@@ -24,12 +25,12 @@ import {
   noteFromTurns,
   pagesUsed,
   parseComposed,
-  slugify,
   withEarlierTurns,
   type AgentContext,
   type AgentMode,
   type Turn,
 } from "./agentPrompt";
+import { kebab } from "./text";
 
 export type TranscriptItem =
   | { kind: "user"; id: number; text: string; mode: AgentMode }
@@ -42,6 +43,8 @@ export interface PermissionAsk {
   /** The tool call it is about, whose row shows the answer once given. */
   toolCallId: string | null;
   title: string;
+  /** What the tool would do: its arguments as the agent sent them (absent in older saved conversations). */
+  input?: unknown;
   options: { id: string; name: string; kind: string }[];
   /** "allowed", "allowed from now on", "refused", or "cancelled"; null while it waits. */
   answer: string | null;
@@ -227,6 +230,7 @@ class AgentStore {
           requestId: event.requestId,
           toolCallId: event.toolCallId ?? null,
           title: event.title,
+          input: event.input ?? null,
           options: event.options,
           answer: null,
         };
@@ -298,6 +302,10 @@ class AgentStore {
     const providerId = this.state.providerId;
     if (providerId === null) {
       this.set({ error: "Choose an agent first." });
+      return false;
+    }
+    if (needsTurningOn(providerId)) {
+      this.set({ error: "Turn Codex on in the agent panel first: it can read files outside this knowledge base." });
       return false;
     }
     this.set({ session: "starting", auth: null, error: null });
@@ -455,9 +463,11 @@ class AgentStore {
   }
 
   /**
-   * Save the conversation, or only the answer `agentId`, as a draft note in
-   * the project in view (general knowledge without one), marked as the agent's.
-   * Resolves to the new page's id, "held" when review rules hold it back, or null.
+   * Save the conversation, or only the answer `agentId`, as a note in the
+   * project in view (general knowledge without one), marked as the agent's.
+   * It is saved active, as the agent's own write_note does: the review rules
+   * decide on the server whether it lands or waits in Decide. Resolves to the
+   * new page's id, "held" when review rules hold it back, or null.
    */
   async saveAsNote(
     agentId: number | null,
@@ -482,7 +492,7 @@ class AgentStore {
       date: new Date().toISOString().slice(0, 10),
     });
     const project = context.project;
-    const base = slugify(note.title);
+    const base = kebab(note.title, 80, "conversation");
     for (let attempt = 1; attempt <= 5; attempt++) {
       const id = attempt === 1 ? base : `${base}-${attempt}`;
       const outcome = await write.create({
@@ -490,7 +500,7 @@ class AgentStore {
           id,
           title: note.title,
           type: project ? "project" : "knowledge",
-          status: "draft",
+          status: "active",
           scope: project ? `project:${project.id}` : "general",
           // With a provider the core puts the agent's own entry first.
           provenance: provider

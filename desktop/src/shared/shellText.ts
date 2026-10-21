@@ -31,7 +31,15 @@ export const SHELL_TEXT = {
     help: 'Help',
     checkForUpdates: 'Check for Updates…',
     checkAutomatically: 'Check for Updates Automatically',
-    restartToUpdate: 'Restart to Update ({version})'
+    restartToUpdate: 'Restart to Update ({version})',
+    openLogFolder: 'Open Log Folder',
+    about: 'About Knowledge OS'
+  },
+  about: {
+    title: 'About Knowledge OS',
+    message: 'Knowledge OS {version}',
+    detail: 'Electron {electron}, Chromium {chrome}, Node.js {node}\n\nLog files: {logDir}',
+    ok: 'OK'
   },
   update: {
     readyMessage: 'Knowledge OS {version} is ready to install.',
@@ -55,7 +63,12 @@ export const SHELL_TEXT = {
     message: 'You have changes that are not saved.',
     detail: 'Leaving now discards them.',
     discard: 'Discard changes',
-    keep: 'Keep editing'
+    keep: 'Keep editing',
+    noAnswerMessage: 'The knowledge base is not responding.',
+    noAnswerDetail:
+      'It may have changes that are not saved. Leaving now discards them. Cancel to wait and try again.',
+    cancel: 'Cancel',
+    leaveAnyway: 'Leave anyway'
   },
   referat: {
     menu: 'Referat',

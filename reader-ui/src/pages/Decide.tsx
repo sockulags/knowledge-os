@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   ArrowRight,
@@ -20,6 +21,9 @@ import { Callout, LoadError } from "../components/Callout";
 import { DecisionActions } from "../components/DecisionActions";
 import { DecisionGuideToggle } from "../components/DecisionGuide";
 import { EmptyState } from "../components/EmptyState";
+import { changeLifecycle, decisionLifecycle, LifecycleStrip } from "../components/LifecycleStrip";
+import { PendingObservations } from "../components/PendingObservations";
+import { ReviewRules } from "../components/ReviewRules";
 import { useShell } from "../components/Shell";
 import { loadErrorMessage } from "../lib/language";
 import { useApi } from "../hooks/useApi";
@@ -39,6 +43,8 @@ const SOURCE_ICONS: Record<string, typeof User> = {
 
 function ProposalRow({ row, language }: { row: ProposedDecision; language: DecidePayload["language"] }) {
   const SourceIcon = SOURCE_ICONS[row.proposed_by.source] ?? CircleHelp;
+  // Every row in the inbox is a proposal: the strip shows where that sits.
+  const lifecycle = decisionLifecycle(language, "draft");
   return (
     <li className="kos-card px-5 py-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-(--color-text-faint)">
@@ -59,6 +65,7 @@ function ProposalRow({ row, language }: { row: ProposedDecision; language: Decid
         {row.title}
       </Link>
       {row.excerpt && <p className="mt-1 line-clamp-2 text-sm text-(--color-text-muted)">{row.excerpt}</p>}
+      {lifecycle && <LifecycleStrip lifecycle={lifecycle} className="mt-2.5" />}
       <p className="mt-2.5 flex items-start gap-1.5 text-sm text-(--color-text)">
         <ArrowRight size={14} className="mt-[3px] shrink-0 text-(--color-accent-text)" />
         <span>
@@ -133,9 +140,15 @@ function ChangeRow({ row, payload }: { row: ProposedChange; payload: ChangesPayl
           </Link>
         </span>
       </p>
-      <p className="mt-1 text-xs text-(--color-text-faint)">
-        {payload.labels.rule} {row.rule}
-      </p>
+      <LifecycleStrip
+        lifecycle={changeLifecycle()}
+        className="mt-2"
+        note={
+          <>
+            {payload.labels.rule} {row.rule}
+          </>
+        }
+      />
       <div className="mt-4 border-t border-(--color-border) pt-3.5">
         <ChangeActions change={row} labels={payload.labels} noticeLabels={payload.notice_labels} />
       </div>
@@ -153,6 +166,7 @@ export function Decide() {
   const [params, setParams] = useSearchParams();
   const project = params.get("project");
   const entries = usePendingEntries();
+  const [observationsWaiting, setObservationsWaiting] = useState(0);
   // The list stays on screen while it reloads after an action.
   const inbox = useApi(
     async () => {
@@ -198,6 +212,8 @@ export function Decide() {
       <div className="mt-5">
         <DecisionGuideToggle language={data.language} defaultOpen={data.count === 0 && changesData.count === 0} />
       </div>
+
+      <ReviewRules variant="full" />
 
       {data.projects.length > 1 && (
         <nav className="mt-6 flex flex-wrap items-center gap-2" aria-label={data.filter_label}>
@@ -246,7 +262,12 @@ export function Decide() {
 
       {items.length === 0 && changeRows.length > 0 ? null : items.length === 0 ? (
         <div className="mt-8">
-          <EmptyState title={data.empty.title} body={data.empty.body} icon={<Inbox size={28} strokeWidth={1.5} />} action={<></>} />
+          <EmptyState
+            title={(observationsWaiting > 0 && data.empty.title_observations) || data.empty.title}
+            body={data.empty.body}
+            icon={<Inbox size={28} strokeWidth={1.5} />}
+            action={<></>}
+          />
         </div>
       ) : (
         <ul className="mt-6 space-y-3">
@@ -255,6 +276,8 @@ export function Decide() {
           ))}
         </ul>
       )}
+
+      <PendingObservations onCount={setObservationsWaiting} />
     </div>
   );
 }

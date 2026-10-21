@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Outlet, useLocation, useNavigate, useOutletContext } from "react-router";
+import { Outlet, useLocation, useOutletContext } from "react-router";
 import { Bot, Menu, PanelLeftClose, PanelLeft } from "lucide-react";
 import { api } from "../api/client";
 import type { NavPayload } from "../api/types";
@@ -10,14 +10,16 @@ import { ThemeToggle } from "./ThemeToggle";
 import { ScrollToTop } from "./ScrollToTop";
 import { SyncBar, SyncFailureBanner } from "./SyncBar";
 import { StructureProvider } from "./Structure";
+import { ReaderCommands } from "./ReaderCommands";
 import { UndoNotices } from "./UndoNotices";
 import { useSync, type SyncState } from "../hooks/useSync";
+import { usePageReload } from "../hooks/usePageReload";
 import { MAC, isQuickSwitchShortcut } from "../lib/quickSwitch";
 import { showsOutcome } from "../lib/pendingActions";
 import { pendingActions, useOnPendingSettled, usePendingEntries } from "../lib/pendingStore";
 import { prepareSession } from "../api/write";
 import { AgentPanel } from "./AgentPanel";
-import { agentBridge, onReaderCommand } from "../lib/agentBridge";
+import { agentBridge } from "../lib/agentBridge";
 import type { AgentContext } from "../lib/agentPrompt";
 import { agentStore } from "../lib/agentStore";
 
@@ -70,9 +72,10 @@ export function Shell() {
   const [agentOpen, setAgentOpen] = useState(false);
   const agentAvailable = agentBridge() !== null;
 
-  // Bumped after a sync pulls changes, which remounts the page so it
-  // re-reads what the pull changed.
-  const [dataVersion, setDataVersion] = useState(0);
+  // After a sync pulls changes the page remounts so it re-reads what the
+  // pull changed, but not while it holds unsaved edits (hooks/usePageReload.ts).
+  const pageReload = usePageReload();
+  const requestPageReload = pageReload.request;
 
   // When the nav request started, so a decision action that finished before
   // it no longer needs subtracting from the Decide count.
@@ -92,8 +95,8 @@ export function Shell() {
   const sync = useSync(
     useCallback(() => {
       loadNav();
-      setDataVersion((value) => value + 1);
-    }, [loadNav]),
+      requestPageReload();
+    }, [loadNav, requestPageReload]),
   );
   const refreshNav = loadNav;
 
@@ -116,27 +119,18 @@ export function Shell() {
   // sends everything still waiting and then reloads the page it shows, and a
   // page that is hidden or closed sends it with keepalive.
   const location = useLocation();
-  const navigate = useNavigate();
   const agentContext = useMemo(() => agentContextFor(location.pathname, nav), [location.pathname, nav]);
 
-  // The desktop menu's New Page (Ctrl+N) and Agent (Ctrl+J).
-  useEffect(
-    () =>
-      onReaderCommand((command) => {
-        if (command === "toggle-agent") setAgentOpen((value) => !value);
-        if (command === "new-page") {
-          const projectId = agentContext.project?.id ?? nav?.projects[0]?.id ?? null;
-          if (projectId !== null) navigate(`/p/${encodeURIComponent(projectId)}/new`);
-        }
-      }),
-    [agentContext, nav, navigate],
-  );
+  // The desktop menu's New Page (Ctrl+N) goes to this project; undefined
+  // until the sidebar has loaded and it is known whether there is one.
+  const newPageProject = nav === null ? undefined : (agentContext.project?.id ?? nav.projects[0]?.id ?? null);
+  const toggleAgent = useCallback(() => setAgentOpen((value) => !value), []);
   useEffect(() => {
     if (pendingActions.pendingCount() === 0) return;
     void pendingActions.flushAll().then((sent) => {
-      if (sent > 0) setDataVersion((value) => value + 1);
+      if (sent > 0) requestPageReload();
     });
-  }, [location.pathname]);
+  }, [location.pathname, requestPageReload]);
   useEffect(() => {
     prepareSession();
     const flush = () => void pendingActions.flushAll({ keepalive: true });
@@ -174,13 +168,14 @@ export function Shell() {
   const structureChanged = useCallback(
     (reloadPage: boolean) => {
       loadNav();
-      if (reloadPage) setDataVersion((value) => value + 1);
+      if (reloadPage) requestPageReload();
     },
-    [loadNav],
+    [loadNav, requestPageReload],
   );
 
   return (
     <StructureProvider nav={nav} onChanged={structureChanged}>
+    <ReaderCommands projectId={newPageProject} onToggleAgent={toggleAgent} />
     <div className="flex min-h-[calc(100vh_-_var(--frame-top))]">
       <ScrollToTop />
       {/* Desktop sidebar: sticky and self-start so it stays pinned to the
@@ -258,7 +253,12 @@ export function Shell() {
           </div>
         </header>
         <SyncFailureBanner sync={sync} />
-        <main key={dataVersion}>
+        {pageReload.waiting && (
+          <p role="status" className="border-b border-(--color-border) px-4 py-2 text-sm text-(--color-text-muted)">
+            New changes came in. This page reloads once your edits are saved.
+          </p>
+        )}
+        <main key={pageReload.version}>
           <Outlet context={{ refreshNav, sync, nav } satisfies ShellContext} />
         </main>
       </div>

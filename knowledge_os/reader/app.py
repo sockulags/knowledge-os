@@ -48,6 +48,26 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 STATIC_APP_DIR = PACKAGE_ROOT / "static" / "app"
 ASSETS_DIR = STATIC_APP_DIR / "assets"
 
+#: Content Security Policy for the SPA shell. The built ``index.html`` loads
+#: one module script and one stylesheet from ``/assets`` and has no inline
+#: script; fonts are bundled. Scripts therefore come only from this origin,
+#: so markup that slips into a rendered page cannot run code (and, inside
+#: the desktop app, cannot reach the preload bridge). React's ``style``
+#: props go through the CSSOM, which ``style-src`` does not restrict.
+#: Records may embed external images, hence ``https:`` for images only.
+SPA_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self'; "
+    "img-src 'self' data: https:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
 
 def get_library(request: Request) -> Library:
     """Return this request's Library, loaded at most once per request.
@@ -97,7 +117,7 @@ async def _spa_index(request: Request) -> Response:
             "The reader UI has not been built. Run `npm install && npm run build` in reader-ui/.",
             status_code=503,
         )
-    return FileResponse(index)
+    return FileResponse(index, headers={"Content-Security-Policy": SPA_CONTENT_SECURITY_POLICY})
 
 
 async def _api_not_found(request: Request) -> Response:

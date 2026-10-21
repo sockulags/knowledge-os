@@ -10,7 +10,7 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { tmpdir } from 'os'
 import type { CloneProgress, CloneResult } from '../shared/clone'
-import { killProcessTree } from './pythonCore'
+import { killProcessTree } from './processTree'
 
 const CANCEL_GRACE_MS = 20_000
 const OUTPUT_LIMIT = 16_000

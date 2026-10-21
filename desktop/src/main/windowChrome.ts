@@ -8,6 +8,7 @@
 // window and answers its IPC for that window only.
 
 import {
+  app,
   BrowserWindow,
   ipcMain,
   nativeTheme,
@@ -28,6 +29,7 @@ import {
 import { SHELL_TEXT } from '../shared/shellText'
 import appIcon from '../../build/icon.ico?asset'
 import { addNotice, removeNotice } from './chromeState'
+import { isFrom, isPage } from './ipcSender'
 import { matchAccelerator, type MenuSpec } from './menuModel'
 
 export function systemTheme(): ChromeTheme {
@@ -89,13 +91,15 @@ export function createPageWindow(options: PageWindowOptions): BrowserWindow {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // No developer tools in the packaged app.
+      devTools: !app.isPackaged
     }
   })
   window.setMenu(null)
   followSystemTheme(window)
   window.on('ready-to-show', () => window.show())
-  const ownPage = (url: string): boolean => url.split(/[?#]/)[0] === pageUrl
+  const ownPage = isPage(pageUrl)
   const guard = (navigation: Electron.Event, url: string): void => {
     if (!ownPage(url)) navigation.preventDefault()
   }
@@ -112,17 +116,17 @@ export type PageHandler = <A extends unknown[], R>(
 ) => void
 
 /**
- * Registers IPC handlers that answer only calls from `window()`'s own page;
- * any other caller, the reader UI included, gets an error.
+ * Registers IPC handlers that answer only calls from `window()`'s own page at
+ * `pageUrl`; any other caller, the reader UI included, gets an error.
  */
-export function handleFrom(window: () => BrowserWindow | null): PageHandler {
+export function handleFrom(window: () => BrowserWindow | null, pageUrl: string): PageHandler {
+  const ownPage = isPage(pageUrl)
   return <A extends unknown[], R>(
     channel: string,
     action: (event: IpcMainInvokeEvent, ...args: A) => Promise<R>
   ): void => {
     ipcMain.handle(channel, (event, ...args) => {
-      const own = window()
-      if (own === null || own.isDestroyed() || event.sender !== own.webContents) {
+      if (!isFrom(event, window(), ownPage)) {
         throw new Error('not allowed from this page')
       }
       return action(event, ...(args as A))
@@ -160,17 +164,8 @@ export class MainWindowChrome {
   private nextDialogId = 1
 
   constructor(private readonly host: MainChromeHost) {
-    const fromPage = (event: IpcMainEvent | IpcMainInvokeEvent): boolean => {
-      const window = this.window
-      return (
-        window !== null &&
-        !window.isDestroyed() &&
-        event.sender === window.webContents &&
-        event.senderFrame !== null &&
-        event.senderFrame === event.sender.mainFrame &&
-        this.host.allowedPage(event.senderFrame.url)
-      )
-    }
+    const fromPage = (event: IpcMainEvent | IpcMainInvokeEvent): boolean =>
+      isFrom(event, this.window, this.host.allowedPage)
     ipcMain.handle(CHROME_IPC.getState, (event) => {
       if (!fromPage(event)) throw new Error('not allowed from this page')
       this.refreshZoom()
