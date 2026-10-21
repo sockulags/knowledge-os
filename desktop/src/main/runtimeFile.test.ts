@@ -115,8 +115,18 @@ describe('runtime file for agents', () => {
     })
     expect(sid.status).toBe(0)
     const saved = readFileSync(join(dir, 'acl.txt'), 'utf16le')
-    expect(saved).toContain(currentUserSid())
-    expect(saved).not.toMatch(/;;;(BA|SY|WD|AU|BU)\)/)
+    // One protected entry granting full access to the current user. SDDL
+    // writes the built-in Administrator account (RID 500, the CI runner's
+    // user) as "LA" rather than its SID.
+    const aces = saved.match(/\(A;[^)]*\)/g) ?? []
+    expect(aces).toEqual([`(A;;FA;;;${sddlTrustee(currentUserSid())})`])
+    expect(saved).toMatch(/D:PAI?\(/)
+  }
+
+  function sddlTrustee(sid: string): string {
+    if (/^S-1-5-21-[\d-]+-500$/.test(sid)) return 'LA'
+    if (/^S-1-5-21-[\d-]+-501$/.test(sid)) return 'LG'
+    return sid
   }
 
   it.runIf(process.platform === 'win32')(
